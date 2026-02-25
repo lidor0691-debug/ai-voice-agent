@@ -1,11 +1,17 @@
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-app = FastAPI()
+app = FastAPI(title="AI Voice Agent", version="0.1.0")
 
-# ===== מודל הודעה =====
+
 class TalkRequest(BaseModel):
     message: str
+
+
+class WebhookRequest(BaseModel):
+    # אם אתה לא יודע עדיין מה מגיע מטוויליו/רטל, אפשר להשאיר גנרי:
+    payload: dict
 
 
 @app.get("/")
@@ -13,25 +19,14 @@ def read_root():
     return {"status": "agent alive"}
 
 
-# ===== endpoint לדבר עם הסוכן =====
-@app.post("/talk")
-async def talk(data: TalkRequest):
-    message = data.message
-
-    print("User said:", message)
-
-    response_text = f"You said: {message}. I'm your AI agent."
-
-    return {
-        "response": response_text
-    }
-
-
-# ===== webhook חיצוני (טוויליו וכו') =====
 @app.post("/webhook")
-async def webhook(data: dict):
-    print("Incoming data:", data)
+async def webhook(body: dict):
+    # body יהיה כל JSON שתשלח
+    print("Incoming data:", body)
+    return JSONResponse({"reply": "Hello, I received your message."})
 
-    return {
-        "reply": "Hello, I received your message."
-    }
+
+@app.post("/talk")
+async def talk(req: TalkRequest):
+    print("User said:", req.message)
+    return JSONResponse({"response": f"You said: {req.message}. I'm your AI agent."})
