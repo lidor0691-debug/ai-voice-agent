@@ -1,30 +1,64 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import Response
-import urllib.parse
+from twilio.twiml.voice_response import VoiceResponse, Gather
+from openai import OpenAI
+import os
 
 app = FastAPI()
+client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
-def twiml(xml: str):
-    return Response(content=xml, media_type="application/xml")
+@app.post("/voice")
+async def voice():
+    vr = VoiceResponse()
 
-@app.api_route("/voice", methods=["GET", "POST"])
-async def voice(request: Request):
-    xml = """<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Say language="en-US" voice="alice">Tell me something, and I will repeat it.</Say>
-  <Gather input="speech" action="/gather" method="POST" speechTimeout="auto" />
-  <Say>Sorry, I did not hear you.</Say>
-</Response>"""
-    return twiml(xml)
+    gather = Gather(
+        input="speech",
+        action="/process",
+        method="POST",
+        speechTimeout="auto",
+        language="he-IL",   # אפשר he-IL, אם יוצא עילג עדיין נחליף ל-en-US
+    )
 
-@app.post("/gather")
-async def gather(request: Request):
+    gather.say("דבר איתי. אני מקשיב.", language="he-IL")
+    vr.append(gather)
+
+    # אם לא נקלט דיבור
+    vr.say("לא שמעתי כלום. נסה שוב.", language="he-IL")
+    vr.redirect("/voice", method="POST")
+
+    return Response(str(vr), media_type="application/xml")
+
+
+@app.post("/process")
+async def process(request: Request):
     form = await request.form()
-    text = form.get("SpeechResult") or ""
-    safe = urllib.parse.quote(text)  # כדי שלא ישבור XML
-    xml = f"""<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Say language="en-US" voice="alice">You said: {text}</Say>
-  <Redirect method="POST">/voice</Redirect>
-</Response>"""
-    return twiml(xml)
+    user_text = form.get("SpeechResult", "") or ""
+
+    vr = VoiceResponse()
+
+    if not user_text.strip():
+        vr.say("לא הצלחתי להבין. תגיד שוב.", language="he-IL")
+        vr.redirect("/voice", method="POST")
+        return Response(str(vr), media_type="application/xml")
+
+    # קריאה ל-OpenAI
+    completion = client.chat.completions.create(
+        model="gpt-4.1-mini",
+        messages=[
+            {"role": "system", "content": "אתה סוכן טלפוני בעברית. ענה קצר וברור."},
+            {"role": "user", "content": user_text},
+        ],
+        max_tokens=120,
+    )
+
+    answer = completion.choices[0].message.content.strip()
+
+    vr.say(answer, language="he-IL")
+    vr.redirect("/voice", method="POST")  # ממשיך שיחה
+
+    return Response(str(vr), media_type="application/xml")
+
+
+@app.get("/")
+def health():
+    return {"status": "agent alive"}
