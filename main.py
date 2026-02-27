@@ -1,12 +1,13 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import Response
 
 app = FastAPI()
 
-@app.post("/voice")
-async def voice():
-    xml = """<?xml version="1.0" encoding="UTF-8"?>
+@app.api_route("/voice", methods=["GET", "POST"])
+async def voice(request: Request):
+    twiml = """<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say>עכשיו זה עובד באמת. אם אתה שומע את זה, אין יותר באגים.</Say>
+  <Say language="en-US" voice="alice">Test. Your agent is alive.</Say>
+  <Pause length="10"/>
 </Response>"""
-    return Response(content=xml, media_type="application/xml")
+    return Response(content=twiml, media_type="application/xml")
