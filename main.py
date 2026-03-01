@@ -45,7 +45,8 @@ async def websocket_endpoint(twilio_ws: WebSocket):
     }
     
     try:
-        async with websockets.connect(openai_url, extra_headers=headers) as openai_ws:
+        # התיקון כאן: additional_headers במקום extra_headers
+        async with websockets.connect(openai_url, additional_headers=headers) as openai_ws:
             
             # 1. הגדרת הסשן עם "כלי" (Tool) לאיסוף הלידים
             session_update = {
@@ -150,13 +151,4 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                             }))
                             
                             # נותנים פקודה ל-AI להמשיך לדבר עם הלקוח
-                            await openai_ws.send(json.dumps({"type": "response.create"}))
-
-                except Exception as e:
-                    print(f"OpenAI receive error: {e}")
-
-            await asyncio.gather(receive_from_twilio(), receive_from_openai())
-            
-    except Exception as e:
-        print(f"Connection error: {e}")
-        await twilio_ws.close()
+                            await openai_ws.send(json.dumps({"
