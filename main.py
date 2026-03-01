@@ -1,101 +1,134 @@
 import os
-import urllib.parse
-from fastapi import FastAPI, Request, Form
-from fastapi.responses import Response, StreamingResponse
-from twilio.twiml.voice_response import VoiceResponse, Gather
-from openai import OpenAI
+import json
+import asyncio
+import websockets
+from fastapi import FastAPI, WebSocket, Request
+from fastapi.responses import Response
+from twilio.twiml.voice_response import VoiceResponse, Connect
 
 app = FastAPI()
 
-# משיכת המפתח וניקוי תווים נסתרים
+# ניקוי המפתח כדי למנוע קריסות
 raw_api_key = os.getenv("OPENAI_API_KEY")
-if raw_api_key:
-    clean_api_key = raw_api_key.strip().replace('\u2028', '').replace('\u2029', '')
-    client = OpenAI(api_key=clean_api_key)
-else:
-    client = None
-    print("WARNING: OPENAI_API_KEY is missing!")
+OPENAI_API_KEY = raw_api_key.strip().replace('\u2028', '').replace('\u2029', '') if raw_api_key else ""
 
-SYSTEM_PROMPT = "אתה עוזרת אדמיניסטרטיבית חכמה לקליניקה. תעני בקצרה, בעברית, בסגנון שירותי ונעים, ותנסי להבין מה המטרה של המתקשר. אל תחפרי, עני במשפטים קצרים בלבד."
+SYSTEM_PROMPT = "אתה עוזרת אדמיניסטרטיבית חכמה לקליניקה. תעני בעברית, קצר, שירותי ולעניין. אל תחפרי."
+VOICE = "shimmer"  # קול נשי המותאם למודל ה-Realtime של OpenAI
 
 @app.post("/voice")
-async def voice_entry():
-    """נקודת הכניסה - עונה לשיחה ומנגנת את פתיח האודיו הראשון"""
+async def voice_entry(request: Request):
+    """כאן אנחנו רק עונים לשיחה ומעבירים אותה לערוץ שידור חי (WebSocket)"""
     response = VoiceResponse()
+    connect = Connect()
     
-    gather = Gather(
-        input='speech',
-        action='/process',
-        language='he-IL',
-        speechTimeout='auto',
-        enhanced=True
-    )
+    # מושכים את הכתובת של Railway וממירים מ-https ל-wss (WebSocket Secure)
+    host = request.url.hostname
+    connect.stream(url=f'wss://{host}/stream')
     
-    # במקום להקריא טקסט ברובוטיות, אנחנו שולחים ל-Twilio אודיו להשמעה
-    intro_text = "שלום, הגעתם לקליניקה. איך אפשר לעזור?"
-    encoded_text = urllib.parse.quote(intro_text)
-    gather.play(f"/tts?text={encoded_text}")
-    
-    response.append(gather)
-    response.redirect('/voice')
-    
-    return Response(content=str(response), media_type="application/xml; charset=utf-8")
+    response.append(connect)
+    return Response(content=str(response), media_type="application/xml")
 
-@app.post("/process")
-async def process_speech(SpeechResult: str = Form(default="")):
-    """מעבד את התשובה ומחזיר אודיו חדש"""
-    if not client:
-        ai_response = "חסר מפתח מערכת."
-    else:
-        try:
-            clean_speech = SpeechResult.replace('\u2028', ' ').replace('\u2029', ' ').strip()
+@app.websocket("/stream")
+async def websocket_endpoint(twilio_ws: WebSocket):
+    """הצינור החי: מחבר בין הסמארטפון של הלקוח ישירות למוח של OpenAI"""
+    await twilio_ws.accept()
+    print("Twilio connected to server.")
+    
+    if not OPENAI_API_KEY:
+        print("ERROR: OPENAI_API_KEY is missing!")
+        await twilio_ws.close()
+        return
+
+    openai_url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview"
+    headers = {
+        "Authorization": f"Bearer {OPENAI_API_KEY}",
+        "OpenAI-Beta": "realtime=v1"
+    }
+    
+    try:
+        # פותחים חיבור בזמן אמת ל-OpenAI
+        async with websockets.connect(openai_url, extra_headers=headers) as openai_ws:
+            print("Connected to OpenAI Realtime API.")
             
-            completion = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": clean_speech}
-                ]
-            )
-            ai_response = completion.choices[0].message.content
-        except Exception as e:
-            print(f"Error calling OpenAI: {e}")
-            ai_response = "סליחה, לא שמעתי טוב. תוכל לחזור על זה?"
+            # 1. הגדרת סשן (זיהוי קול, פורמט אודיו, והנחיות)
+            session_update = {
+                "type": "session.update",
+                "session": {
+                    "turn_detection": {"type": "server_vad"},
+                    "input_audio_format": "g711_ulaw",
+                    "output_audio_format": "g711_ulaw",
+                    "voice": VOICE,
+                    "instructions": SYSTEM_PROMPT,
+                    "modalities": ["audio", "text"],
+                    "temperature": 0.7,
+                }
+            }
+            await openai_ws.send(json.dumps(session_update))
 
-    response = VoiceResponse()
-    
-    gather = Gather(
-        input='speech',
-        action='/process',
-        language='he-IL',
-        speechTimeout='auto'
-    )
-    
-    # ממירים את תשובת ה-AI לאודיו ריאליסטי ומנגנים אותה
-    encoded_ai_response = urllib.parse.quote(ai_response)
-    gather.play(f"/tts?text={encoded_ai_response}")
-    
-    response.append(gather)
-    response.redirect('/voice')
+            stream_sid = None
 
-    return Response(content=str(response), media_type="application/xml; charset=utf-8")
+            # משימה 1: לקבל אודיו מהלקוח (Twilio) ולהעביר ל-AI
+            async def receive_from_twilio():
+                nonlocal stream_sid
+                try:
+                    async for message in twilio_ws.iter_text():
+                        data = json.loads(message)
+                        
+                        if data['event'] == 'start':
+                            stream_sid = data['start']['streamSid']
+                            # מכריחים את הסוכנת להתחיל לדבר מיד כשהשיחה נפתחת
+                            await openai_ws.send(json.dumps({
+                                "type": "response.create",
+                                "response": {
+                                    "instructions": "תגידי מיד ובטבעיות: 'שלום, הגעתם לקליניקה. איך אפשר לעזור?'"
+                                }
+                            }))
+                            
+                        elif data['event'] == 'media':
+                            # הלקוח מדבר - מעבירים את חתיכות הקול ל-AI
+                            audio_append = {
+                                "type": "input_audio_buffer.append",
+                                "audio": data['media']['payload']
+                            }
+                            await openai_ws.send(json.dumps(audio_append))
+                            
+                        elif data['event'] == 'stop':
+                            print("Call disconnected by user.")
+                            break
+                except Exception as e:
+                    print(f"Twilio receive error: {e}")
 
-@app.get("/tts")
-async def generate_tts(text: str):
-    """Endpoint חדש שמייצר אודיו ריאליסטי מ-OpenAI ומשדר אותו ל-Twilio"""
-    if not client:
-         return Response(status_code=500)
-         
-    # פנייה למנוע הקול של OpenAI (המודל nova מייצר קול נשי טבעי)
-    response = client.audio.speech.create(
-        model="tts-1",
-        voice="nova",
-        input=text
-    )
-    
-    # שידור קובץ ה-MP3 חזרה לשיחה
-    return StreamingResponse(response.iter_bytes(), media_type="audio/mpeg")
+            # משימה 2: לקבל אודיו מה-AI ולהעביר ללקוח
+            async def receive_from_openai():
+                try:
+                    async for openai_message in openai_ws:
+                        response_data = json.loads(openai_message)
+                        
+                        if response_data['type'] == 'response.audio.delta' and response_data.get('delta'):
+                            # ה-AI מדבר - דוחפים את הקול לטלפון של הלקוח
+                            audio_payload = {
+                                "event": "media",
+                                "streamSid": stream_sid,
+                                "media": {
+                                    "payload": response_data['delta']
+                                }
+                            }
+                            await twilio_ws.send_text(json.dumps(audio_payload))
+                            
+                        elif response_data['type'] == 'input_audio_buffer.speech_started':
+                            # הלקוח התפרץ! עוצרים את הדיבור של ה-AI מיד
+                            clear_msg = {
+                                "event": "clear",
+                                "streamSid": stream_sid
+                            }
+                            await twilio_ws.send_text(json.dumps(clear_msg))
+                            
+                except Exception as e:
+                    print(f"OpenAI receive error: {e}")
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
+            # מריצים את שתי הפעולות במקביל (דופלקס מלא)
+            await asyncio.gather(receive_from_twilio(), receive_from_openai())
+            
+    except Exception as e:
+        print(f"Connection error: {e}")
+        await twilio_ws.close()
