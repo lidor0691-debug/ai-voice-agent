@@ -8,34 +8,33 @@ from twilio.twiml.voice_response import VoiceResponse, Connect
 
 app = FastAPI()
 
-# ניקוי המפתח כדי למנוע קריסות
 raw_api_key = os.getenv("OPENAI_API_KEY")
 OPENAI_API_KEY = raw_api_key.strip().replace('\u2028', '').replace('\u2029', '') if raw_api_key else ""
 
-SYSTEM_PROMPT = "אתה עוזרת אדמיניסטרטיבית חכמה לקליניקה. תעני בעברית, קצר, שירותי ולעניין. אל תחפרי."
-VOICE = "shimmer"  # קול נשי המותאם למודל ה-Realtime של OpenAI
+# פרומפט חדש: מגדיר לה מטרות עסקיות ברורות
+SYSTEM_PROMPT = """אתה עוזרת אדמיניסטרטיבית חכמה לקליניקה.
+המטרה שלך היא לאסוף פרטים מהלקוח: שם, מספר טלפון, וסיבת הפנייה.
+תשאלי שאלות קצרות וטבעיות, אחת בכל פעם, כדי לאסוף את המידע. 
+ברגע שיש לך את כל 3 הפרטים, תפעילי מיד את הפונקציה save_lead. 
+לאחר מכן תאשרי ללקוח שהפרטים נרשמו ושנחזור אליו בהקדם כדי לקבוע תור.
+דברי בעברית, קצר ולעניין. אל תחפרי."""
+
+VOICE = "shimmer"
 
 @app.post("/voice")
 async def voice_entry(request: Request):
-    """כאן אנחנו רק עונים לשיחה ומעבירים אותה לערוץ שידור חי (WebSocket)"""
     response = VoiceResponse()
     connect = Connect()
-    
-    # מושכים את הכתובת של Railway וממירים מ-https ל-wss (WebSocket Secure)
     host = request.url.hostname
     connect.stream(url=f'wss://{host}/stream')
-    
     response.append(connect)
     return Response(content=str(response), media_type="application/xml")
 
 @app.websocket("/stream")
 async def websocket_endpoint(twilio_ws: WebSocket):
-    """הצינור החי: מחבר בין הסמארטפון של הלקוח ישירות למוח של OpenAI"""
     await twilio_ws.accept()
-    print("Twilio connected to server.")
     
     if not OPENAI_API_KEY:
-        print("ERROR: OPENAI_API_KEY is missing!")
         await twilio_ws.close()
         return
 
@@ -46,11 +45,9 @@ async def websocket_endpoint(twilio_ws: WebSocket):
     }
     
     try:
-        # פותחים חיבור בזמן אמת ל-OpenAI
         async with websockets.connect(openai_url, extra_headers=headers) as openai_ws:
-            print("Connected to OpenAI Realtime API.")
             
-            # 1. הגדרת סשן (זיהוי קול, פורמט אודיו, והנחיות)
+            # 1. הגדרת הסשן עם "כלי" (Tool) לאיסוף הלידים
             session_update = {
                 "type": "session.update",
                 "session": {
@@ -61,13 +58,27 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                     "instructions": SYSTEM_PROMPT,
                     "modalities": ["audio", "text"],
                     "temperature": 0.7,
+                    "tools": [{
+                        "type": "function",
+                        "name": "save_lead",
+                        "description": "שומר את פרטי הלקוח לאחר איסוף מלא של שם, טלפון וסיבת הפנייה",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string", "description": "שם הלקוח"},
+                                "phone": {"type": "string", "description": "מספר הטלפון של הלקוח"},
+                                "reason": {"type": "string", "description": "סיבת הפנייה או סוג הטיפול המבוקש"}
+                            },
+                            "required": ["name", "phone", "reason"]
+                        }
+                    }],
+                    "tool_choice": "auto"
                 }
             }
             await openai_ws.send(json.dumps(session_update))
 
             stream_sid = None
 
-            # משימה 1: לקבל אודיו מהלקוח (Twilio) ולהעביר ל-AI
             async def receive_from_twilio():
                 nonlocal stream_sid
                 try:
@@ -76,7 +87,6 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                         
                         if data['event'] == 'start':
                             stream_sid = data['start']['streamSid']
-                            # מכריחים את הסוכנת להתחיל לדבר מיד כשהשיחה נפתחת
                             await openai_ws.send(json.dumps({
                                 "type": "response.create",
                                 "response": {
@@ -85,7 +95,6 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                             }))
                             
                         elif data['event'] == 'media':
-                            # הלקוח מדבר - מעבירים את חתיכות הקול ל-AI
                             audio_append = {
                                 "type": "input_audio_buffer.append",
                                 "audio": data['media']['payload']
@@ -93,40 +102,59 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                             await openai_ws.send(json.dumps(audio_append))
                             
                         elif data['event'] == 'stop':
-                            print("Call disconnected by user.")
                             break
                 except Exception as e:
                     print(f"Twilio receive error: {e}")
 
-            # משימה 2: לקבל אודיו מה-AI ולהעביר ללקוח
             async def receive_from_openai():
                 try:
                     async for openai_message in openai_ws:
                         response_data = json.loads(openai_message)
                         
                         if response_data['type'] == 'response.audio.delta' and response_data.get('delta'):
-                            # ה-AI מדבר - דוחפים את הקול לטלפון של הלקוח
                             audio_payload = {
                                 "event": "media",
                                 "streamSid": stream_sid,
-                                "media": {
-                                    "payload": response_data['delta']
-                                }
+                                "media": {"payload": response_data['delta']}
                             }
                             await twilio_ws.send_text(json.dumps(audio_payload))
                             
                         elif response_data['type'] == 'input_audio_buffer.speech_started':
-                            # הלקוח התפרץ! עוצרים את הדיבור של ה-AI מיד
                             clear_msg = {
                                 "event": "clear",
                                 "streamSid": stream_sid
                             }
                             await twilio_ws.send_text(json.dumps(clear_msg))
+                        
+                        # ----- לוגיקת הלידים: ברגע שה-AI חילץ נתונים -----
+                        elif response_data['type'] == 'response.function_call_arguments.done':
+                            call_id = response_data['call_id']
+                            args = json.loads(response_data['arguments'])
                             
+                            # מדפיסים את הליד ללוגים של השרת שלנו
+                            print("\n" + "="*40)
+                            print("🎯 ליד חדש נכנס!")
+                            print(f"שם: {args.get('name')}")
+                            print(f"טלפון: {args.get('phone')}")
+                            print(f"סיבה: {args.get('reason')}")
+                            print("="*40 + "\n")
+
+                            # סוגרים מעגל מול ה-AI (מאשרים לה שהמידע נשמר בהצלחה)
+                            await openai_ws.send(json.dumps({
+                                "type": "conversation.item.create",
+                                "item": {
+                                    "type": "function_call_output",
+                                    "call_id": call_id,
+                                    "output": json.dumps({"status": "success"})
+                                }
+                            }))
+                            
+                            # נותנים פקודה ל-AI להמשיך לדבר עם הלקוח
+                            await openai_ws.send(json.dumps({"type": "response.create"}))
+
                 except Exception as e:
                     print(f"OpenAI receive error: {e}")
 
-            # מריצים את שתי הפעולות במקביל (דופלקס מלא)
             await asyncio.gather(receive_from_twilio(), receive_from_openai())
             
     except Exception as e:
