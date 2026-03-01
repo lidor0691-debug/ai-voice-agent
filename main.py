@@ -11,16 +11,22 @@ app = FastAPI()
 raw_api_key = os.getenv("OPENAI_API_KEY")
 OPENAI_API_KEY = raw_api_key.strip().replace('\u2028', '').replace('\u2029', '') if raw_api_key else ""
 
-# פרומפט מעודכן - כולל התייחסות למגדר ולניתוק השיחה בסוף
-SYSTEM_PROMPT = """את עוזרת אדמיניסטרטיבית חכמה ונשית לקליניקה.
-חוק ברזל: פני למתקשר תמיד בלשון זכר (לדוגמה: "איך אני יכולה לעזור לך?", "מה השם שלך?", "רשמתי את הפרטים שלך").
-המטרה שלך היא לאסוף פרטים מהלקוח: שם, מספר טלפון, וסיבת הפנייה.
-תשאלי שאלות קצרות וטבעיות, אחת בכל פעם, כדי לאסוף את המידע. 
-ברגע שיש לך את כל 3 הפרטים, תפעילי מיד את הפונקציה save_lead. 
-לאחר קבלת אישור שהליד נשמר, תגידי ללקוח: "מעולה, הפרטים נשמרו. נחזור אליך בהקדם לקביעת תור. המשך יום נעים!", ומיד לאחר מכן הפעילי את הפונקציה end_call כדי לנתק את השיחה.
-דברי בעברית, קצר ולעניין. אל תחפרי."""
+# פרומפט אנושי, ממוקד סטוריטלינג ושירות אישי
+SYSTEM_PROMPT = """את נציגה אנושית, חמה ואמפתית בקליניקה רפואית. השם שלך הוא מאיה.
+חוק ברזל: תמיד תפני למתקשר בלשון זכר (למשל: "איך אני יכולה לעזור לך?", "תרגיש טוב").
+סגנון השיחה: טבעי, זורם, בגובה העיניים, כמו שיחה בין שני אנשים אמיתיים. 
+אם הוא משתף שכואב לו או שיש לו בעיה, תגלי אמפתיה (למשל: "אוי, אני מבינה, זה בטח לא נעים בכלל").
 
-VOICE = "alloy"  # הוחלף לקול שנוטה להישמע קצת יותר טוב בעברית
+שלבי השיחה שלך:
+1. תעני בצורה חמה ("שלום, הגעתם לקליניקה, מדברת מאיה. מה שלומך?").
+2. תאספי את הפרטים שלו תוך כדי שיחה טבעית: שם, טלפון, וסיבת הפנייה. אל תשאלי הכל יחד כמו חקירה.
+3. ברגע שיש לך את כל 3 הפרטים, תפעילי מיד את הפונקציה save_lead.
+4. אחרי קבלת אישור שהליד נשמר, תאשרי לו שהפרטים אצלך ותשאלי: "יש עוד משהו שאני יכולה לעזור לך איתו לפני שאנחנו מסיימים?"
+5. חכי שהוא יענה.
+6. רק אחרי שהוא מאשר שאין צורך בעוד משהו, תפרדי ממנו בצורה חמה ("שיהיה יום מקסים, נחזור אליך בקרוב ותרגיש טוב!").
+7. מיד אחרי משפט הפרידה, הפעילי את הפונקציה end_call."""
+
+VOICE = "shimmer"  
 
 @app.post("/voice")
 async def voice_entry(request: Request):
@@ -29,10 +35,7 @@ async def voice_entry(request: Request):
     host = request.url.hostname
     connect.stream(url=f'wss://{host}/stream')
     response.append(connect)
-    
-    # פקודת ניתוק קשיחה ל-Twilio ברגע שה-WebSocket נסגר
     response.append(Hangup())
-    
     return Response(content=str(response), media_type="application/xml")
 
 @app.websocket("/stream")
@@ -52,7 +55,6 @@ async def websocket_endpoint(twilio_ws: WebSocket):
     try:
         async with websockets.connect(openai_url, additional_headers=headers) as openai_ws:
             
-            # הגדרת הכלים (Tools) - הוספנו פונקציית ניתוק
             session_update = {
                 "type": "session.update",
                 "session": {
@@ -81,7 +83,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                         {
                             "type": "function",
                             "name": "end_call",
-                            "description": "מנתק את השיחה. יש להפעיל רק אחרי פרידה מהלקוח.",
+                            "description": "מנתק את השיחה. חובה להפעיל רק אחרי פרידה מהלקוח.",
                             "parameters": {"type": "object", "properties": {}}
                         }
                     ],
@@ -103,7 +105,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                             await openai_ws.send(json.dumps({
                                 "type": "response.create",
                                 "response": {
-                                    "instructions": "תגידי מיד: 'שלום, הגעתם לקליניקה. מדברת נציגה וירטואלית, איך אני יכולה לעזור לך?'"
+                                    "instructions": "תגידי מיד: 'שלום, הגעתם לקליניקה. מדברת מאיה, מה שלומך?'"
                                 }
                             }))
                             
@@ -139,7 +141,6 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                             }
                             await twilio_ws.send_text(json.dumps(clear_msg))
                         
-                        # --- טיפול בפונקציות (ליד + ניתוק) ---
                         elif response_data['type'] == 'response.function_call_arguments.done':
                             call_id = response_data['call_id']
                             function_name = response_data['name']
@@ -164,7 +165,9 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                                 await openai_ws.send(json.dumps({"type": "response.create"}))
                                 
                             elif function_name == "end_call":
-                                print("📞 מנתק את השיחה לפי בקשת ה-AI...")
+                                print("📞 מכין ניתוק... נותן לסוכנת 4 שניות לסיים את המשפט.")
+                                await asyncio.sleep(4) # השהייה קריטית לטובת סיום הדיבור
+                                print("📞 מנתק בפועל עכשיו.")
                                 await twilio_ws.close()
                                 break
 
