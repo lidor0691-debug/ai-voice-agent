@@ -2,6 +2,7 @@ import os
 import json
 import asyncio
 import websockets
+import httpx
 from fastapi import FastAPI, WebSocket, Request
 from fastapi.responses import Response
 from twilio.twiml.voice_response import VoiceResponse, Connect, Hangup
@@ -10,8 +11,8 @@ app = FastAPI()
 
 raw_api_key = os.getenv("OPENAI_API_KEY")
 OPENAI_API_KEY = raw_api_key.strip().replace('\u2028', '').replace('\u2029', '') if raw_api_key else ""
+MAKE_WEBHOOK_URL = os.getenv("MAKE_WEBHOOK_URL")
 
-# פרומפט אנושי, ממוקד סטוריטלינג ושירות אישי
 SYSTEM_PROMPT = """את נציגה אנושית, חמה ואמפתית בקליניקה רפואית. השם שלך הוא מאיה.
 חוק ברזל: תמיד תפני למתקשר בלשון זכר (למשל: "איך אני יכולה לעזור לך?", "תרגיש טוב").
 סגנון השיחה: טבעי, זורם, בגובה העיניים, כמו שיחה בין שני אנשים אמיתיים. 
@@ -26,7 +27,7 @@ SYSTEM_PROMPT = """את נציגה אנושית, חמה ואמפתית בקלי�
 6. רק אחרי שהוא מאשר שאין צורך בעוד משהו, תפרדי ממנו בצורה חמה ("שיהיה יום מקסים, נחזור אליך בקרוב ותרגיש טוב!").
 7. מיד אחרי משפט הפרידה, הפעילי את הפונקציה end_call."""
 
-VOICE = "shimmer"  
+VOICE = "shimmer"
 
 @app.post("/voice")
 async def voice_entry(request: Request):
@@ -154,6 +155,17 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                                 print(f"סיבה: {args.get('reason')}")
                                 print("="*40 + "\n")
 
+                                # ---> שיגור הליד החוצה <---
+                                if MAKE_WEBHOOK_URL:
+                                    try:
+                                        async with httpx.AsyncClient() as http_client:
+                                            await http_client.post(MAKE_WEBHOOK_URL, json=args)
+                                        print("✅ הליד שוגר בהצלחה ל-Webhook!")
+                                    except Exception as e:
+                                        print(f"❌ שגיאה בשיגור הליד: {e}")
+                                else:
+                                    print("⚠️ שים לב: MAKE_WEBHOOK_URL לא מוגדר ב-Railway. הליד נשאר רק כאן.")
+
                                 await openai_ws.send(json.dumps({
                                     "type": "conversation.item.create",
                                     "item": {
@@ -166,7 +178,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                                 
                             elif function_name == "end_call":
                                 print("📞 מכין ניתוק... נותן לסוכנת 4 שניות לסיים את המשפט.")
-                                await asyncio.sleep(4) # השהייה קריטית לטובת סיום הדיבור
+                                await asyncio.sleep(4)
                                 print("📞 מנתק בפועל עכשיו.")
                                 await twilio_ws.close()
                                 break
