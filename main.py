@@ -14,20 +14,20 @@ raw_api_key = os.getenv("OPENAI_API_KEY")
 OPENAI_API_KEY = raw_api_key.strip().replace('\u2028', '').replace('\u2029', '') if raw_api_key else ""
 MAKE_WEBHOOK_URL = os.getenv("MAKE_WEBHOOK_URL")
 
-# המוח של מאיה - גרסה 3.0: אנושיות מלאה
-SYSTEM_PROMPT = """את מאיה, המזכירה האנושית, החמה והחדה של הקליניקה. 
-המטרה שלך היא לתת למטופל הרגשה שהוא בידיים בטוחות ומקצועיות.
+# המוח של מאיה - גרסה 3.1: אנושיות מקסימלית וסבלנות בניתוק
+SYSTEM_PROMPT = """את מאיה, המזכירה האנושית והחמה של הקליניקה. 
+המטרה שלך היא לתת למטופל הרגשה שהוא בידיים בטוחות.
 
 חוקי זהות ודינמיקה:
-1. את אישה. דברי על עצמך תמיד בנקבה ("אני רושמת", "אני בודקת"). פני למתקשר בלשון זכר כברירת מחדל.
-2. אל תהיי רובוטית! תשתמשי באינטליגנציה רגשית. אם המטופל אומר שכואב לו או שהוא לחוץ, תעצרי הכל ותגידי: "אוי, אני ממש מצטערת לשמוע, בוא נראה איך אני עוזרת לך לקצר תהליכים".
-3. הנהון קולי: השתמשי במילים כמו "אוקיי", "מאה אחוז", "הבנתי" תוך כדי השיחה כדי להראות שאת מקשיבה.
-4. אל תעבדי עם רשימת מכולת. אם הלקוח נתן פרט (כמו שם) בתוך משפט ארוך, אל תשאלי עליו שוב.
+1. את אישה. דברי בנקבה. פני למתקשר בלשון זכר כברירת מחדל.
+2. אינטליגנציה רגשית: אם המטופל נשמע לחוץ או כואב, תגלי אמפתיה: "אני מבינה לגמרי, בוא נראה איך אני עוזרת לך".
+3. הנהון קולי: השתמשי ב"אוקיי", "מאה אחוז", "הבנתי" תוך כדי שהוא מדבר.
+4. אל תהיי רובוטית - אם הוא שואל מה שלומך, תעני בחום.
 
-זרימה אנושית:
-- פתיחה: "שלום, הגעתם לקליניקה, מדברת מאיה. מה שלומך היום?" (חכי לתשובה ותגיבי עליה באמת לפני שתמשיכי).
-- איסוף: רק אחרי שיצרת חיבור ראשוני, תגידי: "כדי שנוכל לעזור בצורה הכי טובה, אני רק צריכה לרשום לעצמי שם, טלפון ומה סיבת הפנייה".
-- סיום: אחרי save_lead, תגידי "רשמתי הכל, יחזרו אליך ממש בקרוב. שיהיה המשך יום נהדר, להתראות!" והפעילי end_call.
+זרימה:
+- פתיחה: "שלום, הגעתם לקליניקה, מדברת מאיה. מה שלומך היום?"
+- איסוף: שם, טלפון וסיבה. אל תחקרי, תזרמי עם השיחה.
+- סיום: אחרי save_lead, תשאלי אם יש עוד משהו. רק כשסיימת הכל, תגידי "המשך יום נהדר, להתראות" והפעילי end_call.
 """
 
 VOICE = "shimmer"
@@ -57,11 +57,10 @@ async def websocket_endpoint(twilio_ws: WebSocket):
     
     try:
         async with websockets.connect(openai_url, additional_headers=headers) as openai_ws:
-            # הגדרות סשן לשדרוג מהירות התגובה והאנושיות
             session_update = {
                 "type": "session.update",
                 "session": {
-                    "turn_detection": {"type": "server_vad", "silence_duration_ms": 600},
+                    "turn_detection": {"type": "server_vad", "silence_duration_ms": 700},
                     "input_audio_format": "g711_ulaw",
                     "output_audio_format": "g711_ulaw",
                     "voice": VOICE,
@@ -72,7 +71,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                         {
                             "type": "function",
                             "name": "save_lead",
-                            "description": "שומר את פרטי המטופל במערכת",
+                            "description": "שומר את פרטי המטופל",
                             "parameters": {
                                 "type": "object",
                                 "properties": {
@@ -104,11 +103,10 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                         data = json.loads(message)
                         if data['event'] == 'start':
                             stream_sid = data['start']['streamSid']
-                            # מאיה פותחת את השיחה מיד
                             await openai_ws.send(json.dumps({
                                 "type": "response.create",
                                 "response": {
-                                    "instructions": "תגידי בקול חם ואנושי: 'שלום, הגעתם לקליניקה, מדברת מאיה. מה שלומך היום?'"
+                                    "instructions": "תגידי בחום: 'שלום, הגעתם לקליניקה, מדברת מאיה. מה שלומך היום?'"
                                 }
                             }))
                         elif data['event'] == 'media':
@@ -116,8 +114,6 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                                 "type": "input_audio_buffer.append",
                                 "audio": data['media']['payload']
                             }))
-                        elif data['event'] == 'stop':
-                            break
                 except Exception:
                     pass
 
@@ -126,7 +122,6 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                     async for openai_message in openai_ws:
                         response_data = json.loads(openai_message)
                         
-                        # הזרמת אודיו ל-Twilio
                         if response_data['type'] == 'response.audio.delta' and response_data.get('delta'):
                             await twilio_ws.send_text(json.dumps({
                                 "event": "media",
@@ -134,26 +129,19 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                                 "media": {"payload": response_data['delta']}
                             }))
                             
-                        # קטיעת דיבור (Interrupt) - אם המשתמש מתפרץ למאיה
                         elif response_data['type'] == 'input_audio_buffer.speech_started':
-                            await twilio_ws.send_text(json.dumps({
-                                "event": "clear",
-                                "streamSid": stream_sid
-                            }))
+                            await twilio_ws.send_text(json.dumps({"event": "clear", "streamSid": stream_sid}))
                         
-                        # טיפול בקריאה לפונקציות
                         elif response_data['type'] == 'response.function_call_arguments.done':
                             call_id = response_data['call_id']
                             func_name = response_data['name']
                             args = json.loads(response_data['arguments']) if response_data.get('arguments') else {}
                             
                             if func_name == "save_lead":
-                                print(f"🎯 שמירת ליד: {args}")
                                 if MAKE_WEBHOOK_URL:
                                     async with httpx.AsyncClient() as client:
                                         await client.post(MAKE_WEBHOOK_URL, json=args)
                                 
-                                # החזרת תשובה ל-OpenAI שהשמירה הצליחה
                                 await openai_ws.send(json.dumps({
                                     "type": "conversation.item.create",
                                     "item": {
@@ -165,8 +153,9 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                                 await openai_ws.send(json.dumps({"type": "response.create"}))
                                 
                             elif func_name == "end_call":
-                                print("📞 מנתק שיחה...")
-                                await asyncio.sleep(2) # זמן קצר למאיה לסיים את מילת הפרידה
+                                # התיקון: מחכים 5 שניות כדי לוודא שהיא סיימה להגיד "להתראות"
+                                print("📞 מכין ניתוק... מחכה לסיום הדיבור.")
+                                await asyncio.sleep(5) 
                                 await twilio_ws.close()
                                 break
 
@@ -184,6 +173,5 @@ async def websocket_endpoint(twilio_ws: WebSocket):
 
 if __name__ == "__main__":
     import uvicorn
-    # שימוש בפורטלנד שמוגדר במשתני הסביבה של Railway
     port = int(os.getenv("PORT", 5050))
     uvicorn.run(app, host="0.0.0.0", port=port)
