@@ -55,19 +55,17 @@ async def websocket_endpoint(twilio_ws: WebSocket):
     
     try:
         async with websockets.connect(openai_url, additional_headers=headers) as openai_ws:
-            
-         session_update = {
-    "type": "session.update",
-    "session": {
-        "turn_detection": {"type": "server_vad", "silence_duration_ms": 1000},
-        "input_audio_format": "g711_ulaw",
-        "output_audio_format": "g711_ulaw",
-        "voice": VOICE,
-        "instructions": SYSTEM_PROMPT,
-        "modalities": ["audio", "text"],
-        "temperature": 0.8,
-                    "tools": [
-                        {
+      session_update = {
+            "type": "session.update",
+            "session": {
+                "turn_detection": {"type": "server_vad", "silence_duration_ms": 1000},
+                "input_audio_format": "g711_ulaw",
+                "output_audio_format": "g711_ulaw",
+                "voice": VOICE,
+                "instructions": SYSTEM_PROMPT,
+                "modalities": ["audio", "text"],
+                "temperature": 0.8,
+                "tools": [
                             "type": "function",
                             "name": "save_lead",
                             "description": "שומר את פרטי הלקוח לאחר איסוף מלא של שם, טלפון וסיבת הפנייה",
