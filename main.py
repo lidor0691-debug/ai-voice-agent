@@ -1,125 +1,169 @@
 import os
-from fastapi import FastAPI, Request, Response
-from openai import OpenAI
-import requests
 import json
+import asyncio
+import websockets
+import httpx
+from fastapi import FastAPI, WebSocket, Request
+from fastapi.responses import Response
+from twilio.twiml.voice_response import VoiceResponse, Connect, Hangup
 
 app = FastAPI()
-client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
-# הגדרות מערכת וזהות
-SYSTEM_PROMPT = """
-את מאיה, מנהלת קשרי הלקוחות של סוכנות האופנועים. את מקצועית, אדיבה ומומחית במכירות.
-המטרה שלך היא לעזור ללקוחות לקבוע רכיבות מבחן על האופנועים שלנו.
+# טעינת משתני סביבה
+raw_api_key = os.getenv("OPENAI_API_KEY")
+OPENAI_API_KEY = raw_api_key.strip().replace('\u2028', '').replace('\u2029', '') if raw_api_key else ""
+MAKE_WEBHOOK_URL = os.getenv("MAKE_WEBHOOK_URL")
+CALENDAR_ID = "e1f69352b339ba76f5776a42037f94705d3340aac25a78b1c7f85bd05f5bf931@group.calendar.google.com"
 
-כללי התנהגות:
-1. את תמיד מציגה את עצמך כמאיה מסוכנות האופנועים (לעולם לא מקליניקה!).
-2. כשלקוח מבקש לבדוק זמינות, את משתמשת בכלי 'check_availability'.
-3. רק אחרי שהלקוח מאשר שעה ספציפית ונותן שם וטלפון, את משתמשת בכלי 'save_test_ride' כדי לסגור את התור.
-4. אל תגידי "רשמתי לך" לפני שהפעלת את הכלי 'save_test_ride' וקיבלת אישור.
-5. דברי בשפה של אופנוענים (נינג'ה, רכיבה, כביש, בטיחות) אבל שמרי על מקצועיות.
+# המוח של מאיה - סוכנות אופנועים
+SYSTEM_PROMPT = f"""את מאיה, מנהלת קשרי הלקוחות של סוכנות האופנועים. 
+את חיה ונושמת אופנועים, שירותית מאוד, חדה ואנושית.
 
-פרמטרים חשובים:
-- אם הלקוח לא אמר על איזה אופנוע הוא רוצה לרכב, תשאלי אותו.
-- תמיד תוודאי שיש לך שם מלא ומספר טלפון לפני השמירה הסופית.
+חוקי זהות ודינמיקה:
+1. את אישה. דברי בנקבה. פני למתקשר בלשון זכר.
+2. אישיות: את לא בוט. את עונה בחום, משתמשת בביטויים כמו 'אממ', 'מאה אחוז', 'וואי איזה כלי מטורף'.
+3. המטרה: לקבוע 'רכיבת מבחן'.
+4. זהות: את מאיה מסוכנות האופנועים (לעולם לא קליניקה!).
+
+זרימת השיחה:
+- בדיקת זמינות: אם הלקוח רוצה רכיבת מבחן, תגידי: "חכה שנייה, אני בודקת מה המצב ביומן שלנו..." והפעילי את הפונקציה check_availability.
+- סגירה: אחרי שיש תאריך, תאספי שם וטלפון, והפעילי את save_test_ride. 
+- סיום: תאשרי שהכל נרשם, תגידי "נתראה בסוכנות, סע בזהירות!" והפעילי end_call.
 """
 
-# פונקציה לשליחה ל-Make.com
-def send_to_make(payload):
-    webhook_url = os.environ.get("MAKE_WEBHOOK_URL")
+VOICE = "shimmer"
+
+@app.post("/voice")
+async def voice_entry(request: Request):
+    response = VoiceResponse()
+    connect = Connect()
+    host = request.url.hostname
+    connect.stream(url=f'wss://{host}/stream')
+    response.append(connect)
+    response.append(Hangup())
+    return Response(content=str(response), media_type="application/xml")
+
+@app.websocket("/stream")
+async def websocket_endpoint(twilio_ws: WebSocket):
+    await twilio_ws.accept()
+    if not OPENAI_API_KEY:
+        await twilio_ws.close(); return
+
+    openai_url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview"
+    headers = {"Authorization": f"Bearer {OPENAI_API_KEY}", "OpenAI-Beta": "realtime=v1"}
+    
     try:
-        response = requests.post(webhook_url, json=payload)
-        return response.json() if response.status_code == 200 else {"status": "error"}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
-
-@app.post("/chat")
-async def handle_chat(request: Request):
-    data = await request.json()
-    messages = data.get("messages", [])
-    
-    # הוספת ה-Prompt אם זו התחלת שיחה
-    if not messages:
-        messages.append({"role": "system", "content": SYSTEM_PROMPT})
-    
-    # הגדרת הכלים (Tools) עבור ה-AI
-    tools = [
-        {
-            "type": "function",
-            "function": {
-                "name": "check_availability",
-                "description": "בודק ביומן אם יש תור פנוי בתאריך מסוים",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "date": {"type": "string", "description": "התאריך המבוקש בפורמט YYYY-MM-DD"},
-                        "bike_model": {"type": "string", "description": "דגם האופנוע המבוקש"}
-                    },
-                    "required": ["date"]
+        async with websockets.connect(openai_url, additional_headers=headers) as openai_ws:
+            session_update = {
+                "type": "session.update",
+                "session": {
+                    "turn_detection": {"type": "server_vad", "silence_duration_ms": 700},
+                    "input_audio_format": "g711_ulaw",
+                    "output_audio_format": "g711_ulaw",
+                    "voice": VOICE,
+                    "instructions": SYSTEM_PROMPT,
+                    "modalities": ["audio", "text"],
+                    "temperature": 0.8,
+                    "tools": [
+                        {
+                            "type": "function",
+                            "name": "check_availability",
+                            "description": "בודק ביומן מתי יש תורים פנויים לרכיבת מבחן",
+                            "parameters": {
+                                "type": "object",
+                                "properties": {
+                                    "date": {"type": "string", "description": "התאריך המבוקש"}
+                                }
+                            }
+                        },
+                        {
+                            "type": "function",
+                            "name": "save_test_ride",
+                            "description": "שומר את פרטי הלקוח והמועד שנקבע לרכיבת מבחן",
+                            "parameters": {
+                                "type": "object",
+                                "properties": {
+                                    "name": {"type": "string"},
+                                    "phone": {"type": "string"},
+                                    "bike_model": {"type": "string"},
+                                    "appointment_time": {"type": "string"}
+                                },
+                                "required": ["name", "phone", "bike_model", "appointment_time"]
+                            }
+                        },
+                        {
+                            "type": "function",
+                            "name": "end_call",
+                            "description": "מנתק את השיחה",
+                            "parameters": {"type": "object", "properties": {}}
+                        }
+                    ],
+                    "tool_choice": "auto"
                 }
             }
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": "save_test_ride",
-                "description": "שומר רכיבת מבחן ביומן ובאקסל ושולח אישור ווטסאפ",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "name": {"type": "string", "description": "שם מלא של הלקוח"},
-                        "phone": {"type": "string", "description": "מספר טלפון של הלקוח"},
-                        "bike_model": {"type": "string", "description": "דגם האופנוע"},
-                        "appointment_time": {"type": "string", "description": "התאריך והשעה המדויקים בפורמט ISO"},
-                        "reason": {"type": "string", "description": "סיבת הפנייה - רכיבת מבחן"}
-                    },
-                    "required": ["name", "phone", "bike_model", "appointment_time"]
-                }
-            }
-        }
-    ]
+            await openai_ws.send(json.dumps(session_update))
 
-    # קריאה ל-OpenAI
-    response = client.chat.completions.create(
-        model="gpt-4o",
-        messages=messages,
-        tools=tools,
-        tool_choice="auto"
-    )
+            stream_sid = None
 
-    response_message = response.choices[0].message
-    tool_calls = response_message.tool_calls
+            async def receive_from_twilio():
+                nonlocal stream_sid
+                try:
+                    async for message in twilio_ws.iter_text():
+                        data = json.loads(message)
+                        if data['event'] == 'start':
+                            stream_sid = data['start']['streamSid']
+                            await openai_ws.send(json.dumps({
+                                "type": "response.create",
+                                "response": {"instructions": "תפתחי בחום: 'היי, הגעת לסוכנות האופנועים, אני מאיה. על איזה כלי אתה רוצה לרכוב היום?'"}
+                            }))
+                        elif data['event'] == 'media':
+                            await openai_ws.send(json.dumps({"type": "input_audio_buffer.append", "audio": data['media']['payload']}))
+                except Exception: pass
 
-    if tool_calls:
-        for tool_call in tool_calls:
-            function_name = tool_call.function.name
-            args = json.loads(tool_call.function.arguments)
-            
-            # בניית ה-Payload ל-Make.com
-            payload = args.copy()
-            payload["action"] = function_name  # זה מה שיפעיל את ה-Router ב-Make
-            
-            # שליחה ל-Make
-            make_result = send_to_make(payload)
-            
-            # החזרת התוצאה ל-AI כדי שתמשיך את השיחה
-            messages.append(response_message)
-            messages.append({
-                "role": "tool",
-                "tool_call_id": tool_call.id,
-                "name": function_name,
-                "content": json.dumps(make_result)
-            })
-            
-            # קריאה שנייה ל-OpenAI עם תוצאות הכלי
-            second_response = client.chat.completions.create(
-                model="gpt-4o",
-                messages=messages
-            )
-            return second_response.choices[0].message.content
+            async def receive_from_openai():
+                try:
+                    async for openai_message in openai_ws:
+                        response_data = json.loads(openai_message)
+                        
+                        if response_data['type'] == 'response.audio.delta' and response_data.get('delta'):
+                            await twilio_ws.send_text(json.dumps({"event": "media", "streamSid": stream_sid, "media": {"payload": response_data['delta']}}))
+                        elif response_data['type'] == 'input_audio_buffer.speech_started':
+                            await twilio_ws.send_text(json.dumps({"event": "clear", "streamSid": stream_sid}))
+                        
+                        elif response_data['type'] == 'response.function_call_arguments.done':
+                            func_name = response_data['name']
+                            call_id = response_data['call_id']
+                            args = json.loads(response_data['arguments'])
+                            
+                            output_content = "{\"status\":\"success\"}"
+                            
+                            if func_name in ["save_test_ride", "check_availability"]:
+                                if MAKE_WEBHOOK_URL:
+                                    async with httpx.AsyncClient() as client:
+                                        args['action'] = func_name
+                                        args['calendar_id'] = CALENDAR_ID
+                                        # תיקון: מחכים לתשובה מ-Make כדי שמאיה תדע מה להגיד
+                                        webhook_res = await client.post(MAKE_WEBHOOK_URL, json=args, timeout=15)
+                                        if webhook_res.status_code == 200:
+                                            output_content = webhook_res.text
+                                
+                                await openai_ws.send(json.dumps({
+                                    "type": "conversation.item.create",
+                                    "item": {"type": "function_call_output", "call_id": call_id, "output": output_content}
+                                }))
+                                await openai_ws.send(json.dumps({"type": "response.create"}))
+                                
+                            elif func_name == "end_call":
+                                await asyncio.sleep(3)
+                                await twilio_ws.close()
+                                break
 
-    return response_message.content
+                except Exception: pass
+
+            await asyncio.gather(receive_from_twilio(), receive_from_openai())
+    except Exception: pass
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+    port = int(os.getenv("PORT", 5050))
+    uvicorn.run(app, host="0.0.0.0", port=port)
