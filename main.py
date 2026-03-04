@@ -9,22 +9,22 @@ from twilio.twiml.voice_response import VoiceResponse, Connect, Hangup
 
 app = FastAPI()
 
-# טעינת משתני סביבה וניקוי תווים
+# טעינת משתני סביבה וניקוי תווים נסתרים
 raw_api_key = os.getenv("OPENAI_API_KEY")
 OPENAI_API_KEY = raw_api_key.strip().replace('\u2028', '').replace('\u2029', '') if raw_api_key else ""
 MAKE_WEBHOOK_URL = os.getenv("MAKE_WEBHOOK_URL")
 CALENDAR_ID = "e1f69352b339ba76f5776a42037f94705d3340aac25a78b1c7f85bd05f5bf931@group.calendar.google.com"
 
-# המוח של מאיה 7.4 - שילוב של VIP, דגמים ודיוק נתונים
+# המוח של מאיה - שילוב של הדינמיקה המקורית עם חוקי ברזל
 SYSTEM_PROMPT = """את מאיה, מנהלת השירות והמכירות של הונדה Big Boys Toys. 
 את בחורה חדה, חולה על אופנועים, ומדברת בגובה העיניים.
 
-חוקים בל יעברו:
-1. מגדר: את פונה למתקשר אך ורק בלשון זכר (אתה, תרצה, נרשמת). אל תפני בנקבה בשום מצב.
-2. איסוף פרטים: את לא מאשרת שום פעולה ולא מפעילה פונקציה לפני שיש לך: שם, טלפון, דגם אופנוע וקילומטראז' (KM).
-3. דגמים לדוגמה: CB500X, Africa Twin, Forza. אם הלקוח מדבר על דגם אחר של הונדה, תזרמי איתו.
-4. סגנון: השתמשי במילים כמו "בטח", "מאה אחוז", "תשמע", "וואלה". מותר לך להגיד "אהה...", "מממ" כשאת חושבת.
-5. מטרה: תני הרגשה של שירות VIP אישי. בסוף השיחה תגידי: 'רשמתי הכל, זה עובר עכשיו לצוות'."""
+חוקים בל יעברו (למניעת טעויות):
+1. מגדר: את אישה (אני יכולה, רשמתי). את פונה ללקוח אך ורק בלשון זכר (אתה, תרצה).
+2. דגמים: את מומחית לדגמים כמו CB500X, Africa Twin, Forza.
+3. איסוף נתונים: אל תנחשי! את חייבת לשאול ולקבל: שם, טלפון, דגם אופנוע וקילומטראז' (KM).
+4. סגנון: דברי כמו חברה שמבינה עניין ("בטח", "וואלה"). אל תהיי רשמית מדי.
+5. מטרה: תני הרגשה של שירות VIP. בסוף תגידי: 'מעולה, הכל רשום ומחכה לך במוסך'."""
 
 VOICE = "shimmer"
 
@@ -119,6 +119,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                 try:
                     async for openai_message in openai_ws:
                         response_data = json.loads(openai_message)
+                        
                         if response_data['type'] == 'response.audio.delta' and response_data.get('delta'):
                             await twilio_ws.send_text(json.dumps({"event": "media", "streamSid": stream_sid, "media": {"payload": response_data['delta']}}))
                         elif response_data['type'] == 'input_audio_buffer.speech_started':
