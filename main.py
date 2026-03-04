@@ -18,7 +18,7 @@ SYSTEM_PROMPT = """את מאיה, מנהלת השירות של הונדה Big Bo
 חוקים:
 1. את חייבת לאסוף שם, טלפון, דגם אופנוע וזמן לפני אישור תור.
 2. דברי בנקבה על עצמך (אני יכולה, רשמתי) ובזכר ללקוח.
-3. אל תשתמשי בערכים כמו 'לא סופק' - אם חסר פרט, פשוט תשאלי אותו."""
+3. אל תשלחי פונקציה עם ערכים כמו 'לא סופק'. אם חסר פרט, תשאלי את הלקוח שוב."""
 
 @app.post("/voice")
 async def voice_entry(request: Request):
@@ -69,7 +69,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
             # הודעת פתיחה
             await openai_ws.send(json.dumps({
                 "type": "response.create",
-                "response": {"instructions": "תגידי: 'היי, הגעת להונדה Big Boys Toys, אני מאיה. איך עוזרים היום?'"}
+                "response": {"instructions": "תגידי: 'שלום, הגעת להונדה Big Boys Toys, אני מאיה. איך אפשר לעזור היום?'"}
             }))
 
             stream_sid = None
@@ -87,8 +87,6 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                     data = json.loads(msg)
                     if data['type'] == 'response.audio.delta':
                         await twilio_ws.send_text(json.dumps({"event": "media", "streamSid": stream_sid, "media": {"payload": data['delta']}}))
-                    if data['type'] == 'input_audio_buffer.speech_started':
-                        await twilio_ws.send_text(json.dumps({"event": "clear", "streamSid": stream_sid}))
                     
                     if data['type'] == 'response.function_call_arguments.done':
                         args = json.loads(data['arguments'])
@@ -101,4 +99,13 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                             "type": "conversation.item.create",
                             "item": {"type": "function_call_output", "call_id": data['call_id'], "output": "{\"status\":\"success\"}"}
                         }))
-                        await openai_ws.send(json.dumps({"type": "response.create
+                        await openai_ws.send(json.dumps({"type": "response.create"}))
+
+            await asyncio.gather(to_openai(), from_openai())
+
+    except Exception: pass
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.getenv("PORT", 5050))
+    uvicorn.run(app, host="0.0.0.0", port=port)
