@@ -9,78 +9,96 @@ from twilio.twiml.voice_response import VoiceResponse, Connect, Hangup
 
 app = FastAPI()
 
+# טעינת משתני סביבה
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 MAKE_WEBHOOK_URL = os.getenv("MAKE_WEBHOOK_URL", "").strip()
 
-SYSTEM_PROMPT = "את מאיה מהונדה Big Boys Toys. את חייבת לאסוף שם וטלפון. דברי בנקבה על עצמך ובזכר ללקוח."
+# המוח של מאיה - הונדה Big Boys Toys
+SYSTEM_PROMPT = """את מאיה, מנהלת השירות של הונדה Big Boys Toys. את חדה ומקצועית.
+חוקים:
+1. את חייבת לאסוף שם, טלפון, דגם אופנוע וזמן לפני אישור תור.
+2. דברי בנקבה על עצמך (אני יכולה, רשמתי) ובזכר ללקוח.
+3. אל תשתמשי בערכים כמו 'לא סופק' - אם חסר פרט, פשוט תשאלי אותו."""
 
 @app.post("/voice")
 async def voice_entry(request: Request):
-    resp = VoiceResponse()
+    response = VoiceResponse()
     connect = Connect()
     connect.stream(url=f'wss://{request.url.hostname}/stream')
-    resp.append(connect)
-    resp.append(Hangup())
-    return Response(content=str(resp), media_type="application/xml")
+    response.append(connect)
+    response.append(Hangup())
+    return Response(content=str(response), media_type="application/xml")
 
 @app.websocket("/stream")
 async def websocket_endpoint(twilio_ws: WebSocket):
     await twilio_ws.accept()
-    print("LOG: Twilio connected")
     
     url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview"
-    headers = {
-        "Authorization": f"Bearer {OPENAI_API_KEY}",
-        "OpenAI-Beta": "realtime=v1"
-    }
+    headers = {"Authorization": f"Bearer {OPENAI_API_KEY}", "OpenAI-Beta": "realtime=v1"}
     
     try:
         async with websockets.connect(url, additional_headers=headers) as openai_ws:
-            print("LOG: OpenAI connection ESTABLISHED")
-            
-            # הגדרת סשן
+            # עדכון סשן
             await openai_ws.send(json.dumps({
                 "type": "session.update",
                 "session": {
                     "instructions": SYSTEM_PROMPT,
                     "voice": "shimmer",
-                    "turn_detection": {"type": "server_vad", "silence_duration_ms": 1000}
+                    "turn_detection": {"type": "server_vad", "silence_duration_ms": 1000},
+                    "tools": [
+                        {
+                            "type": "function",
+                            "name": "book_garage_service",
+                            "description": "רישום למוסך",
+                            "parameters": {
+                                "type": "object",
+                                "properties": {
+                                    "name": {"type": "string"},
+                                    "phone": {"type": "string"},
+                                    "bike_model": {"type": "string"},
+                                    "service_type": {"type": "string"},
+                                    "appointment_time": {"type": "string"}
+                                },
+                                "required": ["name", "phone", "bike_model", "service_type", "appointment_time"]
+                            }
+                        }
+                    ]
                 }
             }))
 
-            # פקודה להוציא צליל ראשון
+            # הודעת פתיחה
             await openai_ws.send(json.dumps({
                 "type": "response.create",
-                "response": {"instructions": "תגידי מיד: 'שלום, הגעת להונדה, אני מאיה. איך אני יכולה לעזור?'"}
+                "response": {"instructions": "תגידי: 'היי, הגעת להונדה Big Boys Toys, אני מאיה. איך עוזרים היום?'"}
             }))
 
             stream_sid = None
 
-            async def from_twilio():
+            async def to_openai():
                 nonlocal stream_sid
                 async for msg in twilio_ws.iter_text():
                     data = json.loads(msg)
-                    if data['event'] == 'start': 
-                        stream_sid = data['start']['streamSid']
-                        print(f"LOG: Stream started, ID: {stream_sid}")
-                    if data['event'] == 'media' and openai_ws.open:
+                    if data['event'] == 'start': stream_sid = data['start']['streamSid']
+                    if data['event'] == 'media':
                         await openai_ws.send(json.dumps({"type": "input_audio_buffer.append", "audio": data['media']['payload']}))
 
             async def from_openai():
                 async for msg in openai_ws:
                     data = json.loads(msg)
+                    if data['type'] == 'response.audio.delta':
+                        await twilio_ws.send_text(json.dumps({"event": "media", "streamSid": stream_sid, "media": {"payload": data['delta']}}))
+                    if data['type'] == 'input_audio_buffer.speech_started':
+                        await twilio_ws.send_text(json.dumps({"event": "clear", "streamSid": stream_sid}))
                     
-                    if data.get('type') == 'error':
-                        print(f"!!! OPENAI ERROR: {data['error']['message']}")
-                    
-                    if data.get('type') == 'response.audio.delta':
-                        await twilio_ws.send_text(json.dumps({
-                            "event": "media", "streamSid": stream_sid, "media": {"payload": data['delta']}
+                    if data['type'] == 'response.function_call_arguments.done':
+                        args = json.loads(data['arguments'])
+                        if MAKE_WEBHOOK_URL:
+                            async with httpx.AsyncClient() as client:
+                                args['action'] = data['name']
+                                await client.post(MAKE_WEBHOOK_URL, json=args, timeout=5)
+                        
+                        await openai_ws.send(json.dumps({
+                            "type": "conversation.item.create",
+                            "item": {"type": "function_call_output", "call_id": data['call_id'], "output": "{\"status\":\"success\"}"}
                         }))
-
-            await asyncio.gather(from_twilio(), from_openai())
-
-    except Exception as e:
-        print(f"LOG CRITICAL ERROR: {e}")
-    finally:
-        print("LOG: Connection closed")
+                        await openai_ws.send(json.dumps({"type": "response.create
