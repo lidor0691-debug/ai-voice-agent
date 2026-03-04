@@ -114,6 +114,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                                     "phone": {"type": "string"},
                                     "bike_model": {"type": "string"},
                                     "service_type": {"type": "string"},
+                                    "mileage": {"type": "string"},
                                     "appointment_time": {"type": "string"}
                                 },
                                 "required": ["name", "phone", "bike_model", "service_type", "appointment_time"]
