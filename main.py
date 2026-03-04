@@ -15,22 +15,26 @@ OPENAI_API_KEY = raw_api_key.strip().replace('\u2028', '').replace('\u2029', '')
 MAKE_WEBHOOK_URL = os.getenv("MAKE_WEBHOOK_URL")
 CALENDAR_ID = "e1f69352b339ba76f5776a42037f94705d3340aac25a78b1c7f85bd05f5bf931@group.calendar.google.com"
 
-# המוח של מאיה 7.3 - פרוטוקול סגירה הרמטי
-SYSTEM_PROMPT = f"""את מאיה, מנהלת השירות של הונדה Big Boys Toys. את חדה, ישירה ומקצוענית.
+# המוח של מאיה 7.4 - הפרדה מוחלטת בין מוסך למכירות
+SYSTEM_PROMPT = f"""את מאיה, מנהלת השירות של הונדה Big Boys Toys. 
+את פועלת לפי חוקי ברזל. אסור לך לנחש פרטים!
 
-חוקי הפעלת כלים (קריטי!):
-1. תהליך רישום (מוסך או רכיבת מבחן) הוא תמיד בשני שלבים:
-   - שלב א': בדיקת זמינות (check_availability).
-   - שלב ב': שמירה סופית (save_test_ride או book_garage_service).
-2. איסור הבטחות שווא: לעולם אל תגידי "רשמתי לך" או "זה קבוע" לפני שהפעלת את פונקציית השמירה (שלב ב').
-3. איסוף נתונים: למוסך את חייבת לאסוף: דגם, קילומטראז', סוג טיפול, שם וטלפון.
-4. רציפות: ברגע שהלקוח אישר מועד, הפעילי מיד את השמירה בלי לשאול שוב.
+חוק 1: הפרדה מוחלטת. 
+- אם הלקוח אמר "טיפול" או "מוסך" -> את בנתיב מוסך בלבד. אסור להפעיל את save_test_ride.
+- אם הלקוח אמר "קנייה" או "נסיעה" -> את בנתיב מכירות בלבד. אסור להפעיל את book_garage_service.
 
-סגנון דיבור:
-- דברי בנקבה על עצמך, פני ללקוח בזכר (אלא אם זו אישה).
-- קצב טבעי: תשתמשי ב-"מאה אחוז", "רגע בודקת", "מעולה, רשמתי".
-- זמן תגובה: היי זריזה וקולעת.
-"""
+חוק 2: איסוף נתונים למוסך (חובה!):
+לפני שאת מפעילה את 'book_garage_service', את חייבת לשאול ולקבל תשובה על:
+1. איזה דגם אופנוע?
+2. מה הקילומטראז' (ק"מ)?
+3. איזה סוג טיפול (תקופתי או תקלה)?
+
+חוק 3: סדר פעולות:
+- תמיד בודקת זמינות (check_availability) קודם.
+- רק אחרי שהלקוח אישר שעה, את מפעילה את השמירה (שלב ב').
+- את מודיעה: "רגע, אני מעדכנת את האקסל שלנו... זהו, רשום!".
+
+סגנון: חדה, מקצועית, פונה למתקשר בזכר, מדברת על עצמך בנקבה."""
 
 VOICE = "shimmer"
 
@@ -64,18 +68,18 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                     "voice": VOICE,
                     "instructions": SYSTEM_PROMPT,
                     "modalities": ["audio", "text"],
-                    "temperature": 0.8,
+                    "temperature": 0.6, # הורדתי טמפרטורה כדי שתהיה יותר מדויקת ופחות יצירתית
                     "tools": [
                         {
                             "type": "function",
                             "name": "check_availability",
-                            "description": "בודק זמינות ביומן. חובה לבצע לפני כל שמירה.",
+                            "description": "בודק זמינות ביומן.",
                             "parameters": { "type": "object", "properties": { "date": {"type": "string"} } }
                         },
                         {
                             "type": "function",
                             "name": "save_test_ride",
-                            "description": "שמירה סופית של רכיבת מבחן באקסל וביומן.",
+                            "description": "שמירת רכיבת מבחן באקסל.",
                             "parameters": {
                                 "type": "object",
                                 "properties": {
@@ -90,7 +94,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                         {
                             "type": "function",
                             "name": "book_garage_service",
-                            "description": "שמירה סופית של תור למוסך באקסל וביומן.",
+                            "description": "רישום תור למוסך באקסל.",
                             "parameters": {
                                 "type": "object",
                                 "properties": {
@@ -107,7 +111,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                         {
                             "type": "function",
                             "name": "get_bike_quote",
-                            "description": "שליחת הצעת מחיר בווטסאפ ללקוח.",
+                            "description": "שליחת הצעת מחיר בווטסאפ.",
                             "parameters": {
                                 "type": "object",
                                 "properties": {
@@ -122,7 +126,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                         {
                             "type": "function",
                             "name": "end_call",
-                            "description": "ניתוק השיחה לאחר סיום הטיפול.",
+                            "description": "ניתוק השיחה.",
                             "parameters": {"type": "object", "properties": {}}
                         }
                     ],
@@ -142,7 +146,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                             stream_sid = data['start']['streamSid']
                             await openai_ws.send(json.dumps({
                                 "type": "response.create",
-                                "response": {"instructions": "תפתחי בחום: 'היי, כאן מאיה מ-Big Boys Toys. איך אני יכולה לעזור היום?'"}
+                                "response": {"instructions": "תפתחי בחום: 'היי, הגעת להונדה Big Boys Toys, אני מאיה. מה אפשר לעשות בשבילך?'"}
                             }))
                         elif data['event'] == 'media':
                             await openai_ws.send(json.dumps({"type": "input_audio_buffer.append", "audio": data['media']['payload']}))
