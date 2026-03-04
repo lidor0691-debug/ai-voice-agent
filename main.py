@@ -9,28 +9,22 @@ from twilio.twiml.voice_response import VoiceResponse, Connect, Hangup
 
 app = FastAPI()
 
-# טעינת משתני סביבה
+# טעינת משתני סביבה וניקוי תווים
 raw_api_key = os.getenv("OPENAI_API_KEY")
 OPENAI_API_KEY = raw_api_key.strip().replace('\u2028', '').replace('\u2029', '') if raw_api_key else ""
 MAKE_WEBHOOK_URL = os.getenv("MAKE_WEBHOOK_URL")
 CALENDAR_ID = "e1f69352b339ba76f5776a42037f94705d3340aac25a78b1c7f85bd05f5bf931@group.calendar.google.com"
 
-# המוח של מאיה 7.2 - אופטימיזציה של זרימה ומגדר
-SYSTEM_PROMPT = f"""את מאיה, מנהלת השירות והמכירות של הונדה Big Boys Toys. 
+# המוח של מאיה 7.4 - שילוב של VIP, דגמים ודיוק נתונים
+SYSTEM_PROMPT = """את מאיה, מנהלת השירות והמכירות של הונדה Big Boys Toys. 
 את בחורה חדה, חולה על אופנועים, ומדברת בגובה העיניים.
 
-חוקי זהות ודינמיקה:
-1. מגדר: את מדברת על עצמך בנקבה (אני יכולה, רשמתי, קבעתי). את פונה למתקשר בנקבה/זכר לפי הצורך, אבל ברירת המחדל היא זכר.
-2. סגנון: אל תהיי רשמית מדי. דברי כמו חברה שמבינה עניין. השתמשי במילים כמו "בטח", "מאה אחוז", "תשמע", "וואלה".
-3. זרימה: אל תחכי לאישור על כל מילה. אם הבנת מה הלקוח רוצה, פשוט תתקדמי.
-4. ביטויי אנושיות: מותר לך להגיד "אהה...", "מממ", "רגע, תן לי לראות" בזמן שאת חושבת או מפעילה פונקציה.
-
-תחומי אחריות:
-- מכירות הונדה (CB500X, Africa Twin, Forza).
-- מוסך (טיפולים ותיקונים).
-- הצעות מחיר בווטסאפ (get_bike_quote).
-
-המטרה שלך היא לתת הרגשה של שירות VIP אישי ולא של מוקד טלפוני."""
+חוקים בל יעברו:
+1. מגדר: את פונה למתקשר אך ורק בלשון זכר (אתה, תרצה, נרשמת). אל תפני בנקבה בשום מצב.
+2. איסוף פרטים: את לא מאשרת שום פעולה ולא מפעילה פונקציה לפני שיש לך: שם, טלפון, דגם אופנוע וקילומטראז' (KM).
+3. דגמים לדוגמה: CB500X, Africa Twin, Forza. אם הלקוח מדבר על דגם אחר של הונדה, תזרמי איתו.
+4. סגנון: השתמשי במילים כמו "בטח", "מאה אחוז", "תשמע", "וואלה". מותר לך להגיד "אהה...", "מממ" כשאת חושבת.
+5. מטרה: תני הרגשה של שירות VIP אישי. בסוף השיחה תגידי: 'רשמתי הכל, זה עובר עכשיו לצוות'."""
 
 VOICE = "shimmer"
 
@@ -55,7 +49,6 @@ async def websocket_endpoint(twilio_ws: WebSocket):
     
     try:
         async with websockets.connect(openai_url, additional_headers=headers) as openai_ws:
-            # כיול זמן תגובה ל-1000ms - מהיר יותר ומונע שתיקות
             session_update = {
                 "type": "session.update",
                 "session": {
@@ -69,23 +62,19 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                     "tools": [
                         {
                             "type": "function",
-                            "name": "check_availability",
-                            "description": "בודק זמינות ביומן",
-                            "parameters": { "type": "object", "properties": { "date": {"type": "string"} } }
-                        },
-                        {
-                            "type": "function",
-                            "name": "save_test_ride",
-                            "description": "שומר רכיבת מבחן",
+                            "name": "book_garage_service",
+                            "description": "קביעת תור למוסך",
                             "parameters": {
                                 "type": "object",
                                 "properties": {
                                     "name": {"type": "string"},
                                     "phone": {"type": "string"},
                                     "bike_model": {"type": "string"},
+                                    "service_type": {"type": "string"},
+                                    "mileage": {"type": "string"},
                                     "appointment_time": {"type": "string"}
                                 },
-                                "required": ["name", "phone", "bike_model", "appointment_time"]
+                                "required": ["name", "phone", "bike_model", "service_type", "mileage", "appointment_time"]
                             }
                         },
                         {
@@ -102,29 +91,6 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                                 },
                                 "required": ["name", "phone", "bike_model", "price"]
                             }
-                        },
-                        {
-                            "type": "function",
-                            "name": "book_garage_service",
-                            "description": "קביעת תור למוסך",
-                            "parameters": {
-                                "type": "object",
-                                "properties": {
-                                    "name": {"type": "string"},
-                                    "phone": {"type": "string"},
-                                    "bike_model": {"type": "string"},
-                                    "service_type": {"type": "string"},
-                                    "mileage": {"type": "string"},
-                                    "appointment_time": {"type": "string"}
-                                },
-                                "required": ["name", "phone", "bike_model", "service_type", "appointment_time"]
-                            }
-                        },
-                        {
-                            "type": "function",
-                            "name": "end_call",
-                            "description": "מנתק את השיחה",
-                            "parameters": {"type": "object", "properties": {}}
                         }
                     ],
                     "tool_choice": "auto"
@@ -143,7 +109,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                             stream_sid = data['start']['streamSid']
                             await openai_ws.send(json.dumps({
                                 "type": "response.create",
-                                "response": {"instructions": "תפתחי הכי טבעי: 'היי, הגעת ל-Big Boys Toys, אני מאיה. מה קורה? איך אני יכולה לעזור?'"}
+                                "response": {"instructions": "תפתחי הכי טבעי וזכר: 'היי, הגעת ל-Big Boys Toys, אני מאיה. מה קורה? איך אני יכולה לעזור?'"}
                             }))
                         elif data['event'] == 'media':
                             await openai_ws.send(json.dumps({"type": "input_audio_buffer.append", "audio": data['media']['payload']}))
@@ -153,7 +119,6 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                 try:
                     async for openai_message in openai_ws:
                         response_data = json.loads(openai_message)
-                        
                         if response_data['type'] == 'response.audio.delta' and response_data.get('delta'):
                             await twilio_ws.send_text(json.dumps({"event": "media", "streamSid": stream_sid, "media": {"payload": response_data['delta']}}))
                         elif response_data['type'] == 'input_audio_buffer.speech_started':
@@ -164,27 +129,17 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                             call_id = response_data['call_id']
                             args = json.loads(response_data['arguments'])
                             
-                            output_content = "{\"status\":\"success\"}"
-                            
-                            if func_name in ["save_test_ride", "check_availability", "book_garage_service", "get_bike_quote"]:
-                                if MAKE_WEBHOOK_URL:
-                                    async with httpx.AsyncClient() as client:
-                                        args['action'] = func_name
-                                        args['calendar_id'] = CALENDAR_ID
-                                        webhook_res = await client.post(MAKE_WEBHOOK_URL, json=args, timeout=15)
-                                        if webhook_res.status_code == 200:
-                                            output_content = webhook_res.text
+                            if MAKE_WEBHOOK_URL:
+                                async with httpx.AsyncClient() as client:
+                                    args['action'] = func_name
+                                    args['calendar_id'] = CALENDAR_ID
+                                    await client.post(MAKE_WEBHOOK_URL, json=args, timeout=15)
                                 
-                                await openai_ws.send(json.dumps({
-                                    "type": "conversation.item.create",
-                                    "item": {"type": "function_call_output", "call_id": call_id, "output": output_content}
-                                }))
-                                await openai_ws.send(json.dumps({"type": "response.create"}))
-                                
-                            elif func_name == "end_call":
-                                await asyncio.sleep(3)
-                                await twilio_ws.close()
-                                break
+                            await openai_ws.send(json.dumps({
+                                "type": "conversation.item.create",
+                                "item": {"type": "function_call_output", "call_id": call_id, "output": "{\"status\":\"success\"}"}
+                            }))
+                            await openai_ws.send(json.dumps({"type": "response.create"}))
                 except Exception: pass
 
             await asyncio.gather(receive_from_twilio(), receive_from_openai())
