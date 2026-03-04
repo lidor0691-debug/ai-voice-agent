@@ -15,24 +15,23 @@ OPENAI_API_KEY = raw_api_key.strip().replace('\u2028', '').replace('\u2029', '')
 MAKE_WEBHOOK_URL = os.getenv("MAKE_WEBHOOK_URL")
 CALENDAR_ID = "e1f69352b339ba76f5776a42037f94705d3340aac25a78b1c7f85bd05f5bf931@group.calendar.google.com"
 
-# המוח של מאיה 7.0 - הונדה Big Boys Toys
-SYSTEM_PROMPT = f"""את מאיה, סוכנת המכירות והשירות של סוכנות הונדה - Big Boys Toys. 
-את חדה, מקצועית ומבינה באופנועי הונדה ובשירות מוסך ברמה הגבוהה ביותר.
+# המוח של מאיה 7.1 - הגדרות זהות וזרימה משופרות
+SYSTEM_PROMPT = f"""את מאיה, מנהלת השירות והמכירות של הונדה Big Boys Toys. 
+את אישה, ואת חייבת לדבר בלשון נקבה בלבד (אני רוצה, אני יכולה, קבעתי לך). 
 
-חוקי המותג והמחירון (לדמו):
-1. אופנועים חדשים: הונדה בלבד! 
-   - הונדה CB500X (מתאים ל-A1): מחיר באזור 51,000 ש"ח.
-   - הונדה Africa Twin (דורש רישיון A): מחיר החל מ-105,000 ש"ח.
-   - הונדה Forza 350 (קטנוע מנהלים A1): מחיר באזור 37,000 ש"ח.
-   - הונדה CB650R (ארבעה צילינדרים): באזור 58,000 ש"ח.
-2. יד שניה: כאן מותר לך לציין שיש מגוון מותגים (הונדה, ימאהה, קוואסאקי וכו') לפי המלאי המשתנה.
+חוקי שיחה טבעית:
+1. אל תהיי רובוטית. תשתמש בביטויי מעבר כמו "אמממ", "רגע תן לי לבדוק", "וואו, בחירה מעולה".
+2. אם הלקוח שותק לרגע, אל תילחצי ותמשיכי לדבר בנחת.
+3. דברי בקצב של בן אדם, לא מהר מדי.
 
-יכולות:
-- בדיקת רישיון: לפני קביעת רכיבת מבחן על כלים גדולים, שאלי תמיד: "יש לך רישיון A או A1?".
-- מוסך: קביעת תורים לטיפולים (שאלי על דגם וקילומטראז').
-- הצעות מחיר: הציעי לשלוח הצעה רשמית בווטסאפ דרך 'get_bike_quote'.
+חוקי המותג:
+- את מוכרת רק אופנועי הונדה חדשים (CB500X, Africa Twin, Forza 350).
+- יד שניה: יש הכל מהכל.
 
-את מאיה, ואת הפנים של הונדה Big Boys Toys. תהיי אדיבה וסמכותית."""
+סגירת עסקה:
+- את לא מסיימת שיחה בלי להציע לשלוח הצעת מחיר בווטסאפ (get_bike_quote).
+- ברגע שהלקוח מאשר תור, את חייבת להפעיל את הכלי המתאים (save_test_ride או book_garage_service).
+"""
 
 VOICE = "shimmer"
 
@@ -57,10 +56,11 @@ async def websocket_endpoint(twilio_ws: WebSocket):
     
     try:
         async with websockets.connect(openai_url, additional_headers=headers) as openai_ws:
+            # תיקון הקטיעות: העלינו את ה-silence_duration_ms ל-1500 כדי שהיא לא תקטע את עצמה
             session_update = {
                 "type": "session.update",
                 "session": {
-                    "turn_detection": {"type": "server_vad", "silence_duration_ms": 700},
+                    "turn_detection": {"type": "server_vad", "silence_duration_ms": 1500},
                     "input_audio_format": "g711_ulaw",
                     "output_audio_format": "g711_ulaw",
                     "voice": VOICE,
@@ -143,7 +143,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                             stream_sid = data['start']['streamSid']
                             await openai_ws.send(json.dumps({
                                 "type": "response.create",
-                                "response": {"instructions": "תפתחי בחום: 'שלום, הגעת לסוכנות הונדה Big Boys Toys, מדברת מאיה. איך אני יכולה לעזור לכם היום?'"}
+                                "response": {"instructions": "תפתחי בחיוך: 'היי, הגעת ל-Big Boys Toys, אני מאיה. איזה כיף שהתקשרת! מה אפשר לעשות בשבילך?'"}
                             }))
                         elif data['event'] == 'media':
                             await openai_ws.send(json.dumps({"type": "input_audio_buffer.append", "audio": data['media']['payload']}))
@@ -185,7 +185,6 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                                 await asyncio.sleep(3)
                                 await twilio_ws.close()
                                 break
-
                 except Exception: pass
 
             await asyncio.gather(receive_from_twilio(), receive_from_openai())
