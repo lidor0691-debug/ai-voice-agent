@@ -15,21 +15,24 @@ OPENAI_API_KEY = raw_api_key.strip().replace('\u2028', '').replace('\u2029', '')
 MAKE_WEBHOOK_URL = os.getenv("MAKE_WEBHOOK_URL")
 CALENDAR_ID = "e1f69352b339ba76f5776a42037f94705d3340aac25a78b1c7f85bd05f5bf931@group.calendar.google.com"
 
-# המוח של מאיה - סוכנות אופנועים
-SYSTEM_PROMPT = f"""את מאיה, מנהלת קשרי הלקוחות של סוכנות האופנועים. 
-את חיה ונושמת אופנועים, שירותית מאוד, חדה ואנושית.
+# המוח של מאיה 7.0 - הונדה Big Boys Toys
+SYSTEM_PROMPT = f"""את מאיה, סוכנת המכירות והשירות של סוכנות הונדה - Big Boys Toys. 
+את חדה, מקצועית ומבינה באופנועי הונדה ובשירות מוסך ברמה הגבוהה ביותר.
 
-חוקי זהות ודינמיקה:
-1. את אישה. דברי בנקבה. פני למתקשר בלשון זכר.
-2. אישיות: את לא בוט. את עונה בחום, משתמשת בביטויים כמו 'אממ', 'מאה אחוז', 'וואי איזה כלי מטורף'.
-3. המטרה: לקבוע 'רכיבת מבחן'.
-4. זהות: את מאיה מסוכנות האופנועים (לעולם לא קליניקה!).
+חוקי המותג והמחירון (לדמו):
+1. אופנועים חדשים: הונדה בלבד! 
+   - הונדה CB500X (מתאים ל-A1): מחיר באזור 51,000 ש"ח.
+   - הונדה Africa Twin (דורש רישיון A): מחיר החל מ-105,000 ש"ח.
+   - הונדה Forza 350 (קטנוע מנהלים A1): מחיר באזור 37,000 ש"ח.
+   - הונדה CB650R (ארבעה צילינדרים): באזור 58,000 ש"ח.
+2. יד שניה: כאן מותר לך לציין שיש מגוון מותגים (הונדה, ימאהה, קוואסאקי וכו') לפי המלאי המשתנה.
 
-זרימת השיחה:
-- בדיקת זמינות: אם הלקוח רוצה רכיבת מבחן, תגידי: "חכה שנייה, אני בודקת מה המצב ביומן שלנו..." והפעילי את הפונקציה check_availability.
-- סגירה: אחרי שיש תאריך, תאספי שם וטלפון, והפעילי את save_test_ride. 
-- סיום: תאשרי שהכל נרשם, תגידי "נתראה בסוכנות, סע בזהירות!" והפעילי end_call.
-"""
+יכולות:
+- בדיקת רישיון: לפני קביעת רכיבת מבחן על כלים גדולים, שאלי תמיד: "יש לך רישיון A או A1?".
+- מוסך: קביעת תורים לטיפולים (שאלי על דגם וקילומטראז').
+- הצעות מחיר: הציעי לשלוח הצעה רשמית בווטסאפ דרך 'get_bike_quote'.
+
+את מאיה, ואת הפנים של הונדה Big Boys Toys. תהיי אדיבה וסמכותית."""
 
 VOICE = "shimmer"
 
@@ -68,18 +71,13 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                         {
                             "type": "function",
                             "name": "check_availability",
-                            "description": "בודק ביומן מתי יש תורים פנויים לרכיבת מבחן",
-                            "parameters": {
-                                "type": "object",
-                                "properties": {
-                                    "date": {"type": "string", "description": "התאריך המבוקש"}
-                                }
-                            }
+                            "description": "בודק זמינות ביומן",
+                            "parameters": { "type": "object", "properties": { "date": {"type": "string"} } }
                         },
                         {
                             "type": "function",
                             "name": "save_test_ride",
-                            "description": "שומר את פרטי הלקוח והמועד שנקבע לרכיבת מבחן",
+                            "description": "שומר רכיבת מבחן",
                             "parameters": {
                                 "type": "object",
                                 "properties": {
@@ -89,6 +87,37 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                                     "appointment_time": {"type": "string"}
                                 },
                                 "required": ["name", "phone", "bike_model", "appointment_time"]
+                            }
+                        },
+                        {
+                            "type": "function",
+                            "name": "get_bike_quote",
+                            "description": "שולח הצעת מחיר בווטסאפ",
+                            "parameters": {
+                                "type": "object",
+                                "properties": {
+                                    "name": {"type": "string"},
+                                    "phone": {"type": "string"},
+                                    "bike_model": {"type": "string"},
+                                    "price": {"type": "string"}
+                                },
+                                "required": ["name", "phone", "bike_model", "price"]
+                            }
+                        },
+                        {
+                            "type": "function",
+                            "name": "book_garage_service",
+                            "description": "קביעת תור למוסך",
+                            "parameters": {
+                                "type": "object",
+                                "properties": {
+                                    "name": {"type": "string"},
+                                    "phone": {"type": "string"},
+                                    "bike_model": {"type": "string"},
+                                    "service_type": {"type": "string"},
+                                    "appointment_time": {"type": "string"}
+                                },
+                                "required": ["name", "phone", "bike_model", "service_type", "appointment_time"]
                             }
                         },
                         {
@@ -114,7 +143,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                             stream_sid = data['start']['streamSid']
                             await openai_ws.send(json.dumps({
                                 "type": "response.create",
-                                "response": {"instructions": "תפתחי בחום: 'היי, הגעת לסוכנות האופנועים, אני מאיה. על איזה כלי אתה רוצה לרכוב היום?'"}
+                                "response": {"instructions": "תפתחי בחום: 'שלום, הגעת לסוכנות הונדה Big Boys Toys, מדברת מאיה. איך אני יכולה לעזור לכם היום?'"}
                             }))
                         elif data['event'] == 'media':
                             await openai_ws.send(json.dumps({"type": "input_audio_buffer.append", "audio": data['media']['payload']}))
@@ -137,12 +166,11 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                             
                             output_content = "{\"status\":\"success\"}"
                             
-                            if func_name in ["save_test_ride", "check_availability"]:
+                            if func_name in ["save_test_ride", "check_availability", "book_garage_service", "get_bike_quote"]:
                                 if MAKE_WEBHOOK_URL:
                                     async with httpx.AsyncClient() as client:
                                         args['action'] = func_name
                                         args['calendar_id'] = CALENDAR_ID
-                                        # תיקון: מחכים לתשובה מ-Make כדי שמאיה תדע מה להגיד
                                         webhook_res = await client.post(MAKE_WEBHOOK_URL, json=args, timeout=15)
                                         if webhook_res.status_code == 200:
                                             output_content = webhook_res.text
