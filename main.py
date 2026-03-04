@@ -15,22 +15,22 @@ OPENAI_API_KEY = raw_api_key.strip().replace('\u2028', '').replace('\u2029', '')
 MAKE_WEBHOOK_URL = os.getenv("MAKE_WEBHOOK_URL")
 CALENDAR_ID = "e1f69352b339ba76f5776a42037f94705d3340aac25a78b1c7f85bd05f5bf931@group.calendar.google.com"
 
-# המוח של מאיה 7.2 - אופטימיזציה של זרימה ומגדר
-SYSTEM_PROMPT = f"""את מאיה, מנהלת השירות והמכירות של הונדה Big Boys Toys. 
-את בחורה חדה, חולה על אופנועים, ומדברת בגובה העיניים.
+# המוח של מאיה 7.3 - פרוטוקול סגירה הרמטי
+SYSTEM_PROMPT = f"""את מאיה, מנהלת השירות של הונדה Big Boys Toys. את חדה, ישירה ומקצוענית.
 
-חוקי זהות ודינמיקה:
-1. מגדר: את מדברת על עצמך בנקבה (אני יכולה, רשמתי, קבעתי). את פונה למתקשר בנקבה/זכר לפי הצורך, אבל ברירת המחדל היא זכר.
-2. סגנון: אל תהיי רשמית מדי. דברי כמו חברה שמבינה עניין. השתמשי במילים כמו "בטח", "מאה אחוז", "תשמע", "וואלה".
-3. זרימה: אל תחכי לאישור על כל מילה. אם הבנת מה הלקוח רוצה, פשוט תתקדמי.
-4. ביטויי אנושיות: מותר לך להגיד "אהה...", "מממ", "רגע, תן לי לראות" בזמן שאת חושבת או מפעילה פונקציה.
+חוקי הפעלת כלים (קריטי!):
+1. תהליך רישום (מוסך או רכיבת מבחן) הוא תמיד בשני שלבים:
+   - שלב א': בדיקת זמינות (check_availability).
+   - שלב ב': שמירה סופית (save_test_ride או book_garage_service).
+2. איסור הבטחות שווא: לעולם אל תגידי "רשמתי לך" או "זה קבוע" לפני שהפעלת את פונקציית השמירה (שלב ב').
+3. איסוף נתונים: למוסך את חייבת לאסוף: דגם, קילומטראז', סוג טיפול, שם וטלפון.
+4. רציפות: ברגע שהלקוח אישר מועד, הפעילי מיד את השמירה בלי לשאול שוב.
 
-תחומי אחריות:
-- מכירות הונדה (CB500X, Africa Twin, Forza).
-- מוסך (טיפולים ותיקונים).
-- הצעות מחיר בווטסאפ (get_bike_quote).
-
-המטרה שלך היא לתת הרגשה של שירות VIP אישי ולא של מוקד טלפוני."""
+סגנון דיבור:
+- דברי בנקבה על עצמך, פני ללקוח בזכר (אלא אם זו אישה).
+- קצב טבעי: תשתמשי ב-"מאה אחוז", "רגע בודקת", "מעולה, רשמתי".
+- זמן תגובה: היי זריזה וקולעת.
+"""
 
 VOICE = "shimmer"
 
@@ -55,7 +55,6 @@ async def websocket_endpoint(twilio_ws: WebSocket):
     
     try:
         async with websockets.connect(openai_url, additional_headers=headers) as openai_ws:
-            # כיול זמן תגובה ל-1000ms - מהיר יותר ומונע שתיקות
             session_update = {
                 "type": "session.update",
                 "session": {
@@ -70,13 +69,13 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                         {
                             "type": "function",
                             "name": "check_availability",
-                            "description": "בודק זמינות ביומן",
+                            "description": "בודק זמינות ביומן. חובה לבצע לפני כל שמירה.",
                             "parameters": { "type": "object", "properties": { "date": {"type": "string"} } }
                         },
                         {
                             "type": "function",
                             "name": "save_test_ride",
-                            "description": "שומר רכיבת מבחן",
+                            "description": "שמירה סופית של רכיבת מבחן באקסל וביומן.",
                             "parameters": {
                                 "type": "object",
                                 "properties": {
@@ -90,8 +89,25 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                         },
                         {
                             "type": "function",
+                            "name": "book_garage_service",
+                            "description": "שמירה סופית של תור למוסך באקסל וביומן.",
+                            "parameters": {
+                                "type": "object",
+                                "properties": {
+                                    "name": {"type": "string"},
+                                    "phone": {"type": "string"},
+                                    "bike_model": {"type": "string"},
+                                    "service_type": {"type": "string"},
+                                    "mileage": {"type": "string"},
+                                    "appointment_time": {"type": "string"}
+                                },
+                                "required": ["name", "phone", "bike_model", "service_type", "appointment_time"]
+                            }
+                        },
+                        {
+                            "type": "function",
                             "name": "get_bike_quote",
-                            "description": "שולח הצעת מחיר בווטסאפ",
+                            "description": "שליחת הצעת מחיר בווטסאפ ללקוח.",
                             "parameters": {
                                 "type": "object",
                                 "properties": {
@@ -105,24 +121,8 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                         },
                         {
                             "type": "function",
-                            "name": "book_garage_service",
-                            "description": "קביעת תור למוסך",
-                            "parameters": {
-                                "type": "object",
-                                "properties": {
-                                    "name": {"type": "string"},
-                                    "phone": {"type": "string"},
-                                    "bike_model": {"type": "string"},
-                                    "service_type": {"type": "string"},
-                                    "appointment_time": {"type": "string"}
-                                },
-                                "required": ["name", "phone", "bike_model", "service_type", "appointment_time"]
-                            }
-                        },
-                        {
-                            "type": "function",
                             "name": "end_call",
-                            "description": "מנתק את השיחה",
+                            "description": "ניתוק השיחה לאחר סיום הטיפול.",
                             "parameters": {"type": "object", "properties": {}}
                         }
                     ],
@@ -142,7 +142,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                             stream_sid = data['start']['streamSid']
                             await openai_ws.send(json.dumps({
                                 "type": "response.create",
-                                "response": {"instructions": "תפתחי הכי טבעי: 'היי, הגעת ל-Big Boys Toys, אני מאיה. מה קורה? איך אני יכולה לעזור?'"}
+                                "response": {"instructions": "תפתחי בחום: 'היי, כאן מאיה מ-Big Boys Toys. איך אני יכולה לעזור היום?'"}
                             }))
                         elif data['event'] == 'media':
                             await openai_ws.send(json.dumps({"type": "input_audio_buffer.append", "audio": data['media']['payload']}))
@@ -181,7 +181,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                                 await openai_ws.send(json.dumps({"type": "response.create"}))
                                 
                             elif func_name == "end_call":
-                                await asyncio.sleep(3)
+                                await asyncio.sleep(2)
                                 await twilio_ws.close()
                                 break
                 except Exception: pass
