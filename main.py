@@ -9,109 +9,71 @@ from twilio.twiml.voice_response import VoiceResponse, Connect, Hangup
 
 app = FastAPI()
 
-# טעינת משתני סביבה - עם ניקוי תווים נסתרים
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 MAKE_WEBHOOK_URL = os.getenv("MAKE_WEBHOOK_URL", "").strip()
-CALENDAR_ID = "e1f69352b339ba76f5776a42037f94705d3340aac25a78b1c7f85bd05f5bf931@group.calendar.google.com"
 
-SYSTEM_PROMPT = """את מאיה מהונדה Big Boys Toys. את חדה ומקצועית. 
-עלייך לאסוף תמיד: שם, טלפון, דגם וזמן לפני אישור תור. 
-דברי בנקבה על עצמך ובזכר ללקוח."""
-
-VOICE = "shimmer"
+SYSTEM_PROMPT = "את מאיה מהונדה Big Boys Toys. תעני בקצרה ובחום. תמיד תשאלי לשם הלקוח."
 
 @app.post("/voice")
 async def voice_entry(request: Request):
-    response = VoiceResponse()
+    resp = VoiceResponse()
     connect = Connect()
-    host = request.url.hostname
-    connect.stream(url=f'wss://{host}/stream')
-    response.append(connect)
-    response.append(Hangup())
-    return Response(content=str(response), media_type="application/xml")
+    connect.stream(url=f'wss://{request.url.hostname}/stream')
+    resp.append(connect)
+    resp.append(Hangup())
+    return Response(content=str(resp), media_type="application/xml")
 
 @app.websocket("/stream")
 async def websocket_endpoint(twilio_ws: WebSocket):
     await twilio_ws.accept()
-    print("DEBUG: Twilio Connected") # יופיע בלוגים כשתתחיל שיחה
-
-    if not OPENAI_API_KEY:
-        print("ERROR: OpenAI API Key is missing!")
-        await twilio_ws.close(); return
-
-    openai_url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview"
+    print("LOG: Twilio connected")
+    
+    url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview"
     headers = {"Authorization": f"Bearer {OPENAI_API_KEY}", "OpenAI-Beta": "realtime=v1"}
     
     try:
-        async with websockets.connect(openai_url, additional_headers=headers) as openai_ws:
-            print("DEBUG: Connected to OpenAI Realtime")
+        async with websockets.connect(url, additional_headers=headers) as openai_ws:
+            print("LOG: OpenAI connected successfully")
             
-            session_update = {
+            # עדכון סשן בסיסי
+            await openai_ws.send(json.dumps({
                 "type": "session.update",
                 "session": {
-                    "turn_detection": {"type": "server_vad", "silence_duration_ms": 1000},
-                    "input_audio_format": "g711_ulaw",
-                    "output_audio_format": "g711_ulaw",
-                    "voice": VOICE,
                     "instructions": SYSTEM_PROMPT,
-                    "modalities": ["audio", "text"],
-                    "temperature": 0.8,
-                    "tools": [
-                        {
-                            "type": "function",
-                            "name": "check_availability",
-                            "description": "בודק זמינות",
-                            "parameters": { "type": "object", "properties": { "date": {"type": "string"} } }
-                        },
-                        {
-                            "type": "function",
-                            "name": "book_garage_service",
-                            "description": "רישום למוסך",
-                            "parameters": {
-                                "type": "object",
-                                "properties": {
-                                    "name": {"type": "string"},
-                                    "phone": {"type": "string"},
-                                    "bike_model": {"type": "string"},
-                                    "service_type": {"type": "string"},
-                                    "mileage": {"type": "string"},
-                                    "appointment_time": {"type": "string"}
-                                },
-                                "required": ["name", "phone", "bike_model", "service_type", "appointment_time"]
-                            }
-                        }
-                    ],
-                    "tool_choice": "auto"
+                    "voice": "shimmer",
+                    "turn_detection": {"type": "server_vad"}
                 }
-            }
-            await openai_ws.send(json.dumps(session_update))
+            }))
 
-            async def receive_from_twilio():
-                try:
-                    async for message in twilio_ws.iter_text():
-                        data = json.loads(message)
-                        if data['event'] == 'media':
-                            await openai_ws.send(json.dumps({"type": "input_audio_buffer.append", "audio": data['media']['payload']}))
-                except Exception as e: print(f"Twilio Receive Error: {e}")
+            # הודעת פתיחה כפויה
+            await openai_ws.send(json.dumps({
+                "type": "response.create",
+                "response": {"instructions": "תגידי מיד: 'שלום, הגעת להונדה, אני מאיה. איך עוזרים?'"}
+            }))
 
-            async def receive_from_openai():
-                try:
-                    async for openai_message in openai_ws:
-                        response_data = json.loads(openai_message)
-                        if response_data['type'] == 'response.audio.delta' and response_data.get('delta'):
-                            await twilio_ws.send_text(json.dumps({"event": "media", "media": {"payload": response_data['delta']}}))
-                        elif response_data['type'] == 'response.function_call_arguments.done':
-                            func_name = response_data['name']
-                            args = json.loads(response_data['arguments'])
-                            if MAKE_WEBHOOK_URL:
-                                async with httpx.AsyncClient() as client:
-                                    args['action'] = func_name
-                                    await client.post(MAKE_WEBHOOK_URL, json=args, timeout=10)
-                                    print(f"DEBUG: Webhook sent for {func_name}")
-                except Exception as e: print(f"OpenAI Receive Error: {e}")
+            stream_sid = None
 
-            await asyncio.gather(receive_from_twilio(), receive_from_openai())
+            async def from_twilio():
+                nonlocal stream_sid
+                async for msg in twilio_ws.iter_text():
+                    data = json.loads(msg)
+                    if data['event'] == 'start': 
+                        stream_sid = data['start']['streamSid']
+                        print(f"LOG: Stream SID: {stream_sid}")
+                    if data['event'] == 'media':
+                        await openai_ws.send(json.dumps({"type": "input_audio_buffer.append", "audio": data['media']['payload']}))
+
+            async def from_openai():
+                async for msg in openai_ws:
+                    data = json.loads(msg)
+                    if data['type'] == 'response.audio.delta':
+                        await twilio_ws.send_text(json.dumps({
+                            "event": "media", "streamSid": stream_sid, "media": {"payload": data['delta']}
+                        }))
+                    if data['type'] == 'error':
+                        print(f"OPENAI ERROR: {data['error']['message']}")
+
+            await asyncio.gather(from_twilio(), from_openai())
+
     except Exception as e:
-        print(f"CRITICAL ERROR: {e}")
-    finally:
-        print("DEBUG: Connection Closed")
+        print(f"LOG CRITICAL ERROR: {e}")
