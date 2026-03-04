@@ -15,23 +15,22 @@ OPENAI_API_KEY = raw_api_key.strip().replace('\u2028', '').replace('\u2029', '')
 MAKE_WEBHOOK_URL = os.getenv("MAKE_WEBHOOK_URL")
 CALENDAR_ID = "e1f69352b339ba76f5776a42037f94705d3340aac25a78b1c7f85bd05f5bf931@group.calendar.google.com"
 
-# המוח של מאיה 7.1 - הגדרות זהות וזרימה משופרות
+# המוח של מאיה 7.2 - אופטימיזציה של זרימה ומגדר
 SYSTEM_PROMPT = f"""את מאיה, מנהלת השירות והמכירות של הונדה Big Boys Toys. 
-את אישה, ואת חייבת לדבר בלשון נקבה בלבד (אני רוצה, אני יכולה, קבעתי לך). 
+את בחורה חדה, חולה על אופנועים, ומדברת בגובה העיניים.
 
-חוקי שיחה טבעית:
-1. אל תהיי רובוטית. תשתמש בביטויי מעבר כמו "אמממ", "רגע תן לי לבדוק", "וואו, בחירה מעולה".
-2. אם הלקוח שותק לרגע, אל תילחצי ותמשיכי לדבר בנחת.
-3. דברי בקצב של בן אדם, לא מהר מדי.
+חוקי זהות ודינמיקה:
+1. מגדר: את מדברת על עצמך בנקבה (אני יכולה, רשמתי, קבעתי). את פונה למתקשר בנקבה/זכר לפי הצורך, אבל ברירת המחדל היא זכר.
+2. סגנון: אל תהיי רשמית מדי. דברי כמו חברה שמבינה עניין. השתמשי במילים כמו "בטח", "מאה אחוז", "תשמע", "וואלה".
+3. זרימה: אל תחכי לאישור על כל מילה. אם הבנת מה הלקוח רוצה, פשוט תתקדמי.
+4. ביטויי אנושיות: מותר לך להגיד "אהה...", "מממ", "רגע, תן לי לראות" בזמן שאת חושבת או מפעילה פונקציה.
 
-חוקי המותג:
-- את מוכרת רק אופנועי הונדה חדשים (CB500X, Africa Twin, Forza 350).
-- יד שניה: יש הכל מהכל.
+תחומי אחריות:
+- מכירות הונדה (CB500X, Africa Twin, Forza).
+- מוסך (טיפולים ותיקונים).
+- הצעות מחיר בווטסאפ (get_bike_quote).
 
-סגירת עסקה:
-- את לא מסיימת שיחה בלי להציע לשלוח הצעת מחיר בווטסאפ (get_bike_quote).
-- ברגע שהלקוח מאשר תור, את חייבת להפעיל את הכלי המתאים (save_test_ride או book_garage_service).
-"""
+המטרה שלך היא לתת הרגשה של שירות VIP אישי ולא של מוקד טלפוני."""
 
 VOICE = "shimmer"
 
@@ -56,11 +55,11 @@ async def websocket_endpoint(twilio_ws: WebSocket):
     
     try:
         async with websockets.connect(openai_url, additional_headers=headers) as openai_ws:
-            # תיקון הקטיעות: העלינו את ה-silence_duration_ms ל-1500 כדי שהיא לא תקטע את עצמה
+            # כיול זמן תגובה ל-1000ms - מהיר יותר ומונע שתיקות
             session_update = {
                 "type": "session.update",
                 "session": {
-                    "turn_detection": {"type": "server_vad", "silence_duration_ms": 1500},
+                    "turn_detection": {"type": "server_vad", "silence_duration_ms": 1000},
                     "input_audio_format": "g711_ulaw",
                     "output_audio_format": "g711_ulaw",
                     "voice": VOICE,
@@ -143,7 +142,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                             stream_sid = data['start']['streamSid']
                             await openai_ws.send(json.dumps({
                                 "type": "response.create",
-                                "response": {"instructions": "תפתחי בחיוך: 'היי, הגעת ל-Big Boys Toys, אני מאיה. איזה כיף שהתקשרת! מה אפשר לעשות בשבילך?'"}
+                                "response": {"instructions": "תפתחי הכי טבעי: 'היי, הגעת ל-Big Boys Toys, אני מאיה. מה קורה? איך אני יכולה לעזור?'"}
                             }))
                         elif data['event'] == 'media':
                             await openai_ws.send(json.dumps({"type": "input_audio_buffer.append", "audio": data['media']['payload']}))
