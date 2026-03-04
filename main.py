@@ -9,27 +9,14 @@ from twilio.twiml.voice_response import VoiceResponse, Connect, Hangup
 
 app = FastAPI()
 
-# טעינת משתני סביבה
-raw_api_key = os.getenv("OPENAI_API_KEY")
-OPENAI_API_KEY = raw_api_key.strip().replace('\u2028', '').replace('\u2029', '') if raw_api_key else ""
-MAKE_WEBHOOK_URL = os.getenv("MAKE_WEBHOOK_URL")
+# טעינת משתני סביבה - עם ניקוי תווים נסתרים
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
+MAKE_WEBHOOK_URL = os.getenv("MAKE_WEBHOOK_URL", "").strip()
 CALENDAR_ID = "e1f69352b339ba76f5776a42037f94705d3340aac25a78b1c7f85bd05f5bf931@group.calendar.google.com"
 
-# המוח של מאיה 7.5 - איסוף נתונים קשיח
-SYSTEM_PROMPT = f"""את מאיה, מנהלת השירות של הונדה Big Boys Toys. את חדה ויסודית.
-
-חוקי איסוף נתונים (קריטי!):
-1. איסור מוחלט על "ערכי דמי": לעולם אל תשתמשי במילים כמו "לא סופק", "לא ידוע" או "חסר" בתוך הפונקציות. 
-2. אם חסר לך שם הלקוח או מספר הטלפון שלו, את חייבת לעצור ולשאול: "סליחה, רק לפני שנמשיך, על איזה שם לרשום את התור ומה הטלפון שלך?".
-3. את מפעילה את 'book_garage_service' או 'save_test_ride' רק אחרי שיש לך את כל הפרטים הבאים: שם, טלפון, דגם, וזמן.
-
-סדר שיחה למוסך:
-- לקוח מבקש טיפול -> תשאלי דגם וקילומטראז'.
-- בדיקת זמינות -> check_availability.
-- אישור לקוח -> "יופי, אז קבענו למחר ב-10. רק תזכיר לי מה השם והטלפון שלך?".
-- ביצוע שמירה -> הפעלת הפונקציה ודיווח ללקוח שזה נרשם.
-
-את מאיה, את לא מוותרת ללקוח עד שכל הפרטים אצלך במערכת."""
+SYSTEM_PROMPT = """את מאיה מהונדה Big Boys Toys. את חדה ומקצועית. 
+עלייך לאסוף תמיד: שם, טלפון, דגם וזמן לפני אישור תור. 
+דברי בנקבה על עצמך ובזכר ללקוח."""
 
 VOICE = "shimmer"
 
@@ -46,7 +33,10 @@ async def voice_entry(request: Request):
 @app.websocket("/stream")
 async def websocket_endpoint(twilio_ws: WebSocket):
     await twilio_ws.accept()
+    print("DEBUG: Twilio Connected") # יופיע בלוגים כשתתחיל שיחה
+
     if not OPENAI_API_KEY:
+        print("ERROR: OpenAI API Key is missing!")
         await twilio_ws.close(); return
 
     openai_url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview"
@@ -54,6 +44,8 @@ async def websocket_endpoint(twilio_ws: WebSocket):
     
     try:
         async with websockets.connect(openai_url, additional_headers=headers) as openai_ws:
+            print("DEBUG: Connected to OpenAI Realtime")
+            
             session_update = {
                 "type": "session.update",
                 "session": {
@@ -63,33 +55,18 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                     "voice": VOICE,
                     "instructions": SYSTEM_PROMPT,
                     "modalities": ["audio", "text"],
-                    "temperature": 0.5, # הורדנו עוד קצת כדי למנוע הזיות
+                    "temperature": 0.8,
                     "tools": [
                         {
                             "type": "function",
                             "name": "check_availability",
-                            "description": "בודק זמינות ביומן.",
+                            "description": "בודק זמינות",
                             "parameters": { "type": "object", "properties": { "date": {"type": "string"} } }
                         },
                         {
                             "type": "function",
-                            "name": "save_test_ride",
-                            "description": "שמירה סופית של רכיבת מבחן.",
-                            "parameters": {
-                                "type": "object",
-                                "properties": {
-                                    "name": {"type": "string"},
-                                    "phone": {"type": "string"},
-                                    "bike_model": {"type": "string"},
-                                    "appointment_time": {"type": "string"}
-                                },
-                                "required": ["name", "phone", "bike_model", "appointment_time"]
-                            }
-                        },
-                        {
-                            "type": "function",
                             "name": "book_garage_service",
-                            "description": "רישום סופי של תור למוסך.",
+                            "description": "רישום למוסך",
                             "parameters": {
                                 "type": "object",
                                 "properties": {
@@ -102,27 +79,6 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                                 },
                                 "required": ["name", "phone", "bike_model", "service_type", "appointment_time"]
                             }
-                        },
-                        {
-                            "type": "function",
-                            "name": "get_bike_quote",
-                            "description": "שליחת הצעת מחיר בווטסאפ.",
-                            "parameters": {
-                                "type": "object",
-                                "properties": {
-                                    "name": {"type": "string"},
-                                    "phone": {"type": "string"},
-                                    "bike_model": {"type": "string"},
-                                    "price": {"type": "string"}
-                                },
-                                "required": ["name", "phone", "bike_model", "price"]
-                            }
-                        },
-                        {
-                            "type": "function",
-                            "name": "end_call",
-                            "description": "ניתוק השיחה.",
-                            "parameters": {"type": "object", "properties": {}}
                         }
                     ],
                     "tool_choice": "auto"
@@ -130,65 +86,32 @@ async def websocket_endpoint(twilio_ws: WebSocket):
             }
             await openai_ws.send(json.dumps(session_update))
 
-            stream_sid = None
-
             async def receive_from_twilio():
-                nonlocal stream_sid
                 try:
                     async for message in twilio_ws.iter_text():
                         data = json.loads(message)
-                        if data['event'] == 'start':
-                            stream_sid = data['start']['streamSid']
-                            await openai_ws.send(json.dumps({
-                                "type": "response.create",
-                                "response": {"instructions": "תפתחי בחום: 'היי, הגעת להונדה Big Boys Toys, מדברת מאיה. מה אפשר לעשות בשבילך?'"}
-                            }))
-                        elif data['event'] == 'media':
+                        if data['event'] == 'media':
                             await openai_ws.send(json.dumps({"type": "input_audio_buffer.append", "audio": data['media']['payload']}))
-                except Exception: pass
+                except Exception as e: print(f"Twilio Receive Error: {e}")
 
             async def receive_from_openai():
                 try:
                     async for openai_message in openai_ws:
                         response_data = json.loads(openai_message)
-                        
                         if response_data['type'] == 'response.audio.delta' and response_data.get('delta'):
-                            await twilio_ws.send_text(json.dumps({"event": "media", "streamSid": stream_sid, "media": {"payload": response_data['delta']}}))
-                        elif response_data['type'] == 'input_audio_buffer.speech_started':
-                            await twilio_ws.send_text(json.dumps({"event": "clear", "streamSid": stream_sid}))
-                        
+                            await twilio_ws.send_text(json.dumps({"event": "media", "media": {"payload": response_data['delta']}}))
                         elif response_data['type'] == 'response.function_call_arguments.done':
                             func_name = response_data['name']
-                            call_id = response_data['call_id']
                             args = json.loads(response_data['arguments'])
-                            
-                            output_content = "{\"status\":\"success\"}"
-                            
-                            if func_name in ["save_test_ride", "check_availability", "book_garage_service", "get_bike_quote"]:
-                                if MAKE_WEBHOOK_URL:
-                                    async with httpx.AsyncClient() as client:
-                                        args['action'] = func_name
-                                        args['calendar_id'] = CALENDAR_ID
-                                        webhook_res = await client.post(MAKE_WEBHOOK_URL, json=args, timeout=15)
-                                        if webhook_res.status_code == 200:
-                                            output_content = webhook_res.text
-                                
-                                await openai_ws.send(json.dumps({
-                                    "type": "conversation.item.create",
-                                    "item": {"type": "function_call_output", "call_id": call_id, "output": output_content}
-                                }))
-                                await openai_ws.send(json.dumps({"type": "response.create"}))
-                                
-                            elif func_name == "end_call":
-                                await asyncio.sleep(2)
-                                await twilio_ws.close()
-                                break
-                except Exception: pass
+                            if MAKE_WEBHOOK_URL:
+                                async with httpx.AsyncClient() as client:
+                                    args['action'] = func_name
+                                    await client.post(MAKE_WEBHOOK_URL, json=args, timeout=10)
+                                    print(f"DEBUG: Webhook sent for {func_name}")
+                except Exception as e: print(f"OpenAI Receive Error: {e}")
 
             await asyncio.gather(receive_from_twilio(), receive_from_openai())
-    except Exception: pass
-
-if __name__ == "__main__":
-    import uvicorn
-    port = int(os.getenv("PORT", 5050))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    except Exception as e:
+        print(f"CRITICAL ERROR: {e}")
+    finally:
+        print("DEBUG: Connection Closed")
