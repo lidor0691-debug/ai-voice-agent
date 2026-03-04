@@ -9,16 +9,13 @@ from twilio.twiml.voice_response import VoiceResponse, Connect, Hangup
 
 app = FastAPI()
 
-# טעינת משתני סביבה
+# שליפת משתני סביבה
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 MAKE_WEBHOOK_URL = os.getenv("MAKE_WEBHOOK_URL", "").strip()
 
-# המוח של מאיה - הונדה Big Boys Toys
-SYSTEM_PROMPT = """את מאיה, מנהלת השירות של הונדה Big Boys Toys. את חדה ומקצועית.
-חוקים:
-1. את חייבת לאסוף שם, טלפון, דגם אופנוע וזמן לפני אישור תור.
-2. דברי בנקבה על עצמך (אני יכולה, רשמתי) ובזכר ללקוח.
-3. אל תשלחי פונקציה עם ערכים כמו 'לא סופק'. אם חסר פרט, תשאלי את הלקוח שוב."""
+SYSTEM_PROMPT = """את מאיה, מנהלת השירות של הונדה Big Boys Toys. 
+את חייבת לאסוף: שם, טלפון, דגם אופנוע וזמן לפני אישור תור. 
+דברי בנקבה על עצמך ובזכר ללקוח. אל תמציאי פרטים."""
 
 @app.post("/voice")
 async def voice_entry(request: Request):
@@ -32,12 +29,15 @@ async def voice_entry(request: Request):
 @app.websocket("/stream")
 async def websocket_endpoint(twilio_ws: WebSocket):
     await twilio_ws.accept()
+    print("LOG: Twilio Connected")
     
     url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview"
     headers = {"Authorization": f"Bearer {OPENAI_API_KEY}", "OpenAI-Beta": "realtime=v1"}
     
     try:
         async with websockets.connect(url, additional_headers=headers) as openai_ws:
+            print("LOG: OpenAI Connected")
+            
             # עדכון סשן
             await openai_ws.send(json.dumps({
                 "type": "session.update",
@@ -69,7 +69,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
             # הודעת פתיחה
             await openai_ws.send(json.dumps({
                 "type": "response.create",
-                "response": {"instructions": "תגידי: 'שלום, הגעת להונדה Big Boys Toys, אני מאיה. איך אפשר לעזור היום?'"}
+                "response": {"instructions": "תפתחי בחיוך: 'היי, הגעת להונדה Big Boys Toys, אני מאיה. איך אפשר לעזור היום?'"}
             }))
 
             stream_sid = None
@@ -78,22 +78,25 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                 nonlocal stream_sid
                 async for msg in twilio_ws.iter_text():
                     data = json.loads(msg)
-                    if data['event'] == 'start': stream_sid = data['start']['streamSid']
+                    if data['event'] == 'start': 
+                        stream_sid = data['start']['streamSid']
+                        print(f"LOG: Stream SID: {stream_sid}")
                     if data['event'] == 'media':
                         await openai_ws.send(json.dumps({"type": "input_audio_buffer.append", "audio": data['media']['payload']}))
 
             async def from_openai():
                 async for msg in openai_ws:
                     data = json.loads(msg)
-                    if data['type'] == 'response.audio.delta':
+                    if data.get('type') == 'response.audio.delta':
                         await twilio_ws.send_text(json.dumps({"event": "media", "streamSid": stream_sid, "media": {"payload": data['delta']}}))
                     
-                    if data['type'] == 'response.function_call_arguments.done':
+                    if data.get('type') == 'response.function_call_arguments.done':
                         args = json.loads(data['arguments'])
                         if MAKE_WEBHOOK_URL:
                             async with httpx.AsyncClient() as client:
                                 args['action'] = data['name']
                                 await client.post(MAKE_WEBHOOK_URL, json=args, timeout=5)
+                                print(f"LOG: Webhook sent: {data['name']}")
                         
                         await openai_ws.send(json.dumps({
                             "type": "conversation.item.create",
@@ -103,7 +106,10 @@ async def websocket_endpoint(twilio_ws: WebSocket):
 
             await asyncio.gather(to_openai(), from_openai())
 
-    except Exception: pass
+    except Exception as e:
+        print(f"LOG ERROR: {e}")
+    finally:
+        print("LOG: Connection Closed")
 
 if __name__ == "__main__":
     import uvicorn
