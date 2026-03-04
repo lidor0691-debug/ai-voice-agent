@@ -15,26 +15,21 @@ OPENAI_API_KEY = raw_api_key.strip().replace('\u2028', '').replace('\u2029', '')
 MAKE_WEBHOOK_URL = os.getenv("MAKE_WEBHOOK_URL")
 CALENDAR_ID = "e1f69352b339ba76f5776a42037f94705d3340aac25a78b1c7f85bd05f5bf931@group.calendar.google.com"
 
-# המוח של מאיה 7.4 - הפרדה מוחלטת בין מוסך למכירות
-SYSTEM_PROMPT = f"""את מאיה, מנהלת השירות של הונדה Big Boys Toys. 
-את פועלת לפי חוקי ברזל. אסור לך לנחש פרטים!
+# המוח של מאיה 7.5 - איסוף נתונים קשיח
+SYSTEM_PROMPT = f"""את מאיה, מנהלת השירות של הונדה Big Boys Toys. את חדה ויסודית.
 
-חוק 1: הפרדה מוחלטת. 
-- אם הלקוח אמר "טיפול" או "מוסך" -> את בנתיב מוסך בלבד. אסור להפעיל את save_test_ride.
-- אם הלקוח אמר "קנייה" או "נסיעה" -> את בנתיב מכירות בלבד. אסור להפעיל את book_garage_service.
+חוקי איסוף נתונים (קריטי!):
+1. איסור מוחלט על "ערכי דמי": לעולם אל תשתמשי במילים כמו "לא סופק", "לא ידוע" או "חסר" בתוך הפונקציות. 
+2. אם חסר לך שם הלקוח או מספר הטלפון שלו, את חייבת לעצור ולשאול: "סליחה, רק לפני שנמשיך, על איזה שם לרשום את התור ומה הטלפון שלך?".
+3. את מפעילה את 'book_garage_service' או 'save_test_ride' רק אחרי שיש לך את כל הפרטים הבאים: שם, טלפון, דגם, וזמן.
 
-חוק 2: איסוף נתונים למוסך (חובה!):
-לפני שאת מפעילה את 'book_garage_service', את חייבת לשאול ולקבל תשובה על:
-1. איזה דגם אופנוע?
-2. מה הקילומטראז' (ק"מ)?
-3. איזה סוג טיפול (תקופתי או תקלה)?
+סדר שיחה למוסך:
+- לקוח מבקש טיפול -> תשאלי דגם וקילומטראז'.
+- בדיקת זמינות -> check_availability.
+- אישור לקוח -> "יופי, אז קבענו למחר ב-10. רק תזכיר לי מה השם והטלפון שלך?".
+- ביצוע שמירה -> הפעלת הפונקציה ודיווח ללקוח שזה נרשם.
 
-חוק 3: סדר פעולות:
-- תמיד בודקת זמינות (check_availability) קודם.
-- רק אחרי שהלקוח אישר שעה, את מפעילה את השמירה (שלב ב').
-- את מודיעה: "רגע, אני מעדכנת את האקסל שלנו... זהו, רשום!".
-
-סגנון: חדה, מקצועית, פונה למתקשר בזכר, מדברת על עצמך בנקבה."""
+את מאיה, את לא מוותרת ללקוח עד שכל הפרטים אצלך במערכת."""
 
 VOICE = "shimmer"
 
@@ -68,7 +63,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                     "voice": VOICE,
                     "instructions": SYSTEM_PROMPT,
                     "modalities": ["audio", "text"],
-                    "temperature": 0.6, # הורדתי טמפרטורה כדי שתהיה יותר מדויקת ופחות יצירתית
+                    "temperature": 0.5, # הורדנו עוד קצת כדי למנוע הזיות
                     "tools": [
                         {
                             "type": "function",
@@ -79,7 +74,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                         {
                             "type": "function",
                             "name": "save_test_ride",
-                            "description": "שמירת רכיבת מבחן באקסל.",
+                            "description": "שמירה סופית של רכיבת מבחן.",
                             "parameters": {
                                 "type": "object",
                                 "properties": {
@@ -94,7 +89,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                         {
                             "type": "function",
                             "name": "book_garage_service",
-                            "description": "רישום תור למוסך באקסל.",
+                            "description": "רישום סופי של תור למוסך.",
                             "parameters": {
                                 "type": "object",
                                 "properties": {
@@ -146,7 +141,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                             stream_sid = data['start']['streamSid']
                             await openai_ws.send(json.dumps({
                                 "type": "response.create",
-                                "response": {"instructions": "תפתחי בחום: 'היי, הגעת להונדה Big Boys Toys, אני מאיה. מה אפשר לעשות בשבילך?'"}
+                                "response": {"instructions": "תפתחי בחום: 'היי, הגעת להונדה Big Boys Toys, מדברת מאיה. מה אפשר לעשות בשבילך?'"}
                             }))
                         elif data['event'] == 'media':
                             await openai_ws.send(json.dumps({"type": "input_audio_buffer.append", "audio": data['media']['payload']}))
