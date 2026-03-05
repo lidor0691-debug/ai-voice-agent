@@ -9,24 +9,20 @@ from twilio.twiml.voice_response import VoiceResponse, Connect, Hangup
 
 app = FastAPI()
 
-# טעינת משתני סביבה
+# ניקוי מפתחות ומשתנים - סטרילי לגמרי
 raw_api_key = os.getenv("OPENAI_API_KEY")
 OPENAI_API_KEY = raw_api_key.strip().replace('\u2028', '').replace('\u2029', '') if raw_api_key else ""
 MAKE_WEBHOOK_URL = os.getenv("MAKE_WEBHOOK_URL")
 CALENDAR_ID = "e1f69352b339ba76f5776a42037f94705d3340aac25a78b1c7f85bd05f5bf931@group.calendar.google.com"
 
-# מוח מאיה 8.2 - גמישות מכירתית ודינמיות
-SYSTEM_PROMPT = f"""את מאיה מנהלת השירות והמכירות של הונדה Big Boys Toys. 
-את בחורה חריפה, חולה על אופנועים, ויודעת למכור ולתת שירות במקביל.
-
-חוקי דמו למקצוענים:
-1. גמישות: הלקוח יכול לקפוץ בין נושאים. אם הוא קבע תור למוסך ואז שואל על אופנוע חדש - תזרמי איתו בכיף.
-2. ידע במחירים: אם שואלים על מחיר, תני הערכה כללית (למשל: "ה-CB500X מתחיל באזור ה-50 אלף, תלוי באבזור") ותציעי לשלוח הצעה מדויקת בווטסאפ.
-3. איסוף נתונים רציף: אם כבר קיבלת שם וטלפון במוסך, אל תשאלי אותם שוב לנסיעת המבחן! תשתמשי במידע שכבר יש לך.
-4. שעה מדויקת: תמיד תתעקשי על שעה (HH:MM) גם למוסך וגם לנסיעת המבחן.
-5. מגדר: את אישה (נקבה). הלקוח גבר (זכר). פנייה בברכה ראשונה תמיד בזכר!
-
-לוגיקת טיפולים: 1,000 ק"מ = הרצה. 12,000 ק"מ = תקופתי."""
+# ה-Prompt המדויק: 12,000 ק"מ, מגדר קשוח, ושעה מדויקת
+SYSTEM_PROMPT = """את מאיה מהונדה Big Boys Toys. בחורה חדה ומקצועית.
+חוקי ברזל:
+1. מגדר: את אישה. פני ללקוח אך ורק בזכר (אתה, תרצה). אל תפתחי בנקבה לעולם!
+2. לוגיקה: 1,000 ק"מ = הרצה. 12,000 ק"מ = טיפול תקופתי. תגידי את זה ללקוח.
+3. דיוק: אל תאשרי תור בלי שעה מדויקת (למשל 09:00). אל תסכימי ל"בוקר".
+4. אימות: חזרי על מספר הקילומטראז' ששמעת כדי לוודא דיוק.
+5. סיום: הבטיחי הודעת סיכום בווטסאפ בסוף השיחה."""
 
 VOICE = "shimmer"
 
@@ -42,21 +38,19 @@ async def voice_entry(request: Request):
 @app.websocket("/stream")
 async def websocket_endpoint(twilio_ws: WebSocket):
     await twilio_ws.accept()
-    if not OPENAI_API_KEY:
-        await twilio_ws.close(); return
-
-    openai_url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview"
+    
+    url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview"
     headers = {"Authorization": f"Bearer {OPENAI_API_KEY}", "OpenAI-Beta": "realtime=v1"}
     
     try:
-        async with websockets.connect(openai_url, additional_headers=headers) as openai_ws:
-            session_update = {
+        async with websockets.connect(url, additional_headers=headers) as openai_ws:
+            # עדכון סשן - הגדרות מהירות ודיוק
+            await openai_ws.send(json.dumps({
                 "type": "session.update",
                 "session": {
                     "turn_detection": {"type": "server_vad", "silence_duration_ms": 800},
-                    "voice": VOICE,
                     "instructions": SYSTEM_PROMPT,
-                    "modalities": ["audio", "text"],
+                    "voice": VOICE,
                     "temperature": 0.6,
                     "tools": [
                         {
@@ -76,7 +70,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                         {
                             "type": "function",
                             "name": "save_test_ride",
-                            "description": "קביעת נסיעת מבחן",
+                            "description": "שומר רכיבת מבחן",
                             "parameters": {
                                 "type": "object",
                                 "properties": {
@@ -85,63 +79,54 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                                 },
                                 "required": ["name", "phone", "bike_model", "appointment_time"]
                             }
-                        },
-                        {
-                            "type": "function",
-                            "name": "get_bike_quote",
-                            "description": "שליחת הצעת מחיר בוואטסאפ",
-                            "parameters": {
-                                "type": "object",
-                                "properties": {
-                                    "name": {"type": "string"}, "phone": {"type": "string"},
-                                    "bike_model": {"type": "string"}, "price_estimate": {"type": "string"}
-                                },
-                                "required": ["name", "phone", "bike_model", "price_estimate"]
-                            }
                         }
-                    ],
-                    "tool_choice": "auto"
+                    ]
                 }
-            }
-            await openai_ws.send(json.dumps(session_update))
+            }))
 
             stream_sid = None
 
             async def to_openai():
                 nonlocal stream_sid
-                async for message in twilio_ws.iter_text():
-                    data = json.loads(message)
-                    if data['event'] == 'start':
-                        stream_sid = data['start']['streamSid']
-                        await openai_ws.send(json.dumps({
-                            "type": "response.create",
-                            "response": {"instructions": "תפתחי בברכה חדה וקצרה בזכר."}
-                        }))
-                    elif data['event'] == 'media':
-                        await openai_ws.send(json.dumps({"type": "input_audio_buffer.append", "audio": data['media']['payload']}))
+                try:
+                    async for msg in twilio_ws.iter_text():
+                        data = json.loads(msg)
+                        if data['event'] == 'start':
+                            stream_sid = data['start']['streamSid']
+                            await openai_ws.send(json.dumps({
+                                "type": "response.create",
+                                "response": {"instructions": "תפתחי בברכה חמה וקצרה בזכר: 'היי, הגעת להונדה, אני מאיה. איך אני יכולה לעזור?'"}
+                            }))
+                        elif data['event'] == 'media':
+                            await openai_ws.send(json.dumps({"type": "input_audio_buffer.append", "audio": data['media']['payload']}))
+                except: pass
 
             async def from_openai():
-                async for msg in openai_ws:
-                    data = json.loads(msg)
-                    if data.get('type') == 'response.audio.delta' and stream_sid:
-                        await twilio_ws.send_text(json.dumps({"event": "media", "streamSid": stream_sid, "media": {"payload": data['delta']}}))
-                    elif data.get('type') == 'input_audio_buffer.speech_started':
-                        await twilio_ws.send_text(json.dumps({"event": "clear", "streamSid": stream_sid}))
-                    
-                    elif data.get('type') == 'response.function_call_arguments.done':
-                        args = json.loads(data['arguments'])
-                        if MAKE_WEBHOOK_URL:
-                            async with httpx.AsyncClient() as client:
-                                args['action'] = data['name']
-                                await client.post(MAKE_WEBHOOK_URL, json=args, timeout=15)
-                        await openai_ws.send(json.dumps({
-                            "type": "conversation.item.create",
-                            "item": {"type": "function_call_output", "call_id": data['call_id'], "output": "{\"status\":\"success\"}"}
-                        }))
-                        await openai_ws.send(json.dumps({"type": "response.create"}))
+                try:
+                    async for msg in openai_ws:
+                        data = json.loads(msg)
+                        if data.get('type') == 'response.audio.delta':
+                            await twilio_ws.send_text(json.dumps({"event": "media", "streamSid": stream_sid, "media": {"payload": data['delta']}}))
+                        
+                        if data.get('type') == 'input_audio_buffer.speech_started':
+                            await twilio_ws.send_text(json.dumps({"event": "clear", "streamSid": stream_sid}))
+
+                        if data.get('type') == 'response.function_call_arguments.done':
+                            args = json.loads(data['arguments'])
+                            if MAKE_WEBHOOK_URL:
+                                async with httpx.AsyncClient() as client:
+                                    args['action'] = data['name']
+                                    await client.post(MAKE_WEBHOOK_URL, json=args, timeout=10)
+                            
+                            await openai_ws.send(json.dumps({
+                                "type": "conversation.item.create",
+                                "item": {"type": "function_call_output", "call_id": data['call_id'], "output": "{\"status\":\"success\"}"}
+                            }))
+                            await openai_ws.send(json.dumps({"type": "response.create"}))
+                except: pass
 
             await asyncio.gather(to_openai(), from_openai())
-    except Exception: pass
+    except: pass
 
 if __name__ == "__main__":
     import uvicorn
