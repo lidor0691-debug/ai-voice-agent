@@ -6,6 +6,7 @@ import httpx
 from fastapi import FastAPI, WebSocket, Request
 from fastapi.responses import Response
 from twilio.twiml.voice_response import VoiceResponse, Connect, Hangup
+from datetime import datetime
 
 app = FastAPI()
 
@@ -13,12 +14,18 @@ raw_api_key = os.getenv("OPENAI_API_KEY")
 OPENAI_API_KEY = raw_api_key.strip().replace('\u2028', '').replace('\u2029', '') if raw_api_key else ""
 MAKE_WEBHOOK_URL = os.getenv("MAKE_WEBHOOK_URL")
 
-SYSTEM_PROMPT = """את מאיה מנהלת השירות של הונדה Big Boys Toys. 
+# חישוב תאריך נוכחי כדי שמאיה תדע לחשב מתי זה "מחר" או "יום חמישי"
+current_date = datetime.now().strftime("%Y-%m-%d")
+
+SYSTEM_PROMPT = f"""את מאיה מנהלת השירות והמכירות של הונדה Big Boys Toys. 
+היום התאריך הוא: {current_date}.
+
 חוקי ברזל:
-1. את אישה. פני ללקוח תמיד בזכר (אתה, תרצה). הברכה הראשונה חייבת להיות בזכר.
+1. מגדר: את אישה. פני ללקוח תמיד בזכר (אתה, תרצה). הברכה הראשונה חייבת להיות בזכר.
 2. לוגיקת טיפולים: 1,000 ק"מ = הרצה. 12,000 ק"מ = תקופתי. תאמתי את המספר ששמעת.
 3. תתעקשי על שעה מדויקת (למשל 09:00), אל תאשרי סתם "בוקר".
-4. היי קשובה לבקשות נוספות כמו נסיעת מבחן או שאלות על דגמים (Africa Twin, Forza)."""
+4. *חוק זמן קריטי*: כשאת מפעילה פונקציה, פורמט השדה appointment_time חייב להיות תמיד YYYY-MM-DD HH:MM (למשל 2026-03-05 10:30). לעולם אל תעבירי מילים כמו "מחר" או "יום חמישי".
+5. דגמים ומכירות: את מכירה את הדגמים CB500X, Africa Twin, Forza, X-ADV. אם הלקוח שואל על מחירים או רוצה נסיעת מבחן, תזרמי איתו, תני הערכת מחיר כללית ותציעי לקבוע נסיעת מבחן או לשלוח הצעה לווטסאפ."""
 
 VOICE = "shimmer"
 
@@ -44,8 +51,8 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                 "type": "session.update",
                 "session": {
                     "turn_detection": {"type": "server_vad", "silence_duration_ms": 800},
-                    "input_audio_format": "g711_ulaw",  # <--- זו השורה שהייתה חסרה ויצרה את הרעש
-                    "output_audio_format": "g711_ulaw", # <--- וזו השנייה
+                    "input_audio_format": "g711_ulaw",
+                    "output_audio_format": "g711_ulaw",
                     "instructions": SYSTEM_PROMPT,
                     "voice": VOICE,
                     "temperature": 0.6,
@@ -58,7 +65,8 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                                 "properties": {
                                     "name": {"type": "string"}, "phone": {"type": "string"},
                                     "bike_model": {"type": "string"}, "service_type": {"type": "string"},
-                                    "mileage": {"type": "string"}, "appointment_time": {"type": "string"}
+                                    "mileage": {"type": "string"}, 
+                                    "appointment_time": {"type": "string", "description": "Must be strictly in YYYY-MM-DD HH:MM format"}
                                 },
                                 "required": ["name", "phone", "bike_model", "service_type", "mileage", "appointment_time"]
                             }
@@ -70,7 +78,8 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                                 "type": "object",
                                 "properties": {
                                     "name": {"type": "string"}, "phone": {"type": "string"},
-                                    "bike_model": {"type": "string"}, "appointment_time": {"type": "string"}
+                                    "bike_model": {"type": "string"}, 
+                                    "appointment_time": {"type": "string", "description": "Must be strictly in YYYY-MM-DD HH:MM format"}
                                 },
                                 "required": ["name", "phone", "bike_model", "appointment_time"]
                             }
