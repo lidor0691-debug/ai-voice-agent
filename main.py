@@ -9,20 +9,16 @@ from twilio.twiml.voice_response import VoiceResponse, Connect, Hangup
 
 app = FastAPI()
 
-# ניקוי מפתחות ומשתנים - סטרילי לגמרי
 raw_api_key = os.getenv("OPENAI_API_KEY")
 OPENAI_API_KEY = raw_api_key.strip().replace('\u2028', '').replace('\u2029', '') if raw_api_key else ""
 MAKE_WEBHOOK_URL = os.getenv("MAKE_WEBHOOK_URL")
-CALENDAR_ID = "e1f69352b339ba76f5776a42037f94705d3340aac25a78b1c7f85bd05f5bf931@group.calendar.google.com"
 
-# ה-Prompt המדויק: 12,000 ק"מ, מגדר קשוח, ושעה מדויקת
-SYSTEM_PROMPT = """את מאיה מהונדה Big Boys Toys. בחורה חדה ומקצועית.
+SYSTEM_PROMPT = """את מאיה מנהלת השירות של הונדה Big Boys Toys. 
 חוקי ברזל:
-1. מגדר: את אישה. פני ללקוח אך ורק בזכר (אתה, תרצה). אל תפתחי בנקבה לעולם!
-2. לוגיקה: 1,000 ק"מ = הרצה. 12,000 ק"מ = טיפול תקופתי. תגידי את זה ללקוח.
-3. דיוק: אל תאשרי תור בלי שעה מדויקת (למשל 09:00). אל תסכימי ל"בוקר".
-4. אימות: חזרי על מספר הקילומטראז' ששמעת כדי לוודא דיוק.
-5. סיום: הבטיחי הודעת סיכום בווטסאפ בסוף השיחה."""
+1. את אישה. פני ללקוח תמיד בזכר (אתה, תרצה). הברכה הראשונה חייבת להיות בזכר.
+2. לוגיקת טיפולים: 1,000 ק"מ = הרצה. 12,000 ק"מ = תקופתי. תאמתי את המספר ששמעת.
+3. תתעקשי על שעה מדויקת (למשל 09:00), אל תאשרי סתם "בוקר".
+4. היי קשובה לבקשות נוספות כמו נסיעת מבחן או שאלות על דגמים (Africa Twin, Forza)."""
 
 VOICE = "shimmer"
 
@@ -44,11 +40,12 @@ async def websocket_endpoint(twilio_ws: WebSocket):
     
     try:
         async with websockets.connect(url, additional_headers=headers) as openai_ws:
-            # עדכון סשן - הגדרות מהירות ודיוק
             await openai_ws.send(json.dumps({
                 "type": "session.update",
                 "session": {
                     "turn_detection": {"type": "server_vad", "silence_duration_ms": 800},
+                    "input_audio_format": "g711_ulaw",  # <--- זו השורה שהייתה חסרה ויצרה את הרעש
+                    "output_audio_format": "g711_ulaw", # <--- וזו השנייה
                     "instructions": SYSTEM_PROMPT,
                     "voice": VOICE,
                     "temperature": 0.6,
@@ -56,7 +53,6 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                         {
                             "type": "function",
                             "name": "book_garage_service",
-                            "description": "קביעת תור למוסך",
                             "parameters": {
                                 "type": "object",
                                 "properties": {
@@ -70,7 +66,6 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                         {
                             "type": "function",
                             "name": "save_test_ride",
-                            "description": "שומר רכיבת מבחן",
                             "parameters": {
                                 "type": "object",
                                 "properties": {
@@ -95,7 +90,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                             stream_sid = data['start']['streamSid']
                             await openai_ws.send(json.dumps({
                                 "type": "response.create",
-                                "response": {"instructions": "תפתחי בברכה חמה וקצרה בזכר: 'היי, הגעת להונדה, אני מאיה. איך אני יכולה לעזור?'"}
+                                "response": {"instructions": "תגידי משפט קצר: 'היי, הגעת להונדה, אני מאיה. איך אפשר לעזור?'"}
                             }))
                         elif data['event'] == 'media':
                             await openai_ws.send(json.dumps({"type": "input_audio_buffer.append", "audio": data['media']['payload']}))
