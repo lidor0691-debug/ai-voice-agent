@@ -162,7 +162,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                             await asyncio.sleep(2)
                             await twilio_ws.close()
                             break
-                except Exception as e:
-                    print(f"⚠️ OpenAI Receiver Error: {e}")
+            except Exception as e:
+                print(f"⚠️ OpenAI Receiver Error: {e}")
 
         await asyncio.gather(receive_from_twilio(), receive_from_openai())
