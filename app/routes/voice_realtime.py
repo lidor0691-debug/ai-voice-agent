@@ -48,7 +48,7 @@ async def voice_entry(request: Request):
 async def websocket_endpoint(twilio_ws: WebSocket):
     await twilio_ws.accept()
     
-    # שליפת מספר הטלפון מהכתובת
+    # שליפת המספר - קריטי ל-SMS ולזיהוי הלקוח בדשבורד
     caller_phone = twilio_ws.query_params.get('caller_phone', 'לא ידוע')
     
     if not OPENAI_API_KEY:
@@ -56,20 +56,17 @@ async def websocket_endpoint(twilio_ws: WebSocket):
         return
 
     openai_url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview"
-    headers = {
-        "Authorization": f"Bearer {OPENAI_API_KEY}",
-        "OpenAI-Beta": "realtime=v1"
-    }
+    headers = {"Authorization": f"Bearer {OPENAI_API_KEY}", "OpenAI-Beta": "realtime=v1"}
 
     async with websockets.connect(openai_url, extra_headers=headers) as openai_ws:
-        # הגדרת הפרומפט הסופי עם כל חוקי הברזל
+        # פרומפט "קשוח" שמוודא איסוף נתונים מלא לדשבורד
         FINAL_PROMPT = SYSTEM_PROMPT + f"""
-        חוקי ברזל לניהול השיחה:
-        1. מספר הטלפון של הלקוח הוא {caller_phone}. השתמשי בו תמיד בשדה ה-phone.
-        2. חובה לשאול לשם הלקוח לפני קביעת התור.
-        3. איסוף נתונים: את חייבת לשאול על דגם האופנוע, קילומטראז' וסוג הטיפול (הרצה/תקופתי/תיקון).
-        4. ניתוק שיחה: ברגע שסיימת לאשר ללקוח שהתור נקבע ואמרת לו להתראות, את חייבת להפעיל מיד את הפונקציה end_call.
-        """
+חוקי ברזל לניהול השיחה:
+1. מספר הטלפון של הלקוח הוא {caller_phone}. השתמשי בו תמיד בשדה ה-phone.
+2. חובה לשאול לשם הלקוח לפני קביעת התור.
+3. איסוף נתונים: את חייבת לשאול על דגם האופנוע, קילומטראז' וסוג הטיפול (הרצה/תקופתי/תיקון).
+4. ניתוק שיחה: ברגע שסיימת לאשר ללקוח שהכל נקבע ואמרת להתראות, את חייבת להפעיל מיד את end_call.
+"""
 
         session_update = {
             "type": "session.update",
@@ -92,7 +89,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                                 "name": {"type": "string", "description": "שם הלקוח"},
                                 "phone": {"type": "string", "description": "מספר טלפון"},
                                 "bike_model": {"type": "string", "description": "דגם האופנוע"},
-                                "service_type": {"type": "string", "description": "סוג הטיפול"},
+                                "service_type": {"type": "string", "description": "סוג הטיפול (תקופתי/הרצה/תיקון)"},
                                 "mileage": {"type": "string", "description": "קילומטראז'"},
                                 "appointment_time": {"type": "string", "description": "YYYY-MM-DD HH:MM"}
                             },
@@ -103,16 +100,14 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                         "type": "function",
                         "name": "end_call",
                         "description": "מנתק את השיחה בסיום",
-                        "parameters": {
-                            "type": "object",
-                            "properties": {}
-                        }
+                        "parameters": {"type": "object", "properties": {}}
                     }
                 ]
             }
         }
         
         await openai_ws.send(json.dumps(session_update))
+        # כאן ממשיכה הלוגיקה של העברת האודיו - אל תמחק אותה
         # המשך הלוגיקה של העברת האודיו נשאר כפי שהיה...
             stream_sid = None
 
