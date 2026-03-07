@@ -64,10 +64,13 @@ async def websocket_endpoint(twilio_ws: WebSocket):
     try:
         async with websockets.connect(openai_url, additional_headers=headers) as openai_ws:
            # הגדרת הפרומפט הסופי - כאן אנחנו קובעים לה חוקי ברזל
-            FINAL_PROMPT = SYSTEM_PROMPT + f"\n\nחוק ברזל: מספר הטלפון של הלקוח הוא {caller_phone}. " \
-                           f"את חייבת להשתמש בו עבור שדה ה-phone בכל פעם שאת קובעת תור. " \
-                           f"בנוסף, את לעולם לא קובעת תור בלי לשאול 'עם מי יש לי את הכבוד?' כדי לקבל שם."
-
+         FINAL_PROMPT = SYSTEM_PROMPT + f"""
+            חוקי ברזל לביצוע פעולות:
+            1. מספר הטלפון של הלקוח הוא {caller_phone}. השתמשי בו תמיד.
+            2. אל תפעילי שום פונקציה (Tool) לפני שקיבלת שם מהלקוח.
+            3. אחרי שאת מפעילה פונקציה, את חייבת לחכות לתשובה מהמערכת ורק אז לאשר ללקוח שהכל בוצע.
+            4. ניתוק שיחה: ברגע שסיימת לאשר ללקוח שהתור נקבע ואמרת לו להתראות, את חייבת להפעיל מיד את הפונקציה end_call כדי לנתק את השיחה. אל תחכי שהלקוח ינתק.
+            """
             session_update = {
                 "type": "session.update",
                 "session": {
@@ -96,6 +99,15 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                                 "required": ["name", "phone", "bike_model", "service_type", "mileage", "appointment_time"]
                             }
                         },
+                        {
+            "type": "function",
+            "name": "end_call",
+            "description": "מנתק את השיחה לאחר שהטיפול בלקוח הסתיים והוא קיבל את כל המידע.",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        },
                         {
                             "type": "function",
                             "name": "save_test_ride",
