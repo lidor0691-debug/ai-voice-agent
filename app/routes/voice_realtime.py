@@ -48,7 +48,7 @@ async def voice_entry(request: Request):
 async def websocket_endpoint(twilio_ws: WebSocket):
     await twilio_ws.accept()
     
-    # שליפת המספר - קריטי ל-SMS ולזיהוי הלקוח בדשבורד
+    # שליפת המספר - קריטי ל-SMS ולדשבורד
     caller_phone = twilio_ws.query_params.get('caller_phone', 'לא ידוע')
     
     if not OPENAI_API_KEY:
@@ -59,7 +59,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
     headers = {"Authorization": f"Bearer {OPENAI_API_KEY}", "OpenAI-Beta": "realtime=v1"}
 
     async with websockets.connect(openai_url, extra_headers=headers) as openai_ws:
-        # פרומפט "קשוח" שמוודא איסוף נתונים מלא לדשבורד
+        # פרובט "קשוח" שמוודא איסוף נתונים מלא לדשבורד
         FINAL_PROMPT = SYSTEM_PROMPT + f"""
 חוקי ברזל לניהול השיחה:
 1. מספר הטלפון של הלקוח הוא {caller_phone}. השתמשי בו תמיד בשדה ה-phone.
@@ -89,7 +89,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                                 "name": {"type": "string", "description": "שם הלקוח"},
                                 "phone": {"type": "string", "description": "מספר טלפון"},
                                 "bike_model": {"type": "string", "description": "דגם האופנוע"},
-                                "service_type": {"type": "string", "description": "סוג הטיפול (תקופתי/הרצה/תיקון)"},
+                                "service_type": {"type": "string", "description": "סוג הטיפול"},
                                 "mileage": {"type": "string", "description": "קילומטראז'"},
                                 "appointment_time": {"type": "string", "description": "YYYY-MM-DD HH:MM"}
                             },
@@ -99,7 +99,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                     {
                         "type": "function",
                         "name": "end_call",
-                        "description": "מנתק את השיחה בסיום",
+                        "description": "מנתקת את השיחה בסיום",
                         "parameters": {"type": "object", "properties": {}}
                     }
                 ]
@@ -107,58 +107,58 @@ async def websocket_endpoint(twilio_ws: WebSocket):
         }
         
         await openai_ws.send(json.dumps(session_update))
-        # כאן ממשיכה הלוגיקה של העברת האודיו - אל תמחק אותה
-        # המשך הלוגיקה של העברת האודיו נשאר כפי שהיה...
-            stream_sid = None
 
-            async def receive_from_twilio():
-                nonlocal stream_sid
-                try:
-                    async for message in twilio_ws.iter_text():
-                        data = json.loads(message)
-                        if data['event'] == 'start':
-                            stream_sid = data['start']['streamSid']
-                            await openai_ws.send(json.dumps({
-                                "type": "response.create",
-                                "response": {"instructions": "תפתחי בחום: 'היי, הגעת להונדה Big Boys Toys, אני מאיה. על איזה כלי אתה רוצה לרכוב היום או שצריך טיפול?'"}
-                            }))
-                        elif data['event'] == 'media':
-                            await openai_ws.send(json.dumps({"type": "input_audio_buffer.append", "audio": data['media']['payload']}))
-                except Exception: pass
+        stream_sid = None # כאן תיקנו את הרווח שגרם לקריסה!
 
-            async def receive_from_openai():
-                try:
-                    async for openai_message in openai_ws:
-                        response_data = json.loads(openai_message)
+        async def receive_from_twilio():
+            nonlocal stream_sid
+            try:
+                async for message in twilio_ws.iter_text():
+                    data = json.loads(message)
+                    if data['event'] == 'start':
+                        stream_sid = data['start']['streamSid']
+                    elif data['event'] == 'media':
+                        await openai_ws.send(json.dumps({
+                            "type": "input_audio_buffer.append",
+                            "audio": data['media']['payload']
+                        }))
+            except Exception: pass
+
+        async def receive_from_openai():
+            try:
+                async for openai_message in openai_ws:
+                    response_data = json.loads(openai_message)
+                    
+                    # העברת קול לטוויליו
+                    if response_data.get('type') == 'response.audio.delta' and stream_sid:
+                        await twilio_ws.send_json({
+                            "event": "media",
+                            "streamSid": stream_sid,
+                            "media": {"payload": response_data['delta']}
+                        })
+                    
+                    # הפעלת כלים (Make.com)
+                    if response_data.get('type') == 'response.function_call_arguments.done':
+                        func_name = response_data['name']
+                        args = json.loads(response_data['arguments'])
                         
-                        if response_data['type'] == 'response.audio.delta' and response_data.get('delta'):
-                            await twilio_ws.send_text(json.dumps({"event": "media", "streamSid": stream_sid, "media": {"payload": response_data['delta']}}))
-                        elif response_data['type'] == 'input_audio_buffer.speech_started':
-                            await twilio_ws.send_text(json.dumps({"event": "clear", "streamSid": stream_sid}))
-                        
-                        elif response_data['type'] == 'response.function_call_arguments.done':
-                            func_name = response_data['name']
-                            call_id = response_data['call_id']
-                            args = json.loads(response_data['arguments'])
+                        if func_name == "book_garage_service":
+                            # כאן הקוד שלך שולח את הנתונים ל-Make
+                            async with httpx.AsyncClient() as client:
+                                args['action'] = func_name
+                                await client.post(MAKE_WEBHOOK_URL, json=args, timeout=10)
                             
-                            if func_name in ["save_test_ride", "book_garage_service"]:
-                                if MAKE_WEBHOOK_URL:
-                                    async with httpx.AsyncClient() as client:
-                                        args['action'] = func_name
-                                        args['calendar_id'] = CALENDAR_ID
-                                        await client.post(MAKE_WEBHOOK_URL, json=args, timeout=10)
-                                
-                                await openai_ws.send(json.dumps({
-                                    "type": "conversation.item.create",
-                                    "item": {"type": "function_call_output", "call_id": call_id, "output": "{\"status\":\"success\", \"message\":\"הפעולה בוצעה, היומן מעודכן\"}"}
-                                }))
-                                await openai_ws.send(json.dumps({"type": "response.create"}))
-                                
-                            elif func_name == "end_call":
-                                await asyncio.sleep(5)
-                                await twilio_ws.close()
-                                break
-                except Exception: pass
+                            await openai_ws.send(json.dumps({
+                                "type": "conversation.item.create",
+                                "item": {"type": "function_call_output", "call_id": response_data['call_id'], "output": "{\"status\":\"success\"}"}
+                            }))
+                            await openai_ws.send(json.dumps({"type": "response.create"}))
+                        
+                        elif func_name == "end_call":
+                            await asyncio.sleep(2) # מחכה רגע שהיא תסיים לדבר
+                            await twilio_ws.close()
+                            break
+            except Exception: pass
 
-            await asyncio.gather(receive_from_twilio(), receive_from_openai())
+        await asyncio.gather(receive_from_twilio(), receive_from_openai()))
     except Exception: pass
