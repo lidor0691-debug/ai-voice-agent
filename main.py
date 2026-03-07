@@ -1,20 +1,14 @@
 from fastapi import FastAPI
-
-from app.routes.voice import router as voice_router
-from app.routes.leads import router as leads_router
 from app.routes.voice_realtime import router as voice_ai_router
 
 app = FastAPI()
 
-app.include_router(voice_router)
-app.include_router(leads_router)
-app.include_router(voice_ai_router)
-
+# כאן היה חסר ה-prefix! עכשיו הוספנו אותו
+app.include_router(voice_ai_router, prefix="/voice-ai")
 
 @app.get("/")
 def root():
-    return {"status": "Maya AI running"}
-
+    return {"status": "Maya AI Realtime is RUNNING"}
 
 @app.get("/health")
 def health():
