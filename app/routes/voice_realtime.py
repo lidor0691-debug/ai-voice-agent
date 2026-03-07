@@ -59,7 +59,8 @@ async def websocket_endpoint(twilio_ws: WebSocket):
     openai_url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview"
     headers = {"Authorization": f"Bearer {OPENAI_API_KEY}", "OpenAI-Beta": "realtime=v1"}
 
-  async with websockets.connect(openai_url, additional_headers=headers) as openai_ws:
+    # התיקון הקריטי של ההדרים נמצא כאן, מיושר מושלם
+    async with websockets.connect(openai_url, additional_headers=headers) as openai_ws:
         print("✅ Connected to OpenAI Realtime API")
         
         FINAL_PROMPT = SYSTEM_PROMPT + f"""
@@ -110,7 +111,6 @@ async def websocket_endpoint(twilio_ws: WebSocket):
         
         await openai_ws.send(json.dumps(session_update))
 
-        # שים לב: השורה הזו חייבת להיות בדיוק באותה רמת רווח כמו ה-await שמעליה
         stream_sid = None
 
         async def receive_from_twilio():
@@ -162,7 +162,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                             await asyncio.sleep(2)
                             await twilio_ws.close()
                             break
-            except Exception as e:
-                print(f"⚠️ OpenAI Receiver Error: {e}")
+                except Exception as e:
+                    print(f"⚠️ OpenAI Receiver Error: {e}")
 
         await asyncio.gather(receive_from_twilio(), receive_from_openai())
