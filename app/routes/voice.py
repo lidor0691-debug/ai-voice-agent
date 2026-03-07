@@ -40,23 +40,20 @@ def _xml_response(twiml: VoiceResponse) -> Response:
     return Response(content=str(twiml), media_type="application/xml")
 
 
-def _build_gather(question: str, action_url: str) -> VoiceResponse:
-    """Return a TwiML response that speaks a question and listens for speech."""
+def def _build_gather(question: str, action_url: str) -> VoiceResponse:
     response = VoiceResponse()
 
+    response.say("Press 1 to continue.", voice="alice", language="en-US")
+
     gather = Gather(
-        input="speech",
+        input="dtmf",
+        num_digits=1,
         action=action_url,
         method="POST",
-        language=HEBREW_LANG,
-        speech_timeout="auto",
-        timeout=6,
+        timeout=5,
     )
-    gather.say(question, language=HEBREW_LANG, voice=HEBREW_VOICE)
-    response.append(gather)
 
-    # Fallback: if no speech detected, repeat the question
-    response.say(NO_INPUT_MESSAGE, language=HEBREW_LANG, voice=HEBREW_VOICE)
+    response.append(gather)
     response.redirect(action_url, method="POST")
 
     return response
