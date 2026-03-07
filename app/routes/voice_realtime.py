@@ -59,7 +59,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
     openai_url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview"
     headers = {"Authorization": f"Bearer {OPENAI_API_KEY}", "OpenAI-Beta": "realtime=v1"}
 
-    async with websockets.connect(openai_url, extra_headers=headers) as openai_ws:
+  async with websockets.connect(openai_url, additional_headers=headers) as openai_ws:
         print("✅ Connected to OpenAI Realtime API")
         
         FINAL_PROMPT = SYSTEM_PROMPT + f"""
