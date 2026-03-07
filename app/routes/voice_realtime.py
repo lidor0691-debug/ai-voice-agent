@@ -64,13 +64,16 @@ async def websocket_endpoint(twilio_ws: WebSocket):
     try:
         async with websockets.connect(openai_url, additional_headers=headers) as openai_ws:
            # הגדרת הפרומפט הסופי - כאן אנחנו קובעים לה חוקי ברזל
-         FINAL_PROMPT = SYSTEM_PROMPT + f"""
-            חוקי ברזל לביצוע פעולות:
-            1. מספר הטלפון של הלקוח הוא {caller_phone}. השתמשי בו תמיד.
-            2. אל תפעילי שום פונקציה (Tool) לפני שקיבלת שם מהלקוח.
-            3. אחרי שאת מפעילה פונקציה, את חייבת לחכות לתשובה מהמערכת ורק אז לאשר ללקוח שהכל בוצע.
-            4. ניתוק שיחה: ברגע שסיימת לאשר ללקוח שהתור נקבע ואמרת לו להתראות, את חייבת להפעיל מיד את הפונקציה end_call כדי לנתק את השיחה. אל תחכי שהלקוח ינתק.
-            """
+         # התיקון: שימוש בגרשיים משולשים כדי למנוע קריסה
+     # הגדרת הפרומפט הסופי עם כל חוקי הברזל
+            FINAL_PROMPT = SYSTEM_PROMPT + f"""
+חוקי ברזל לניהול השיחה:
+1. מספר הטלפון של הלקוח הוא {caller_phone}. השתמשי בו תמיד בשדה ה-phone.
+2. חובה לשאול לשם הלקוח לפני קביעת התור.
+3. איסוף נתונים: את חייבת לשאול על דגם האופנוע, קילומטראז' וסוג הטיפול.
+4. ניתוק שיחה: ברגע שסיימת לאשר ללקוח שהתור נקבע ואמרת לו להתראות, את חייבת להפעיל מיד את הפונקציה end_call.
+"""
+
             session_update = {
                 "type": "session.update",
                 "session": {
@@ -78,36 +81,39 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                     "input_audio_format": "g711_ulaw",
                     "output_audio_format": "g711_ulaw",
                     "voice": VOICE,
-                    "instructions": FINAL_PROMPT, # שים לב: משתמשים רק ב-FINAL_PROMPT
+                    "instructions": FINAL_PROMPT,
                     "modalities": ["audio", "text"],
-                    "temperature": 0.7, # הורדנו ל-0.7 כדי שתהיה יותר ממושמעת
+                    "temperature": 0.7,
                     "tools": [
                         {
                             "type": "function",
                             "name": "book_garage_service",
-                            "description": "קביעת תור למוסך",
+                            "description": "קובע תור לטיפול במוסך",
                             "parameters": {
                                 "type": "object",
                                 "properties": {
-                                    "name": {"type": "string"}, 
-                                    "phone": {"type": "string"},
-                                    "bike_model": {"type": "string"}, 
-                                    "service_type": {"type": "string"},
-                                    "mileage": {"type": "string"}, 
-                                    "appointment_time": {"type": "string", "description": "Strictly YYYY-MM-DD HH:MM format"}
+                                    "name": {"type": "string", "description": "שם הלקוח"},
+                                    "phone": {"type": "string", "description": "מספר טלפון"},
+                                    "bike_model": {"type": "string", "description": "דגם האופנוע"},
+                                    "service_type": {"type": "string", "description": "סוג הטיפול (תקופתי/הרצה/תיקון)"},
+                                    "mileage": {"type": "string", "description": "קילומטראז' נוכחי"},
+                                    "appointment_time": {"type": "string", "description": "זמן התור בפורמט YYYY-MM-DD HH:MM"}
                                 },
                                 "required": ["name", "phone", "bike_model", "service_type", "mileage", "appointment_time"]
                             }
                         },
                         {
-            "type": "function",
-            "name": "end_call",
-            "description": "מנתק את השיחה לאחר שהטיפול בלקוח הסתיים והוא קיבל את כל המידע.",
-            "parameters": {
-                "type": "object",
-                "properties": {}
+                            "type": "function",
+                            "name": "end_call",
+                            "description": "מנתק את השיחה בסיום",
+                            "parameters": {
+                                "type": "object",
+                                "properties": {}
+                            }
+                        }
+                    ]
+                }
             }
-        },
                         {
                             "type": "function",
                             "name": "save_test_ride",
