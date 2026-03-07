@@ -47,11 +47,12 @@ async def voice_entry(request: Request):
 @router.websocket("/stream")
 async def websocket_endpoint(twilio_ws: WebSocket):
     await twilio_ws.accept()
+    print("✅ Twilio connection accepted")
     
-    # שליפת המספר - קריטי ל-SMS ולדשבורד
     caller_phone = twilio_ws.query_params.get('caller_phone', 'לא ידוע')
     
     if not OPENAI_API_KEY:
+        print("❌ Missing OpenAI API Key")
         await twilio_ws.close()
         return
 
@@ -59,13 +60,14 @@ async def websocket_endpoint(twilio_ws: WebSocket):
     headers = {"Authorization": f"Bearer {OPENAI_API_KEY}", "OpenAI-Beta": "realtime=v1"}
 
     async with websockets.connect(openai_url, extra_headers=headers) as openai_ws:
-        # פרובט "קשוח" שמוודא איסוף נתונים מלא לדשבורד
+        print("✅ Connected to OpenAI Realtime API")
+        
         FINAL_PROMPT = SYSTEM_PROMPT + f"""
-חוקי ברזל לניהול השיחה:
+חוקי ברזל:
 1. מספר הטלפון של הלקוח הוא {caller_phone}. השתמשי בו תמיד בשדה ה-phone.
 2. חובה לשאול לשם הלקוח לפני קביעת התור.
-3. איסוף נתונים: את חייבת לשאול על דגם האופנוע, קילומטראז' וסוג הטיפול (הרצה/תקופתי/תיקון).
-4. ניתוק שיחה: ברגע שסיימת לאשר ללקוח שהכל נקבע ואמרת להתראות, את חייבת להפעיל מיד את end_call.
+3. איסוף נתונים: דגם, קילומטראז' וסוג טיפול (תקופתי/הרצה/תיקון).
+4. ניתוק: בסיום האישור ואחרי שאמרת להתראות, הפעילי מיד את end_call.
 """
 
         session_update = {
@@ -99,7 +101,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                     {
                         "type": "function",
                         "name": "end_call",
-                        "description": "מנתקת את השיחה בסיום",
+                        "description": "מנתקת את השיחה",
                         "parameters": {"type": "object", "properties": {}}
                     }
                 ]
@@ -108,6 +110,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
         
         await openai_ws.send(json.dumps(session_update))
 
+        # שים לב: השורה הזו חייבת להיות בדיוק באותה רמת רווח כמו ה-await שמעליה
         stream_sid = None
 
         async def receive_from_twilio():
@@ -117,28 +120,31 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                     data = json.loads(message)
                     if data['event'] == 'start':
                         stream_sid = data['start']['streamSid']
+                        print(f"📡 Stream started with SID: {stream_sid}")
                     elif data['event'] == 'media':
                         await openai_ws.send(json.dumps({
                             "type": "input_audio_buffer.append",
                             "audio": data['media']['payload']
                         }))
-            except Exception: pass
+            except Exception as e:
+                print(f"⚠️ Twilio Receiver Error: {e}")
 
         async def receive_from_openai():
             try:
-                async for openai_message in openai_ws:
-                    response_data = json.loads(openai_message)
+                async for message in openai_ws:
+                    response = json.loads(message)
                     
-                    if response_data.get('type') == 'response.audio.delta' and stream_sid:
+                    if response.get('type') == 'response.audio.delta' and stream_sid:
                         await twilio_ws.send_json({
                             "event": "media",
                             "streamSid": stream_sid,
-                            "media": {"payload": response_data['delta']}
+                            "media": {"payload": response['delta']}
                         })
                     
-                    if response_data.get('type') == 'response.function_call_arguments.done':
-                        func_name = response_data['name']
-                        args = json.loads(response_data['arguments'])
+                    if response.get('type') == 'response.function_call_arguments.done':
+                        func_name = response['name']
+                        args = json.loads(response['arguments'])
+                        print(f"🛠️ Calling function: {func_name} with args: {args}")
                         
                         if func_name == "book_garage_service":
                             async with httpx.AsyncClient() as client:
@@ -147,14 +153,16 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                             
                             await openai_ws.send(json.dumps({
                                 "type": "conversation.item.create",
-                                "item": {"type": "function_call_output", "call_id": response_data['call_id'], "output": "{\"status\":\"success\"}"}
+                                "item": {"type": "function_call_output", "call_id": response['call_id'], "output": "{\"status\":\"success\"}"}
                             }))
                             await openai_ws.send(json.dumps({"type": "response.create"}))
                         
                         elif func_name == "end_call":
+                            print("👋 Maya requested end_call")
                             await asyncio.sleep(2)
                             await twilio_ws.close()
                             break
-            except Exception: pass
+            except Exception as e:
+                print(f"⚠️ OpenAI Receiver Error: {e}")
 
         await asyncio.gather(receive_from_twilio(), receive_from_openai())
