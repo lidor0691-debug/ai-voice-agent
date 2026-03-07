@@ -40,7 +40,7 @@ def _xml_response(twiml: VoiceResponse) -> Response:
     return Response(content=str(twiml), media_type="application/xml")
 
 
-def def _build_gather(question: str, action_url: str) -> VoiceResponse:
+def _build_gather(question: str, action_url: str) -> VoiceResponse:
     response = VoiceResponse()
 
     response.say("Press 1 to continue.", voice="alice", language="en-US")
