@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/voice", tags=["Voice"])
 
 # AWS Polly Hebrew voice — supported by Twilio
-HEBREW_VOICE = "Polly.Ayelet"
+HEBREW_VOICE = "alice"
 HEBREW_LANG = "he-IL"
 
 
