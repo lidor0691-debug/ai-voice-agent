@@ -63,17 +63,21 @@ async def websocket_endpoint(twilio_ws: WebSocket):
     
     try:
         async with websockets.connect(openai_url, additional_headers=headers) as openai_ws:
+           # הגדרת הפרומפט הסופי - כאן אנחנו קובעים לה חוקי ברזל
+            FINAL_PROMPT = SYSTEM_PROMPT + f"\n\nחוק ברזל: מספר הטלפון של הלקוח הוא {caller_phone}. " \
+                           f"את חייבת להשתמש בו עבור שדה ה-phone בכל פעם שאת קובעת תור. " \
+                           f"בנוסף, את לעולם לא קובעת תור בלי לשאול 'עם מי יש לי את הכבוד?' כדי לקבל שם."
+
             session_update = {
                 "type": "session.update",
                 "session": {
-                    "instructions": CURRENT_SYSTEM_PROMPT, # שים לב לשינוי כאן
-                    # ... שאר ההגדרות (turn_detection, tools וכו') נשארות אותו דבר
-                    "turn_detection": {"type": "server_vad", "silence_duration_ms": 700}, # התזמון המקורי שאהבת
+                    "turn_detection": {"type": "server_vad", "silence_duration_ms": 700},
                     "input_audio_format": "g711_ulaw",
                     "output_audio_format": "g711_ulaw",
                     "voice": VOICE,
+                    "instructions": FINAL_PROMPT, # שים לב: משתמשים רק ב-FINAL_PROMPT
                     "modalities": ["audio", "text"],
-                    "temperature": 0.8, # החזרנו את היצירתיות והאנושיות
+                    "temperature": 0.7, # הורדנו ל-0.7 כדי שתהיה יותר ממושמעת
                     "tools": [
                         {
                             "type": "function",
