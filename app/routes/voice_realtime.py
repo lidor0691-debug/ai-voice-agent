@@ -72,7 +72,6 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                     "input_audio_format": "g711_ulaw",
                     "output_audio_format": "g711_ulaw",
                     "voice": VOICE,
-                    "instructions": SYSTEM_PROMPT,
                     "modalities": ["audio", "text"],
                     "temperature": 0.8, # החזרנו את היצירתיות והאנושיות
                     "tools": [
