@@ -43,21 +43,22 @@ def _xml_response(twiml: VoiceResponse) -> Response:
 def _build_gather(question: str, action_url: str) -> VoiceResponse:
     response = VoiceResponse()
 
-    response.say("Press 1 to continue.", voice="alice", language="en-US")
-
     gather = Gather(
-        input="dtmf",
-        num_digits=1,
+        input="speech",
         action=action_url,
         method="POST",
-        timeout=5,
+        language="he-IL",
+        speech_timeout="auto",
+        timeout=6,
     )
 
+    gather.say(question, voice="alice", language="he-IL")
     response.append(gather)
+
+    response.say("לא שמעתי תשובה. ננסה שוב.", voice="alice", language="he-IL")
     response.redirect(action_url, method="POST")
 
     return response
-
 
 # ---------------------------------------------------------------------------
 # Routes
