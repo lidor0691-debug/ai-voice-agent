@@ -15,6 +15,9 @@ class Settings(BaseSettings):
 
     # Make.com
     MAKE_WEBHOOK_URL: str = ""
+     
+      OPENAI_API_KEY: str = ""
+      CALENDAR_ID: str = ""
 
     # Google Sheets
     # Path to the service account JSON key file downloaded from Google Cloud Console
