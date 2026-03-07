@@ -56,91 +56,64 @@ async def websocket_endpoint(twilio_ws: WebSocket):
         return
 
     openai_url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview"
-    headers = {"Authorization": f"Bearer {OPENAI_API_KEY}", "OpenAI-Beta": "realtime=v1"}
-    
-    # הזרקת המספר לתוך הפרומפט
-    CURRENT_SYSTEM_PROMPT = SYSTEM_PROMPT + f"\nמספר הטלפון שממנו הלקוח מחייג כרגע הוא: {caller_phone}. אם הוא אומר 'המספר שממנו אני מחייג' או משהו דומה, תשתמשי במספר הזה בלי לשאול אותו שוב."
-    
-    try:
-        async with websockets.connect(openai_url, additional_headers=headers) as openai_ws:
-           # הגדרת הפרומפט הסופי - כאן אנחנו קובעים לה חוקי ברזל
-         # התיקון: שימוש בגרשיים משולשים כדי למנוע קריסה
-     # הגדרת הפרומפט הסופי עם כל חוקי הברזל
-            FINAL_PROMPT = SYSTEM_PROMPT + f"""
-חוקי ברזל לניהול השיחה:
-1. מספר הטלפון של הלקוח הוא {caller_phone}. השתמשי בו תמיד בשדה ה-phone.
-2. חובה לשאול לשם הלקוח לפני קביעת התור.
-3. איסוף נתונים: את חייבת לשאול על דגם האופנוע, קילומטראז' וסוג הטיפול.
-4. ניתוק שיחה: ברגע שסיימת לאשר ללקוח שהתור נקבע ואמרת לו להתראות, את חייבת להפעיל מיד את הפונקציה end_call.
-"""
+    headers = {
+        "Authorization": f"Bearer {OPENAI_API_KEY}",
+        "OpenAI-Beta": "realtime=v1"
+    }
 
-            session_update = {
-                "type": "session.update",
-                "session": {
-                    "turn_detection": {"type": "server_vad", "silence_duration_ms": 700},
-                    "input_audio_format": "g711_ulaw",
-                    "output_audio_format": "g711_ulaw",
-                    "voice": VOICE,
-                    "instructions": FINAL_PROMPT,
-                    "modalities": ["audio", "text"],
-                    "temperature": 0.7,
-                    "tools": [
-                        {
-                            "type": "function",
-                            "name": "book_garage_service",
-                            "description": "קובע תור לטיפול במוסך",
-                            "parameters": {
-                                "type": "object",
-                                "properties": {
-                                    "name": {"type": "string", "description": "שם הלקוח"},
-                                    "phone": {"type": "string", "description": "מספר טלפון"},
-                                    "bike_model": {"type": "string", "description": "דגם האופנוע"},
-                                    "service_type": {"type": "string", "description": "סוג הטיפול (תקופתי/הרצה/תיקון)"},
-                                    "mileage": {"type": "string", "description": "קילומטראז' נוכחי"},
-                                    "appointment_time": {"type": "string", "description": "זמן התור בפורמט YYYY-MM-DD HH:MM"}
-                                },
-                                "required": ["name", "phone", "bike_model", "service_type", "mileage", "appointment_time"]
-                            }
-                        },
-                        {
-                            "type": "function",
-                            "name": "end_call",
-                            "description": "מנתק את השיחה בסיום",
-                            "parameters": {
-                                "type": "object",
-                                "properties": {}
-                            }
-                        }
-                    ]
-                }
-            }
-                        {
-                            "type": "function",
-                            "name": "save_test_ride",
-                            "description": "קביעת נסיעת מבחן",
-                            "parameters": {
-                                "type": "object",
-                                "properties": {
-                                    "name": {"type": "string"}, 
-                                    "phone": {"type": "string"},
-                                    "bike_model": {"type": "string"}, 
-                                    "appointment_time": {"type": "string", "description": "Strictly YYYY-MM-DD HH:MM format"}
-                                },
-                                "required": ["name", "phone", "bike_model", "appointment_time"]
-                            }
-                        },
-                        {
-                            "type": "function",
-                            "name": "end_call",
-                            "description": "מנתק את השיחה",
-                            "parameters": {"type": "object", "properties": {}}
-                        }
-                    ],
-                    "tool_choice": "auto"
-                }
-            }
-            await openai_ws.send(json.dumps(session_update))
+    async with websockets.connect(openai_url, extra_headers=headers) as openai_ws:
+        # הגדרת הפרומפט הסופי עם כל חוקי הברזל
+        FINAL_PROMPT = SYSTEM_PROMPT + f"""
+        חוקי ברזל לניהול השיחה:
+        1. מספר הטלפון של הלקוח הוא {caller_phone}. השתמשי בו תמיד בשדה ה-phone.
+        2. חובה לשאול לשם הלקוח לפני קביעת התור.
+        3. איסוף נתונים: את חייבת לשאול על דגם האופנוע, קילומטראז' וסוג הטיפול (הרצה/תקופתי/תיקון).
+        4. ניתוק שיחה: ברגע שסיימת לאשר ללקוח שהתור נקבע ואמרת לו להתראות, את חייבת להפעיל מיד את הפונקציה end_call.
+        """
 
+        session_update = {
+            "type": "session.update",
+            "session": {
+                "turn_detection": {"type": "server_vad", "silence_duration_ms": 700},
+                "input_audio_format": "g711_ulaw",
+                "output_audio_format": "g711_ulaw",
+                "voice": VOICE,
+                "instructions": FINAL_PROMPT,
+                "modalities": ["audio", "text"],
+                "temperature": 0.7,
+                "tools": [
+                    {
+                        "type": "function",
+                        "name": "book_garage_service",
+                        "description": "קובע תור לטיפול במוסך",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string", "description": "שם הלקוח"},
+                                "phone": {"type": "string", "description": "מספר טלפון"},
+                                "bike_model": {"type": "string", "description": "דגם האופנוע"},
+                                "service_type": {"type": "string", "description": "סוג הטיפול"},
+                                "mileage": {"type": "string", "description": "קילומטראז'"},
+                                "appointment_time": {"type": "string", "description": "YYYY-MM-DD HH:MM"}
+                            },
+                            "required": ["name", "phone", "bike_model", "service_type", "mileage", "appointment_time"]
+                        }
+                    },
+                    {
+                        "type": "function",
+                        "name": "end_call",
+                        "description": "מנתק את השיחה בסיום",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {}
+                        }
+                    }
+                ]
+            }
+        }
+        
+        await openai_ws.send(json.dumps(session_update))
+        # המשך הלוגיקה של העברת האודיו נשאר כפי שהיה...
             stream_sid = None
 
             async def receive_from_twilio():
