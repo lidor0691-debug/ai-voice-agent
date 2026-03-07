@@ -108,7 +108,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
         
         await openai_ws.send(json.dumps(session_update))
 
-        stream_sid = None # כאן תיקנו את הרווח שגרם לקריסה!
+        stream_sid = None
 
         async def receive_from_twilio():
             nonlocal stream_sid
@@ -129,7 +129,6 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                 async for openai_message in openai_ws:
                     response_data = json.loads(openai_message)
                     
-                    # העברת קול לטוויליו
                     if response_data.get('type') == 'response.audio.delta' and stream_sid:
                         await twilio_ws.send_json({
                             "event": "media",
@@ -137,13 +136,11 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                             "media": {"payload": response_data['delta']}
                         })
                     
-                    # הפעלת כלים (Make.com)
                     if response_data.get('type') == 'response.function_call_arguments.done':
                         func_name = response_data['name']
                         args = json.loads(response_data['arguments'])
                         
                         if func_name == "book_garage_service":
-                            # כאן הקוד שלך שולח את הנתונים ל-Make
                             async with httpx.AsyncClient() as client:
                                 args['action'] = func_name
                                 await client.post(MAKE_WEBHOOK_URL, json=args, timeout=10)
@@ -155,10 +152,9 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                             await openai_ws.send(json.dumps({"type": "response.create"}))
                         
                         elif func_name == "end_call":
-                            await asyncio.sleep(2) # מחכה רגע שהיא תסיים לדבר
+                            await asyncio.sleep(2)
                             await twilio_ws.close()
                             break
             except Exception: pass
 
-        await asyncio.gather(receive_from_twilio(), receive_from_openai()))
-    except Exception: pass
+        await asyncio.gather(receive_from_twilio(), receive_from_openai())
