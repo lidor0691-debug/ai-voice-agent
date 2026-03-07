@@ -31,11 +31,15 @@ VOICE = "shimmer"
 
 @router.post("/voice")
 async def voice_entry(request: Request):
+    # שליפת נתוני השיחה מטוויליו
+    form_data = await request.form()
+    caller_phone = form_data.get('From', 'לא ידוע')
+    
     response = VoiceResponse()
     connect = Connect()
     host = request.url.hostname
-    # מנתבים בדיוק לפי ההגדרות של הראוטר ב-main.py
-    connect.stream(url=f'wss://{host}/voice-ai/stream')
+    # אנחנו מעבירים את המספר כפרמטר בכתובת ה-WebSocket
+    connect.stream(url=f'wss://{host}/voice-ai/stream?caller_phone={caller_phone}')
     response.append(connect)
     response.append(Hangup())
     return Response(content=str(response), media_type="application/xml")
@@ -43,6 +47,10 @@ async def voice_entry(request: Request):
 @router.websocket("/stream")
 async def websocket_endpoint(twilio_ws: WebSocket):
     await twilio_ws.accept()
+    
+    # שליפת מספר הטלפון מהכתובת
+    caller_phone = twilio_ws.query_params.get('caller_phone', 'לא ידוע')
+    
     if not OPENAI_API_KEY:
         await twilio_ws.close()
         return
@@ -50,11 +58,16 @@ async def websocket_endpoint(twilio_ws: WebSocket):
     openai_url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview"
     headers = {"Authorization": f"Bearer {OPENAI_API_KEY}", "OpenAI-Beta": "realtime=v1"}
     
+    # הזרקת המספר לתוך הפרומפט
+    CURRENT_SYSTEM_PROMPT = SYSTEM_PROMPT + f"\nמספר הטלפון שממנו הלקוח מחייג כרגע הוא: {caller_phone}. אם הוא אומר 'המספר שממנו אני מחייג' או משהו דומה, תשתמשי במספר הזה בלי לשאול אותו שוב."
+    
     try:
         async with websockets.connect(openai_url, additional_headers=headers) as openai_ws:
             session_update = {
                 "type": "session.update",
                 "session": {
+                    "instructions": CURRENT_SYSTEM_PROMPT, # שים לב לשינוי כאן
+                    # ... שאר ההגדרות (turn_detection, tools וכו') נשארות אותו דבר
                     "turn_detection": {"type": "server_vad", "silence_duration_ms": 700}, # התזמון המקורי שאהבת
                     "input_audio_format": "g711_ulaw",
                     "output_audio_format": "g711_ulaw",
