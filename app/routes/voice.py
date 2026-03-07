@@ -71,16 +71,12 @@ async def incoming_call(
     CallSid: str = Form(...),
     From: str = Form(...),
 ):
-    """Entry point — Twilio hits this when a call is received."""
     logger.info("Incoming call | sid=%s | from=%s", CallSid, From)
 
-    lead = get_or_create_session(CallSid, From)
-    question = QUESTIONS[STEPS[0]]
-    action_url = f"{settings.BASE_URL}/voice/gather"
-
-    twiml = _build_gather(question, action_url)
-    return _xml_response(twiml)
-
+    response = VoiceResponse()
+    response.say("Hello. Maya is connected.", voice="alice", language="en-US")
+    response.pause(length=2)
+    return _xml_response(response)
 
 @router.post("/gather")
 async def gather_input(
