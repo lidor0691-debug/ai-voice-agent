@@ -17,15 +17,16 @@ CALENDAR_ID = os.getenv("CALENDAR_ID", "")
 
 current_date = datetime.now().strftime("%Y-%m-%d")
 
-# משלבים את האופי האנושי שאהבת עם חוקי הברזל למערכות
-SYSTEM_PROMPT = f"""את מאיה מנהלת השירות והמכירות של הונדה Big Boys Toys.
+# Big Boys Toys: סוכנות הונדה מלאה - מכירות, מוסך מורשה, מימון, טסט דרייב, trade-in
+SYSTEM_PROMPT = f"""את מאיה, סוכנת מכירות ושירות ברמה גבוהה של Big Boys Toys – סוכנות הונדה מלאה (מכירת אופנועים חדשים ומשומשים, trade-in, טסט דרייב, מימון, ומוסך הונדה מורשה).
 היום התאריך הוא: {current_date}.
 
 חוקי ברזל לניהול השיחה:
 1. מגדר: את אישה. פני ללקוח אך ורק בזכר (אתה, תרצה). הברכה הראשונה תמיד בזכר.
-2. לוגיקת טיפולים: 1,000 ק"מ = הרצה. 12,000 ק"מ = תקופתי. תאמתי את המספר ששמעת.
-3. *חוק זמן קריטי לקלנדר*: כשאת מפעילה פונקציה, appointment_time חייב להיות אך ורק YYYY-MM-DD HH:MM (למשל 2026-03-05 09:00). אל תאשרי שעה מעורפלת.
-4. מכירות: CB500X, Africa Twin, Forza, X-ADV. תזרמי בטבעיות אם שואלים שאלות, אל תהיי רובוטית.
+2. *קודם כל*: הבהירי אם הלקוח מתעניין ב**מכירות/טסט דרייב/trade-in** או ב**מוסך** (טיפול/תיקון).
+3. **אם מוסך**: אספי דגם אופנוע, קילומטראז', וסוג טיפול (תקופתי 12,000 ק"מ / הרצה 1,000 ק"מ / תיקון). תאמתי את המספר ששמעת.
+4. **אם מכירות/טסט דרייב**: אספי איזה דגם מעניין (CB500X, Africa Twin, Forza, X-ADV וכו'), האם יש trade-in, והאם רוצה טסט דרייב.
+5. תזרמי בטבעיות, אל תהיי רובוטית. הציעי מימון וטסט דרייב כשמתאים.
 """
 VOICE = "shimmer"
 
@@ -65,9 +66,9 @@ async def websocket_endpoint(twilio_ws: WebSocket):
         
         FINAL_PROMPT = SYSTEM_PROMPT + f"""
 חוקי ברזל:
-1. מספר הטלפון של הלקוח הוא {caller_phone}. השתמשי בו תמיד בשדה ה-phone.
-2. חובה לשאול לשם הלקוח לפני קביעת התור.
-3. איסוף נתונים: דגם, קילומטראז' וסוג טיפול (תקופתי/הרצה/תיקון).
+1. מספר הטלפון של הלקוח הוא {caller_phone}. השתמשי בו תמיד בשדה phone.
+2. חובה לשאול לשם הלקוח לפני שליחת הליד (process_agency_lead).
+3. קבעי department: "Garage" או "Sales" לפי מה שהלקוח רוצה. מלאי inquiry_details, bike_model, ו-wants_test_ride בהתאם.
 4. ניתוק: בסיום האישור ואחרי שאמרת להתראות, הפעילי מיד את end_call.
 """
 
@@ -84,19 +85,20 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                 "tools": [
                     {
                         "type": "function",
-                        "name": "book_garage_service",
-                        "description": "קובע תור לטיפול במוסך",
+                        "name": "process_agency_lead",
+                        "description": "שולח ליד לסוכנות: מכירות/טסט דרייב או מוסך",
                         "parameters": {
                             "type": "object",
                             "properties": {
                                 "name": {"type": "string", "description": "שם הלקוח"},
                                 "phone": {"type": "string", "description": "מספר טלפון"},
-                                "bike_model": {"type": "string", "description": "דגם האופנוע"},
-                                "service_type": {"type": "string", "description": "סוג הטיפול"},
-                                "mileage": {"type": "string", "description": "קילומטראז'"},
-                                "appointment_time": {"type": "string", "description": "YYYY-MM-DD HH:MM"}
+                                "department": {"type": "string", "description": "Sales או Garage"},
+                                "inquiry_details": {"type": "string", "description": "תיאור הבקשה/מה הלקוח רוצה"},
+                                "bike_model": {"type": "string", "description": "דגם האופנוע (מעניין או למוסך)"},
+                                "mileage": {"type": "string", "description": "קילומטראז' – רלוונטי למוסך"},
+                                "wants_test_ride": {"type": "boolean", "description": "האם רוצה טסט דרייב"}
                             },
-                            "required": ["name", "phone", "bike_model", "service_type", "mileage", "appointment_time"]
+                            "required": ["name", "phone", "department", "inquiry_details", "bike_model", "wants_test_ride"]
                         }
                     },
                     {
@@ -146,7 +148,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                         args = json.loads(response['arguments'])
                         print(f"🛠️ Calling function: {func_name} with args: {args}")
                         
-                        if func_name == "book_garage_service":
+                        if func_name == "process_agency_lead":
                             async with httpx.AsyncClient() as client:
                                 args['action'] = func_name
                                 await client.post(MAKE_WEBHOOK_URL, json=args, timeout=10)
