@@ -141,6 +141,13 @@ SESSION PARAMETERS:
                 async for message in openai_ws:
                     response = json.loads(message)
                     
+                    # Barge-in / interruption handling: clear Twilio playback and cancel current response.
+                    if response.get('type') == 'input_audio_buffer.speech_started':
+                        if stream_sid:
+                            await twilio_ws.send_json({"event": "clear", "streamSid": stream_sid})
+                        await openai_ws.send(json.dumps({"type": "response.cancel"}))
+                        continue
+
                     if response.get('type') == 'response.audio.delta' and stream_sid:
                         await twilio_ws.send_json({
                             "event": "media",
