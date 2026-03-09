@@ -174,7 +174,9 @@ SESSION PARAMETERS:
                         if func_name == "process_agency_lead":
                             async with httpx.AsyncClient() as client:
                                 args['action'] = func_name
-                                await client.post(MAKE_WEBHOOK_URL, json=args, timeout=10)
+                                payload = args
+                                print(f"DEBUG: Sending data to Make Webhook: {payload}")
+                                await client.post(MAKE_WEBHOOK_URL, json=payload, timeout=10)
                             
                             await openai_ws.send(json.dumps({
                                 "type": "conversation.item.create",
@@ -184,7 +186,7 @@ SESSION PARAMETERS:
                         
                         elif func_name == "end_call":
                             print("👋 Maya requested end_call")
-                            await asyncio.sleep(2)
+                            await asyncio.sleep(7)
                             await twilio_ws.close()
                             break
             except Exception as e:
