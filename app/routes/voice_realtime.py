@@ -17,6 +17,34 @@ CALENDAR_ID = os.getenv("CALENDAR_ID", "")
 
 current_date = datetime.now().strftime("%Y-%m-%d")
 
+
+def normalize_israeli_phone(phone: str) -> str:
+    """
+    Normalize a phone number to E.164 format for Israel (+972).
+    Removes spaces/dashes, strips leading zeros, and prefixes +972.
+    """
+    if not phone:
+        return phone
+
+    # Keep only digits
+    digits = "".join(ch for ch in phone if ch.isdigit())
+
+    # Strip country code if present
+    if digits.startswith("972"):
+        national = digits[3:]
+    else:
+        national = digits
+
+    # Strip leading zeros from national part
+    while national.startswith("0"):
+        national = national[1:]
+
+    if not national:
+        return phone.strip()
+
+    return f"+972{national}"
+
+
 # Big Boys Toys: operational rules for voice AI — no dialogue simulation
 SYSTEM_PROMPT = f"""OPERATIONAL RULES — STRICT COMPLIANCE REQUIRED.
 
@@ -36,7 +64,7 @@ APPOINTMENT CLOSING RULES (MANDATORY — YOU ARE A CLOSER):
    - repeat the appointment day/time back to the caller for explicit confirmation,
    - say goodbye,
    - immediately trigger process_agency_lead.
-   NOTE: Because the tool schema does not include a dedicated appointment_time field, you MUST include the scheduled day/time clearly inside inquiry_details.
+   You MUST convert any relative time description (for example "יום שלישי ב-9 בבוקר") into a precise ISO 8601 timestamp based on the current date {current_date}, such as "2026-03-10T09:00:00+02:00". This timestamp MUST be passed in the appointment_time argument of process_agency_lead.
 
 ROUTING AND DATA COLLECTION:
 9. First determine whether the caller wants Sales/Test-Ride/Trade-in or Garage (service/repair). Do not assume; ask once and wait for answer.
@@ -112,9 +140,18 @@ SESSION PARAMETERS:
                                 "inquiry_details": {"type": "string", "description": "תיאור הבקשה/מה הלקוח רוצה"},
                                 "bike_model": {"type": "string", "description": "דגם האופנוע (מעניין או למוסך)"},
                                 "mileage": {"type": "string", "description": "קילומטראז' – רלוונטי למוסך"},
-                                "wants_test_ride": {"type": "boolean", "description": "האם רוצה טסט דרייב"}
+                                "wants_test_ride": {"type": "boolean", "description": "האם רוצה טסט דרייב"},
+                                "appointment_time": {"type": "string", "description": "תאריך ושעת התור בפורמט ISO 8601, למשל 2026-03-10T09:00:00+02:00"}
                             },
-                            "required": ["name", "phone", "department", "inquiry_details", "bike_model", "wants_test_ride"]
+                            "required": [
+                                "name",
+                                "phone",
+                                "department",
+                                "inquiry_details",
+                                "bike_model",
+                                "wants_test_ride",
+                                "appointment_time"
+                            ]
                         }
                     },
                     {
@@ -173,7 +210,12 @@ SESSION PARAMETERS:
                         
                         if func_name == "process_agency_lead":
                             async with httpx.AsyncClient() as client:
-                                args['action'] = func_name
+                                # Normalize phone number to E.164 (+972...) before sending to Make
+                                raw_phone = str(args.get("phone", ""))
+                                cleaned_phone = normalize_israeli_phone(raw_phone)
+                                args["phone"] = cleaned_phone
+
+                                args["action"] = func_name
                                 payload = args
                                 print(f"DEBUG: Sending data to Make Webhook: {payload}")
                                 await client.post(MAKE_WEBHOOK_URL, json=payload, timeout=10)
