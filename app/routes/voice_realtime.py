@@ -11,7 +11,7 @@ from datetime import datetime
 router = APIRouter()
 
 raw_api_key = os.getenv("OPENAI_API_KEY", "")
-OPENAI_API_KEY = raw_api_key.strip().replace('\u2028', '').replace('\u2029', '')
+OPENAI_API_KEY = raw_api_key.strip().replace("\u2028", "").replace("\u2029", "")
 MAKE_WEBHOOK_URL = os.getenv("MAKE_WEBHOOK_URL")
 CALENDAR_ID = os.getenv("CALENDAR_ID", "")
 
@@ -45,6 +45,37 @@ def normalize_israeli_phone(phone: str) -> str:
     return f"+972{national}"
 
 
+async def process_agency_lead(lead_data: dict) -> bool:
+    """
+    Send collected lead data to the configured Make.com webhook URL.
+    Uses the MAKE_WEBHOOK_URL environment variable configured in Railway.
+    """
+    if not MAKE_WEBHOOK_URL:
+        print("⚠️ MAKE_WEBHOOK_URL is not configured — skipping lead webhook.")
+        return False
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                MAKE_WEBHOOK_URL,
+                json=lead_data,
+                headers={"Content-Type": "application/json"},
+            )
+            response.raise_for_status()
+            print(
+                f"✅ Lead sent to Make.com webhook | status={response.status_code}"
+            )
+            return True
+    except httpx.HTTPStatusError as exc:
+        print(
+            f"❌ Make.com webhook HTTP error {exc.response.status_code}: {exc.response.text}"
+        )
+    except Exception as exc:
+        print(f"❌ Failed to send lead to Make.com webhook: {exc}")
+
+    return False
+
+
 # Insurance-agent demo: operational rules for voice AI — no dialogue simulation
 SYSTEM_PROMPT = f"""OPERATIONAL RULES — STRICT COMPLIANCE REQUIRED.
 
@@ -54,7 +85,7 @@ You are Maya, the digital secretary of Roi, an independent insurance agent in Is
 VOICE INTERACTION RULES (MANDATORY):
 1. NEVER simulate, predict, or generate the caller's responses. You do not speak for the caller. You do not answer your own questions. You do not invent what the caller said or will say.
 2. You are an interactive voice assistant. Output ONLY your own lines. Ask exactly ONE question at a time, then STOP. Wait in silence for the caller to respond. Do not continue speaking until the caller has responded.
-3. Your style is warm, human and empathetic. You sound like a real assistant helping Roi, not like a robot reading a form. Use short natural fillers like "אוקיי", "סבבה", "מעולה", "הבנתי" when appropriate. If the caller is describing a claim, difficulty or problem, you may say things like "מצטערת לשמוע" or "זה באמת לא נעים" before continuing.
+3. Your style is warm, human and empathetic. You sound like a real assistant helping Roi, not like a robot reading a form. Use short, natural Hebrew fillers like "אהלן", "אוקיי", "סבבה", "מעולה", "הבנתי" when appropriate. If the caller is describing a claim, difficulty or problem, you may say things like "מצטערת לשמוע" or "זה באמת לא נעים" before continuing. If the caller mentions the word "תביעה" or describes an insurance claim, respond with empathy, for example: "אוי, אני מצטערת לשמוע, בוא נראה איך אפשר לעזור", ואז המשיכי בעדינות לשאלות.
 4. Speak at a natural, relaxed pace, with short sentences. Do not sound like you are reading a list. Keep things conversational and flowing, but still concise.
 5. CONVERSATION START: As soon as the call connects, you MUST speak first without waiting for the caller. Your first utterance in the conversation MUST be exactly:
    "שלום, אני מאיה המזכירה הדיגיטלית של רועי. רועי לא פנוי כרגע. באיזה נושא אוכל לסייע?"
@@ -69,7 +100,7 @@ CALL FLOW FOR INSURANCE DEMO:
 8. Once you have the caller's name, phone number, and a short explanation (or as much as they are willing to give), you MUST say exactly:
    "תודה רבה. אני מעבירה לרועי את כל הפרטים עכשיו, והוא יחזור אליך בהקדם."
    Say this once in a warm, confident tone.
-9. After you say the closing sentence, do not ask any more questions. End the conversation naturally and then call the tool end_call to hang up.
+9. After you say the closing sentence, do not ask any more questions. First, call the tool process_agency_lead with the collected details (name, phone number, topic, and any important notes). Then, end the conversation naturally and call the tool end_call to hang up.
 """
 VOICE = "shimmer"
 
@@ -127,12 +158,40 @@ SESSION PARAMETERS:
                 "tools": [
                     {
                         "type": "function",
+                        "name": "process_agency_lead",
+                        "description": "שולחת את פרטי הפונה למערכת של רועי כדי שרועי יוכל לחזור אליו.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "name": {
+                                    "type": "string",
+                                    "description": "השם הפרטי של הפונה",
+                                },
+                                "phone_number": {
+                                    "type": "string",
+                                    "description": "מספר הטלפון לחזרה (אם לא ידוע, אפשר להשתמש במספר של השיחה)",
+                                },
+                                "topic": {
+                                    "type": "string",
+                                    "description": "הנושא שבגללו הפונה צריך את רועי (למשל ביטוח רכב, דירה וכו׳)",
+                                },
+                                "notes": {
+                                    "type": "string",
+                                    "description": "מידע נוסף שיכול לעזור לרועי להבין את הבקשה",
+                                },
+                            },
+                            "required": ["name", "phone_number", "topic"],
+                            "additionalProperties": False,
+                        },
+                    },
+                    {
+                        "type": "function",
                         "name": "end_call",
                         "description": "מנתקת את השיחה",
-                        "parameters": {"type": "object", "properties": {}}
-                    }
-                ]
-            }
+                        "parameters": {"type": "object", "properties": {}},
+                    },
+                ],
+            },
         }
 
         await openai_ws.send(json.dumps(session_update))
@@ -176,10 +235,21 @@ SESSION PARAMETERS:
                             "media": {"payload": response['delta']}
                         })
                     
-                    if response.get('type') == 'response.function_call_arguments.done':
-                        func_name = response['name']
-                        args = json.loads(response['arguments'])
+                    if response.get("type") == "response.function_call_arguments.done":
+                        func_name = response["name"]
+                        args = json.loads(response["arguments"])
                         print(f"🛠️ Calling function: {func_name} with args: {args}")
+
+                        if func_name == "process_agency_lead":
+                            lead_payload = {
+                                "source": "voice_realtime",
+                                "caller_phone_twilio": caller_phone,
+                                "name": args.get("name"),
+                                "phone_number": args.get("phone_number") or caller_phone,
+                                "topic": args.get("topic"),
+                                "notes": args.get("notes", ""),
+                            }
+                            await process_agency_lead(lead_payload)
 
                         if func_name == "end_call":
                             print("👋 Maya requested end_call")
