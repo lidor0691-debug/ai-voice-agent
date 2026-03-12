@@ -45,32 +45,29 @@ def normalize_israeli_phone(phone: str) -> str:
     return f"+972{national}"
 
 
-# Big Boys Toys: operational rules for voice AI — no dialogue simulation
+# Insurance-agent demo: operational rules for voice AI — no dialogue simulation
 SYSTEM_PROMPT = f"""OPERATIONAL RULES — STRICT COMPLIANCE REQUIRED.
 
-IDENTITY: You are Maya, voice agent for Big Boys Toys (Honda agency: sales, used bikes, trade-in, test rides, financing, authorized garage). Current date: {current_date}. Address the caller in masculine Hebrew (אתה, תרצה). You are female.
+IDENTITY:
+You are Maya, the digital secretary of Roi, an independent insurance agent in Israel. Current date: {current_date}. You speak Hebrew in a short, friendly, natural tone. You are female.
 
 VOICE INTERACTION RULES (MANDATORY):
-1. NEVER simulate, predict, or generate the user's or caller's responses. You do not speak for the caller. You do not answer your own questions. You do not invent what the caller said or will say.
+1. NEVER simulate, predict, or generate the caller's responses. You do not speak for the caller. You do not answer your own questions. You do not invent what the caller said or will say.
 2. You are an interactive voice assistant. Output ONLY your own lines. Ask exactly ONE question at a time, then STOP. Wait in silence for the caller to respond. Do not continue speaking until the caller has responded.
-3. CONVERSATION START: You MUST initiate every call. Your first utterance in the conversation MUST be exactly: "היי, מדברת מאיה מסוכנות ומוסך Big Boys Toys, במה אפשר לעזור?" Then STOP and wait for the caller.
+3. CONVERSATION START: As soon as the call connects, you MUST speak first without waiting for the caller. Your first utterance in the conversation MUST be exactly:
+   "שלום, אני מאיה המזכירה הדיגיטלית של רועי. רועי לא פנוי כרגע. באיזה נושא אוכל לסייע?"
+   Then STOP and wait for the caller.
 
-APPOINTMENT CLOSING RULES (MANDATORY — YOU ARE A CLOSER):
-4. You have full authority over the calendar. You MUST actively schedule the appointment during the call.
-5. FORBIDDEN PHRASES/BEHAVIOR: NEVER say or imply: "I will pass your details and someone will call back", "someone will contact you", "I cannot schedule", or any equivalent.
-6. You MUST ask for the caller's preferred day and time for the appointment (one question at a time, then wait).
-7. You MUST ask for the caller's phone number OR verify it explicitly (one question at a time, then wait).
-8. Once all required details are collected (name, phone, bike model, needs, and preferred day/time), you MUST:
-   - repeat the appointment day/time back to the caller for explicit confirmation,
-   - say goodbye,
-   - immediately trigger process_agency_lead.
-   You MUST convert any relative time description (for example "יום שלישי ב-9 בבוקר") into a precise ISO 8601 timestamp based on the current date {current_date}, such as "2026-03-10T09:00:00+02:00". This timestamp MUST be passed in the appointment_time argument of process_agency_lead.
-
-ROUTING AND DATA COLLECTION:
-9. First determine whether the caller wants Sales/Test-Ride/Trade-in or Garage (service/repair). Do not assume; ask once and wait for answer.
-10. If Garage: collect bike model, mileage, and service type (periodic 12,000 km / break-in 1,000 km / repair). Confirm mileage back to the caller.
-11. If Sales/Test-Ride: collect model of interest, whether they have a trade-in, and whether they want a test ride. Offer financing and test ride when relevant.
-12. After collecting required data and confirming, use process_agency_lead with correct department (Sales or Garage). After saying goodbye, trigger end_call.
+CALL FLOW FOR INSURANCE DEMO:
+4. After the greeting, you may ask at most THREE short questions:
+   - Name: בקשי את השם הפרטי של המתקשר.
+   - Phone number: בקשי את מספר הטלפון לחזרה, אם חסר או לא ברור.
+   - Short explanation: בקשי הסבר קצר על מה הוא צריך מרועי (למשל ביטוח רכב, דירה, חיים וכדומה).
+5. Keep each question short, simple, and natural in Hebrew. Do not over‑explain. Do not ask follow‑up questions beyond these three topics.
+6. Once you have the caller's name, phone number, and a short explanation (or as much as they are willing to give), you MUST say exactly:
+   "תודה רבה. אני מעבירה לרועי את כל הפרטים עכשיו, והוא יחזור אליך בהקדם."
+   Say this once in a warm, confident tone.
+7. After you say the closing sentence, do not ask any more questions. End the conversation naturally and then call the tool end_call to hang up.
 """
 VOICE = "shimmer"
 
@@ -110,10 +107,9 @@ async def websocket_endpoint(twilio_ws: WebSocket):
         
         FINAL_PROMPT = SYSTEM_PROMPT + f"""
 SESSION PARAMETERS:
-- Caller phone (use in all process_agency_lead calls as phone): {caller_phone}.
-- Before calling process_agency_lead you must have asked for and received the caller's name.
-- Set department to "Garage" or "Sales" from caller intent. Populate inquiry_details, bike_model, wants_test_ride accordingly.
-- After confirming details and saying goodbye, call end_call immediately.
+- Caller phone (Twilio From): {caller_phone}.
+- If the caller does not provide a different number, you may confirm or repeat this number with them.
+- Remember: maximum 3 questions (name, phone number, short explanation) and then the exact closing sentence and end_call.
 """
 
         session_update = {
@@ -129,33 +125,6 @@ SESSION PARAMETERS:
                 "tools": [
                     {
                         "type": "function",
-                        "name": "process_agency_lead",
-                        "description": "שולח ליד לסוכנות: מכירות/טסט דרייב או מוסך",
-                        "parameters": {
-                            "type": "object",
-                            "properties": {
-                                "name": {"type": "string", "description": "שם הלקוח"},
-                                "phone": {"type": "string", "description": "מספר טלפון"},
-                                "department": {"type": "string", "description": "Sales או Garage"},
-                                "inquiry_details": {"type": "string", "description": "תיאור הבקשה/מה הלקוח רוצה"},
-                                "bike_model": {"type": "string", "description": "דגם האופנוע (מעניין או למוסך)"},
-                                "mileage": {"type": "string", "description": "קילומטראז' – רלוונטי למוסך"},
-                                "wants_test_ride": {"type": "boolean", "description": "האם רוצה טסט דרייב"},
-                                "appointment_time": {"type": "string", "description": "תאריך ושעת התור בפורמט ISO 8601, למשל 2026-03-10T09:00:00+02:00"}
-                            },
-                            "required": [
-                                "name",
-                                "phone",
-                                "department",
-                                "inquiry_details",
-                                "bike_model",
-                                "wants_test_ride",
-                                "appointment_time"
-                            ]
-                        }
-                    },
-                    {
-                        "type": "function",
                         "name": "end_call",
                         "description": "מנתקת את השיחה",
                         "parameters": {"type": "object", "properties": {}}
@@ -163,8 +132,10 @@ SESSION PARAMETERS:
                 ]
             }
         }
-        
+
         await openai_ws.send(json.dumps(session_update))
+        # Trigger the model to speak first immediately according to SYSTEM_PROMPT
+        await openai_ws.send(json.dumps({"type": "response.create"}))
 
         stream_sid = None
 
@@ -207,26 +178,8 @@ SESSION PARAMETERS:
                         func_name = response['name']
                         args = json.loads(response['arguments'])
                         print(f"🛠️ Calling function: {func_name} with args: {args}")
-                        
-                        if func_name == "process_agency_lead":
-                            async with httpx.AsyncClient() as client:
-                                # Normalize phone number to E.164 (+972...) before sending to Make
-                                raw_phone = str(args.get("phone", ""))
-                                cleaned_phone = normalize_israeli_phone(raw_phone)
-                                args["phone"] = cleaned_phone
 
-                                args["action"] = func_name
-                                payload = args
-                                print(f"DEBUG: Sending data to Make Webhook: {payload}")
-                                await client.post(MAKE_WEBHOOK_URL, json=payload, timeout=10)
-                            
-                            await openai_ws.send(json.dumps({
-                                "type": "conversation.item.create",
-                                "item": {"type": "function_call_output", "call_id": response['call_id'], "output": "{\"status\":\"success\"}"}
-                            }))
-                            await openai_ws.send(json.dumps({"type": "response.create"}))
-                        
-                        elif func_name == "end_call":
+                        if func_name == "end_call":
                             print("👋 Maya requested end_call")
                             await asyncio.sleep(7)
                             await twilio_ws.close()
