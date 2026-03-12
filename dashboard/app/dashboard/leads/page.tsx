@@ -1,15 +1,20 @@
 export const dynamic = "force-dynamic";
 
-import { fetchLeads } from "@/lib/api";
+import { fetchLeadsFromSheets, fetchLeads } from "@/lib/api";
 import { MOCK_LEADS } from "@/lib/mock-data";
 import { LeadsClientPage } from "./LeadsClientPage";
 
 export default async function LeadsPage() {
+  // Priority: Google Sheets → FastAPI backend → mock data
   let leads = MOCK_LEADS;
   try {
-    leads = await fetchLeads();
+    leads = await fetchLeadsFromSheets();
   } catch {
-    // backend unavailable — mock data is used as fallback
+    try {
+      leads = await fetchLeads();
+    } catch {
+      // all sources unavailable — use mock data
+    }
   }
 
   return <LeadsClientPage initialLeads={leads} />;

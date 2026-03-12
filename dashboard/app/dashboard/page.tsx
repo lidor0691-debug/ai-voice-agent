@@ -5,17 +5,21 @@ import { Header } from "@/components/layout/header";
 import { StatCard } from "@/components/dashboard/stat-card";
 import { LeadsTable } from "@/components/dashboard/leads-table";
 import { ActivityChart } from "@/components/dashboard/activity-chart";
-import { fetchLeads } from "@/lib/api";
+import { fetchLeadsFromSheets, fetchLeads } from "@/lib/api";
 import { MOCK_LEADS } from "@/lib/mock-data";
 import { computeStats } from "@/lib/utils";
 
 export default async function DashboardPage() {
-  // Fetch from FastAPI; fall back to mock data if the backend is down
+  // Priority: Google Sheets → FastAPI backend → mock data
   let leads = MOCK_LEADS;
   try {
-    leads = await fetchLeads();
+    leads = await fetchLeadsFromSheets();
   } catch {
-    // backend unavailable — mock data is used as fallback
+    try {
+      leads = await fetchLeads();
+    } catch {
+      // all sources unavailable — use mock data
+    }
   }
 
   const stats = computeStats(leads);
