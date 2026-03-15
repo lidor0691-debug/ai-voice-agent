@@ -148,7 +148,12 @@ SESSION PARAMETERS:
         session_update = {
             "type": "session.update",
             "session": {
-                "turn_detection": {"type": "server_vad", "silence_duration_ms": 700},
+                "turn_detection": {
+                    "type": "server_vad",
+                    "threshold": 0.75,
+                    "prefix_padding_ms": 500,
+                    "silence_duration_ms": 1000,
+                },
                 "input_audio_format": "g711_ulaw",
                 "output_audio_format": "g711_ulaw",
                 "voice": VOICE,
@@ -199,6 +204,10 @@ SESSION PARAMETERS:
         await openai_ws.send(json.dumps({"type": "response.create"}))
 
         stream_sid = None
+        is_ai_speaking = False
+        speech_started_at = None
+        _SILENCE_MS = 1000   # must match silence_duration_ms in session config above
+        _MIN_SPEECH_MS = 300  # caller must sustain speech this long before interrupting AI
 
         async def receive_from_twilio():
             nonlocal stream_sid
@@ -217,25 +226,52 @@ SESSION PARAMETERS:
                 print(f"⚠️ Twilio Receiver Error: {e}")
 
         async def receive_from_openai():
+            nonlocal is_ai_speaking, speech_started_at
             try:
                 async for message in openai_ws:
                     response = json.loads(message)
-                    
-                    # Barge-in / interruption handling: clear Twilio playback and cancel current response.
-                    if response.get('type') == 'input_audio_buffer.speech_started':
+                    event_type = response.get('type')
+
+                    # Stream AI audio to Twilio and mark AI as speaking
+                    if event_type == 'response.audio.delta':
+                        is_ai_speaking = True
                         if stream_sid:
-                            await twilio_ws.send_json({"event": "clear", "streamSid": stream_sid})
-                        await openai_ws.send(json.dumps({"type": "response.cancel"}))
+                            await twilio_ws.send_json({
+                                "event": "media",
+                                "streamSid": stream_sid,
+                                "media": {"payload": response['delta']}
+                            })
                         continue
 
-                    if response.get('type') == 'response.audio.delta' and stream_sid:
-                        await twilio_ws.send_json({
-                            "event": "media",
-                            "streamSid": stream_sid,
-                            "media": {"payload": response['delta']}
-                        })
-                    
-                    if response.get("type") == "response.function_call_arguments.done":
+                    # AI finished speaking — reset state
+                    if event_type in ('response.audio.done', 'response.cancelled'):
+                        is_ai_speaking = False
+                        speech_started_at = None
+                        continue
+
+                    # VAD: caller started speaking — record timestamp, do NOT interrupt yet.
+                    # Waiting for speech_stopped lets us measure actual duration before acting,
+                    # which filters out noise bursts, echo, and brief sounds.
+                    if event_type == 'input_audio_buffer.speech_started':
+                        speech_started_at = asyncio.get_event_loop().time()
+                        continue
+
+                    # VAD: caller finished speaking — now decide whether to interrupt.
+                    # speech_stopped fires after silence_duration_ms of quiet, so elapsed time
+                    # from speech_started = actual_speech_duration + silence_duration_ms.
+                    # Only interrupt if: AI is currently speaking AND speech was >= _MIN_SPEECH_MS.
+                    if event_type == 'input_audio_buffer.speech_stopped':
+                        if speech_started_at is not None and is_ai_speaking:
+                            elapsed_ms = (asyncio.get_event_loop().time() - speech_started_at) * 1000
+                            speech_ms = elapsed_ms - _SILENCE_MS
+                            if speech_ms >= _MIN_SPEECH_MS:
+                                if stream_sid:
+                                    await twilio_ws.send_json({"event": "clear", "streamSid": stream_sid})
+                                await openai_ws.send(json.dumps({"type": "response.cancel"}))
+                        speech_started_at = None
+                        continue
+
+                    if event_type == "response.function_call_arguments.done":
                         func_name = response["name"]
                         args = json.loads(response["arguments"])
                         print(f"🛠️ Calling function: {func_name} with args: {args}")
