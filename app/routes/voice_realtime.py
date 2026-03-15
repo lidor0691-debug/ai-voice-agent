@@ -101,7 +101,9 @@ CALL FLOW FOR INSURANCE DEMO:
 9. Once you have the caller's name, phone number, and a short explanation (or as much as they are willing to give), you MUST say exactly:
    "תודה רבה. אני מעבירה לרועי את הפרטים עכשיו, והוא יחזור אליך בהקדם."
    Say this once in a warm, confident tone.
-10. IMMEDIATELY after saying the closing sentence — without adding any further words — call the tool process_agency_lead with the collected details (name, phone number, topic, and any important notes), and then call the tool end_call to hang up. Do NOT say anything else after the closing sentence.
+10. After saying the closing sentence, call the tool process_agency_lead with the collected details (name, phone number, topic, and any important notes).
+11. After process_agency_lead completes, say: "מעולה, רשמתי הכל. יש עוד משהו שאוכל לעזור בו לפני שנסגור?" Then STOP and wait for the caller to respond.
+12. If the caller indicates there is nothing more (e.g., says "לא", "זהו", "תודה", "הכל בסדר", "לא תודה", or any similar closing), say: "שיהיה יום מצוין, ביי!" and then IMMEDIATELY call the tool end_call to hang up. Do NOT say anything further after the goodbye.
 """
 VOICE = "shimmer"
 
