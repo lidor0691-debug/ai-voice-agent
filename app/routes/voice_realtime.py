@@ -85,81 +85,101 @@ async def send_lead_to_webhook(webhook_url: str, lead_data: dict) -> bool:
 #
 # To add a new client: add one entry here. No other code changes required.
 
+# ── Normalize both numbers up front ──────────────────────────────────────────
+_roi_phone_raw    = ROI_PHONE_NUMBER
+_studio_phone_raw = STUDIO_PHONE_NUMBER
+_roi_phone        = normalize_phone_key(_roi_phone_raw)
+_studio_phone     = normalize_phone_key(_studio_phone_raw)
+
+# ── Define both client configs ────────────────────────────────────────────────
+_ROI_CONFIG = {
+    "client_name":    "Roi Insurance",
+    "assistant_name": "מאיה",
+    "business_type":  "insurance agency",
+    "tone":           "professional, calm, trustworthy",
+    "greeting": (
+        "שלום, אני מאיה המזכירה הדיגיטלית של רועי. "
+        "רועי לא פנוי כרגע. באיזה נושא אוכל לסייע?"
+    ),
+    "goal": "collect insurance lead details for Roi to follow up on",
+    "required_fields": ["name", "phone_number", "insurance_type"],
+    "booking_rules": "",
+    "webhook_url": ROI_WEBHOOK_URL,
+    "voice": "shimmer",
+    "extra_notes": (
+        "Focus on trust and clarity. "
+        "If the caller mentions 'תביעה' (insurance claim), respond with empathy: "
+        "'אהמ... אוי, אני מצטערת לשמוע. בוא נראה איך אפשר לעזור', "
+        "then continue gently with the questions. "
+        "Once you have name, phone, and topic, say exactly: "
+        "'תודה רבה. אני מעבירה לרועי את הפרטים עכשיו, והוא יחזור אליך בהקדם.'"
+    ),
+}
+
+_STUDIO_CONFIG = {
+    "client_name":    "Maya BPM Dance Studio",
+    "assistant_name": "מאיה",
+    "business_type":  "dance studio",
+    "tone":           "friendly, warm, personal, light",
+    "greeting": (
+        "שלום הגעת למאיה BPM! "
+        "את מתעניינת לגבי ריקוד בת מצווה או סטודיו לריקוד?"
+    ),
+    "goal": "collect lead details and book a free trial dance class",
+    "required_fields": [
+        "interest_type (bat mitzvah choreography or studio classes)",
+        "girl_name",
+        "school_grade",
+        "dance_experience",
+        "parent_name",
+        "parent_phone",
+    ],
+    "booking_rules": (
+        "Trial classes are available on Sundays and Wednesdays only.\n"
+        "Group schedule by grade:\n"
+        "  - Kindergarten + Grade 1: Sunday at 17:00\n"
+        "  - Grades 2–4: 17:45–18:40\n"
+        "  - Grades 5–6: 18:40–19:40\n"
+        "  - Older girls: 19:40–20:40\n"
+        "Always offer 2 free trial classes to every new student."
+    ),
+    "webhook_url": STUDIO_WEBHOOK_URL,
+    "voice": "shimmer",
+    "extra_notes": (
+        "Make every girl feel welcome and excited about dancing. "
+        "Keep the conversation short and naturally guide toward booking a trial. "
+        "After collecting the grade, suggest the matching time slot. "
+        "Always mention the 2 free trial classes."
+    ),
+}
+
+# ── Build CLIENTS_CONFIG ──────────────────────────────────────────────────────
 CLIENTS_CONFIG: dict[str, dict] = {}
 
-if ROI_PHONE_NUMBER:
-    CLIENTS_CONFIG[normalize_phone_key(ROI_PHONE_NUMBER)] = {
-        "client_name":    "Roi Insurance",
-        "assistant_name": "מאיה",
-        "business_type":  "insurance agency",
-        "tone":           "professional, calm, trustworthy",
-        "greeting": (
-            "שלום, אני מאיה המזכירה הדיגיטלית של רועי. "
-            "רועי לא פנוי כרגע. באיזה נושא אוכל לסייע?"
-        ),
-        "goal": "collect insurance lead details for Roi to follow up on",
-        "required_fields": ["name", "phone_number", "insurance_type"],
-        "booking_rules": "",
-        "webhook_url": ROI_WEBHOOK_URL,
-        "voice": "shimmer",
-        "extra_notes": (
-            "Focus on trust and clarity. "
-            "If the caller mentions 'תביעה' (insurance claim), respond with empathy: "
-            "'אהמ... אוי, אני מצטערת לשמוע. בוא נראה איך אפשר לעזור', "
-            "then continue gently with the questions. "
-            "Once you have name, phone, and topic, say exactly: "
-            "'תודה רבה. אני מעבירה לרועי את הפרטים עכשיו, והוא יחזור אליך בהקדם.'"
-        ),
-    }
+if _roi_phone:
+    CLIENTS_CONFIG[_roi_phone] = _ROI_CONFIG
+else:
+    print("❌ CLIENTS_CONFIG: Roi phone missing — TWILIO_PHONE_NUMBER is not set!")
 
-if STUDIO_PHONE_NUMBER:
-    CLIENTS_CONFIG[normalize_phone_key(STUDIO_PHONE_NUMBER)] = {
-        "client_name":    "Maya BPM Dance Studio",
-        "assistant_name": "מאיה",
-        "business_type":  "dance studio",
-        "tone":           "friendly, warm, personal, light",
-        "greeting": (
-            "שלום הגעת למאיה BPM! "
-            "את מתעניינת לגבי ריקוד בת מצווה או סטודיו לריקוד?"
-        ),
-        "goal": "collect lead details and book a free trial dance class",
-        "required_fields": [
-            "interest_type (bat mitzvah choreography or studio classes)",
-            "girl_name",
-            "school_grade",
-            "dance_experience",
-            "parent_name",
-            "parent_phone",
-        ],
-        "booking_rules": (
-            "Trial classes are available on Sundays and Wednesdays only.\n"
-            "Group schedule by grade:\n"
-            "  - Kindergarten + Grade 1: Sunday at 17:00\n"
-            "  - Grades 2–4: 17:45–18:40\n"
-            "  - Grades 5–6: 18:40–19:40\n"
-            "  - Older girls: 19:40–20:40\n"
-            "Always offer 2 free trial classes to every new student."
-        ),
-        "webhook_url": STUDIO_WEBHOOK_URL,
-        "voice": "shimmer",
-        "extra_notes": (
-            "Make every girl feel welcome and excited about dancing. "
-            "Keep the conversation short and naturally guide toward booking a trial. "
-            "After collecting the grade, suggest the matching time slot. "
-            "Always mention the 2 free trial classes."
-        ),
-    }
+if _studio_phone:
+    if _studio_phone == _roi_phone:
+        print("❌ CLIENTS_CONFIG: Studio phone equals Roi phone — STUDIO_PHONE_NUMBER may be wrong!")
+    else:
+        CLIENTS_CONFIG[_studio_phone] = _STUDIO_CONFIG
+else:
+    print("❌ CLIENTS_CONFIG: Studio phone missing — STUDIO_PHONE_NUMBER is not set!")
 
-# Fallback: use Roi's config if the incoming number isn't recognized
-_DEFAULT_CLIENT: dict = CLIENTS_CONFIG.get(
-    normalize_phone_key(ROI_PHONE_NUMBER),
-    next(iter(CLIENTS_CONFIG.values()), {}),
-)
+# Fallback: Roi is the default for any unrecognized number
+_DEFAULT_CLIENT: dict = CLIENTS_CONFIG.get(_roi_phone, next(iter(CLIENTS_CONFIG.values()), {}))
 
 # ── Startup routing diagnostics ───────────────────────────────────────────────
-print(f"🔧 ROI_PHONE_NUMBER  (TWILIO_PHONE_NUMBER) raw='{ROI_PHONE_NUMBER}'  normalized='{normalize_phone_key(ROI_PHONE_NUMBER)}'")
-print(f"🔧 STUDIO_PHONE_NUMBER                     raw='{STUDIO_PHONE_NUMBER}'  normalized='{normalize_phone_key(STUDIO_PHONE_NUMBER)}'")
-print(f"🔧 CLIENTS_CONFIG keys: {list(CLIENTS_CONFIG.keys())}")
+print("=" * 60)
+print("🔧 ROUTING CONFIG DIAGNOSTICS")
+print(f"   roi_phone    raw='{_roi_phone_raw}'  normalized='{_roi_phone}'  {'✅ loaded' if _roi_phone else '❌ MISSING'}")
+print(f"   studio_phone raw='{_studio_phone_raw}'  normalized='{_studio_phone}'  {'✅ loaded' if _studio_phone else '❌ MISSING'}")
+print(f"   CLIENTS_CONFIG keys: {list(CLIENTS_CONFIG.keys())}")
+print(f"   Default fallback client: '{_DEFAULT_CLIENT.get('client_name', 'none')}'")
+print("=" * 60)
 
 
 # ── Dynamic prompt builder ────────────────────────────────────────────────────
