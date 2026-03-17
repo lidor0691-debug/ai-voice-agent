@@ -3,6 +3,7 @@ import json
 import asyncio
 import websockets
 import httpx
+from urllib.parse import quote
 from fastapi import APIRouter, WebSocket, Request
 from fastapi.responses import Response
 from twilio.twiml.voice_response import VoiceResponse, Connect, Hangup
@@ -254,14 +255,22 @@ async def voice_entry(request: Request):
     form_data    = await request.form()
     caller_phone = form_data.get("From", "")
     to_number    = form_data.get("To", "")
+    call_sid     = form_data.get("CallSid", "")
+
+    print(f"📲 /voice webhook received | To='{to_number}' | From='{caller_phone}' | CallSid='{call_sid}'")
+
+    host       = request.url.hostname
+    stream_url = (
+        f"wss://{host}/voice-ai/stream"
+        f"?to={quote(to_number, safe='')}"
+        f"&from={quote(caller_phone, safe='')}"
+        f"&call_sid={quote(call_sid, safe='')}"
+    )
+    print(f"📲 /voice stream URL: {stream_url}")
 
     response = VoiceResponse()
     connect  = Connect()
-    host     = request.url.hostname
-    connect.stream(
-        url=f"wss://{host}/voice-ai/stream"
-            f"?caller_phone={caller_phone}&to_number={to_number}"
-    )
+    connect.stream(url=stream_url)
     response.append(connect)
     response.append(Hangup())
     return Response(content=str(response), media_type="application/xml")
@@ -274,12 +283,13 @@ async def websocket_endpoint(twilio_ws: WebSocket):
     await twilio_ws.accept()
     print("✅ Twilio connection accepted")
 
-    caller_phone  = twilio_ws.query_params.get("caller_phone", "")
-    to_number_raw = twilio_ws.query_params.get("to_number", "")
+    caller_phone  = twilio_ws.query_params.get("from", "")
+    to_number_raw = twilio_ws.query_params.get("to", "")
+    call_sid      = twilio_ws.query_params.get("call_sid", "")
     to_number     = normalize_phone_key(to_number_raw)
 
     # ── Routing debug ──────────────────────────────────────────────────────
-    print(f"📞 Incoming call | To (raw): '{to_number_raw}' | To (normalized): '{to_number}' | From: '{caller_phone}'")
+    print(f"📞 /stream connected | To (raw): '{to_number_raw}' | To (normalized): '{to_number}' | From: '{caller_phone}' | CallSid: '{call_sid}'")
     print(f"📒 CLIENTS_CONFIG keys: {list(CLIENTS_CONFIG.keys())}")
 
     # Route to the correct client; fall back to default (Roi) if unknown
