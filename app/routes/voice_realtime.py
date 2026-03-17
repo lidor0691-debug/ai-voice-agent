@@ -175,11 +175,12 @@ _DEFAULT_CLIENT: dict = CLIENTS_CONFIG.get(_roi_phone, next(iter(CLIENTS_CONFIG.
 
 # ── Startup routing diagnostics ───────────────────────────────────────────────
 print("=" * 60)
-print("🔧 ROUTING CONFIG DIAGNOSTICS")
-print(f"   roi_phone    raw='{_roi_phone_raw}'  normalized='{_roi_phone}'  {'✅ loaded' if _roi_phone else '❌ MISSING'}")
-print(f"   studio_phone raw='{_studio_phone_raw}'  normalized='{_studio_phone}'  {'✅ loaded' if _studio_phone else '❌ MISSING'}")
-print(f"   CLIENTS_CONFIG keys: {list(CLIENTS_CONFIG.keys())}")
-print(f"   Default fallback client: '{_DEFAULT_CLIENT.get('client_name', 'none')}'")
+print("🔧 STARTUP — ROUTING CONFIG DIAGNOSTICS")
+print(f"   TWILIO_PHONE_NUMBER  raw='{_roi_phone_raw}'    normalized='{_roi_phone}'    {'✅' if _roi_phone else '❌ MISSING'}")
+print(f"   STUDIO_PHONE_NUMBER  raw='{_studio_phone_raw}'    normalized='{_studio_phone}'    {'✅' if _studio_phone else '❌ MISSING'}")
+print(f"   Numbers equal?  {_roi_phone == _studio_phone and bool(_roi_phone)}")
+print(f"   CLIENTS_CONFIG keys ({len(CLIENTS_CONFIG)}): {list(CLIENTS_CONFIG.keys())}")
+print(f"   Default fallback: '{_DEFAULT_CLIENT.get('client_name', 'none')}'")
 print("=" * 60)
 
 
@@ -295,24 +296,38 @@ async def websocket_endpoint(twilio_ws: WebSocket):
     call_sid      = twilio_ws.query_params.get("call_sid", "")
     to_number     = normalize_phone_key(to_number_raw)
 
-    # ── [3] WebSocket params received ─────────────────────────────────────
+    # ── [3] Fail-fast param trace ──────────────────────────────────────────
     print("=" * 60)
-    print("📞 [3] WEBSOCKET /stream CONNECTED")
-    print(f"       to   (raw query param) = '{to_number_raw}'")
-    print(f"       to   (normalized)      = '{to_number}'")
-    print(f"       from (raw query param) = '{caller_phone}'")
-    print(f"       call_sid               = '{call_sid}'")
-    print(f"       CLIENTS_CONFIG keys    = {list(CLIENTS_CONFIG.keys())}")
+    print("📞 [3] WEBSOCKET /stream — QUERY PARAMS")
+    print(f"   raw_to        = '{to_number_raw}'")
+    print(f"   normalized_to = '{to_number}'")
+    print(f"   raw_from      = '{caller_phone}'")
+    print(f"   call_sid      = '{call_sid}'")
+    print(f"   all params    = {dict(twilio_ws.query_params)}")
 
-    # ── [4] Client lookup ──────────────────────────────────────────────────
-    client_config = CLIENTS_CONFIG.get(to_number)
-    if client_config:
-        match_type = "EXACT MATCH"
-        print(f"✅ [4] CLIENT SELECTED ({match_type}): '{client_config.get('client_name')}'")
+    # ── [4] Client lookup — explicit trace ────────────────────────────────
+    print(f"   CLIENTS_CONFIG keys ({len(CLIENTS_CONFIG)}): {list(CLIENTS_CONFIG.keys())}")
+    _lookup_result = CLIENTS_CONFIG.get(to_number)
+    print(f"   CLIENTS_CONFIG.get('{to_number}') = {'<found: ' + _lookup_result.get('client_name','?') + '>' if _lookup_result else 'None (no match)'}")
+
+    if _lookup_result:
+        client_config = _lookup_result
+        match_type    = "EXACT MATCH"
     else:
         client_config = _DEFAULT_CLIENT
-        match_type = "FALLBACK"
-        print(f"⚠️  [4] CLIENT SELECTED ({match_type}): '{client_config.get('client_name', 'none')}' (no entry for '{to_number}')")
+        match_type    = "FALLBACK"
+
+    print(f"   [4] SELECTED ({match_type}): '{client_config.get('client_name', 'none')}'")
+
+    # ── Hard fail: studio number must not resolve to Roi ──────────────────
+    if to_number and to_number == _studio_phone and client_config.get("client_name") != "Maya BPM Dance Studio":
+        msg = (
+            f"ROUTING BUG: Studio number '{to_number}' resolved to "
+            f"'{client_config.get('client_name')}' instead of 'Maya BPM Dance Studio'. "
+            f"CLIENTS_CONFIG keys: {list(CLIENTS_CONFIG.keys())}"
+        )
+        print(f"❌ {msg}")
+        raise RuntimeError(msg)
 
     if not client_config:
         print("❌ No client config found and no default — closing connection.")
@@ -324,13 +339,17 @@ async def websocket_endpoint(twilio_ws: WebSocket):
         await twilio_ws.close()
         return
 
+    # ── [4b] Before build_system_prompt ───────────────────────────────────
+    print(f"   [4b] building prompt for client_config['client_name'] = '{client_config.get('client_name')}'")
+
     system_prompt = build_system_prompt(client_config, caller_phone)
     webhook_url   = client_config.get("webhook_url", "")
     voice         = client_config.get("voice", "shimmer")
 
-    print(f"       selected client_name = '{client_config.get('client_name')}'")
-    print(f"       selected webhook_url = '{webhook_url}'")
-    print(f"       prompt fingerprint   = '{system_prompt[:120].strip()}'")
+    # ── [4c] After build_system_prompt ────────────────────────────────────
+    print(f"   [4c] prompt built for '{client_config.get('client_name')}' — first 120 chars:")
+    print(f"        '{system_prompt[:120].strip()}'")
+    print(f"   webhook_url = '{webhook_url}'")
     print("=" * 60)
 
     openai_url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview"
@@ -338,11 +357,12 @@ async def websocket_endpoint(twilio_ws: WebSocket):
 
     async with websockets.connect(openai_url, additional_headers=headers) as openai_ws:
         print("✅ Connected to OpenAI Realtime API")
+        # ── [5] Immediately before session_update send ────────────────────
         print("=" * 60)
-        print("🤖 [5] SENDING SESSION TO OPENAI")
-        print(f"       client_name      = '{client_config.get('client_name')}'")
-        print(f"       voice            = '{voice}'")
-        print(f"       prompt[:120]     = '{system_prompt[:120].strip()}'")
+        print("🤖 [5] ABOUT TO SEND session.update TO OPENAI")
+        print(f"   client_name            = '{client_config.get('client_name')}'")
+        print(f"   voice                  = '{voice}'")
+        print(f"   instructions[:120]     = '{system_prompt[:120].strip()}'")
         print("=" * 60)
 
         session_update = {
