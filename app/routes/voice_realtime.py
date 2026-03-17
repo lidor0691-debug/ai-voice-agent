@@ -277,21 +277,27 @@ async def voice_entry(request: Request):
     }
 
     print("=" * 60)
-    print(f"📲 [1] /voice webhook — stored context for CallSid='{call_sid}'")
-    print(f"   raw_to='{raw_to}'  normalized_to='{norm_to}'")
-    print(f"   raw_from='{raw_from}'  normalized_from='{norm_from}'")
-    print(f"   CALL_CONTEXT size: {len(CALL_CONTEXT)}")
-    print("=" * 60)
+    print(f"[VOICE] call_sid         = '{call_sid}'")
+    print(f"[VOICE] raw_to           = '{raw_to}'")
+    print(f"[VOICE] normalized_to    = '{norm_to}'")
+    print(f"[VOICE] raw_from         = '{raw_from}'")
+    print(f"[VOICE] normalized_from  = '{norm_from}'")
+    print(f"[VOICE] CALL_CONTEXT keys after store: {list(CALL_CONTEXT.keys())}")
+    print(f"[VOICE] stored context   = {CALL_CONTEXT[call_sid]}")
 
     host       = request.url.hostname
     stream_url = f"wss://{host}/voice-ai/stream?call_sid={quote(call_sid, safe='')}"
+    print(f"[VOICE] stream_url       = '{stream_url}'")
 
     response = VoiceResponse()
     connect  = Connect()
     connect.stream(url=stream_url)
     response.append(connect)
     response.append(Hangup())
-    return Response(content=str(response), media_type="application/xml")
+    twiml_str = str(response)
+    print(f"[VOICE] TwiML returned:\n{twiml_str}")
+    print("=" * 60)
+    return Response(content=twiml_str, media_type="application/xml")
 
 
 # ── WebSocket / realtime engine ───────────────────────────────────────────────
@@ -300,61 +306,74 @@ async def voice_entry(request: Request):
 async def websocket_endpoint(twilio_ws: WebSocket):
     await twilio_ws.accept()
 
-    # ── [2] Read CallSid from query param ─────────────────────────────────
-    call_sid = twilio_ws.query_params.get("call_sid", "")
+    # ── [WS] Read CallSid from query param ───────────────────────────────────
     print("=" * 60)
-    print(f"📞 [2] /stream connected — call_sid from query param: '{call_sid}'")
+    print(f"[WS] raw query params    = {dict(twilio_ws.query_params)}")
+    call_sid = twilio_ws.query_params.get("call_sid", "")
+    print(f"[WS] call_sid from query = '{call_sid}'")
+    print(f"[WS] CALL_CONTEXT keys   = {list(CALL_CONTEXT.keys())}")
 
-    # ── [3] Resolve call context from memory ──────────────────────────────
+    # ── Resolve call context from memory ─────────────────────────────────
     call_ctx = CALL_CONTEXT.get(call_sid)
 
-    if not call_ctx:
-        # Fallback: try to extract call_sid from the Twilio stream start event
-        print(f"⚠️  [3] No context in CALL_CONTEXT for '{call_sid}' — waiting for start event")
-        call_ctx = None  # will be resolved below after start event
-
     if call_ctx:
-        caller_phone  = call_ctx["from"]
-        to_number     = call_ctx["to"]
-        print(f"✅ [3] Context resolved from CALL_CONTEXT:")
-        print(f"   to (normalized)   = '{to_number}'")
-        print(f"   from (normalized) = '{caller_phone}'")
+        caller_phone = call_ctx["from"]
+        to_number    = call_ctx["to"]
+        print(f"[WS] resolved call_ctx   = {call_ctx}")
     else:
-        # No context found yet — will attempt to fill from start event
         caller_phone = ""
         to_number    = ""
+        print(f"[WS ERROR] Missing CALL_CONTEXT for call_sid='{call_sid}' — using fallback (empty to_number)")
 
-    # ── [4] Client lookup ─────────────────────────────────────────────────
-    client_config = CLIENTS_CONFIG.get(to_number) if to_number else None
-    if client_config:
-        print(f"✅ [4] CLIENT SELECTED (EXACT MATCH): '{client_config.get('client_name')}'")
+    # ── Routing ───────────────────────────────────────────────────────────
+    print(f"[ROUTING] to_number used for lookup = '{to_number}'")
+    print(f"[ROUTING] CLIENTS_CONFIG keys       = {list(CLIENTS_CONFIG.keys())}")
+    _exact = CLIENTS_CONFIG.get(to_number) if to_number else None
+    print(f"[ROUTING] exact lookup result       = {'<' + _exact.get('client_name','?') + '>' if _exact else 'None'}")
+
+    if _exact:
+        client_config = _exact
+        print(f"[ROUTING] selected client_name     = '{client_config.get('client_name')}' (EXACT MATCH)")
     else:
         client_config = _DEFAULT_CLIENT
-        print(f"⚠️  [4] CLIENT SELECTED (FALLBACK): '{client_config.get('client_name', 'none')}' — to_number='{to_number}' not in config")
+        print(f"[ROUTING] selected client_name     = '{client_config.get('client_name', 'none')}' (FALLBACK)")
+
+    # ── Fail-fast: wrong client for known number ─────────────────────────
+    if to_number == _studio_phone and _studio_phone:
+        if client_config.get("client_name") != "Maya BPM Dance Studio":
+            raise RuntimeError(
+                f"ROUTING BUG: Studio call (to='{to_number}') resolved to "
+                f"'{client_config.get('client_name')}' — CLIENTS_CONFIG keys: {list(CLIENTS_CONFIG.keys())}"
+            )
+    if to_number == _roi_phone and _roi_phone:
+        if client_config.get("client_name") != "Roi Insurance":
+            raise RuntimeError(
+                f"ROUTING BUG: Roi call (to='{to_number}') resolved to "
+                f"'{client_config.get('client_name')}' — CLIENTS_CONFIG keys: {list(CLIENTS_CONFIG.keys())}"
+            )
 
     if not client_config:
-        print("❌ No client config and no default — closing.")
+        print("[WS ERROR] No client config and no default — closing.")
         await twilio_ws.close()
         return
 
     if not OPENAI_API_KEY:
-        print("❌ Missing OpenAI API Key")
+        print("[WS ERROR] Missing OpenAI API Key")
         await twilio_ws.close()
         return
 
     system_prompt = build_system_prompt(client_config, caller_phone)
     webhook_url   = client_config.get("webhook_url", "")
     voice         = client_config.get("voice", "shimmer")
-
-    print(f"   [5] prompt for '{client_config.get('client_name')}' — first 120 chars:")
-    print(f"       '{system_prompt[:120].strip()}'")
     print("=" * 60)
 
     openai_url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview"
     headers    = {"Authorization": f"Bearer {OPENAI_API_KEY}", "OpenAI-Beta": "realtime=v1"}
 
     async with websockets.connect(openai_url, additional_headers=headers) as openai_ws:
-        print(f"✅ Connected to OpenAI Realtime API | client='{client_config.get('client_name')}'")
+        print(f"[OPENAI] selected client_name = '{client_config.get('client_name')}'")
+        print(f"[OPENAI] prompt first 120     = '{system_prompt[:120].strip()}'")
+        print("=" * 60)
 
         session_update = {
             "type": "session.update",
