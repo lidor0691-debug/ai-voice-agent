@@ -4,10 +4,10 @@ import asyncio
 import websockets
 import httpx
 from urllib.parse import quote
+from datetime import datetime
 from fastapi import APIRouter, WebSocket, Request
 from fastapi.responses import Response
 from twilio.twiml.voice_response import VoiceResponse, Connect, Hangup
-from datetime import datetime
 
 router = APIRouter()
 
@@ -27,8 +27,26 @@ STUDIO_WEBHOOK_URL  = os.getenv("STUDIO_WEBHOOK_URL", "")
 
 current_date = datetime.now().strftime("%Y-%m-%d")
 
+# ── In-memory call context store (keyed by Twilio CallSid) ───────────────────
+# Populated by the /voice HTTP webhook before the WebSocket connects.
+# The WebSocket reads from here using CallSid so it never depends on
+# URL query params that may drop or mangle phone number characters (+).
+CALL_CONTEXT: dict[str, dict] = {}
 
-# ── Utility ──────────────────────────────────────────────────────────────────
+_CONTEXT_TTL_SECONDS = 30 * 60  # 30 minutes
+
+
+def _cleanup_stale_contexts() -> None:
+    """Remove CALL_CONTEXT entries older than _CONTEXT_TTL_SECONDS."""
+    now = datetime.now().timestamp()
+    stale = [sid for sid, ctx in CALL_CONTEXT.items()
+             if now - ctx.get("created_at", 0) > _CONTEXT_TTL_SECONDS]
+    for sid in stale:
+        CALL_CONTEXT.pop(sid, None)
+        print(f"🧹 Cleaned up stale context for CallSid: {sid}")
+
+
+# ── Utility ───────────────────────────────────────────────────────────────────
 
 def normalize_israeli_phone(phone: str) -> str:
     """Normalize a phone number to E.164 format for Israel (+972)."""
@@ -47,12 +65,7 @@ def normalize_israeli_phone(phone: str) -> str:
 
 
 def normalize_phone_key(phone: str) -> str:
-    """
-    Normalize any phone number string to a consistent E.164-style key
-    used for CLIENTS_CONFIG lookups.  Strips spaces, dashes, parentheses,
-    and applies Israeli +972 normalization so that '0501234567',
-    '+972501234567', and '972-50-123-4567' all produce the same key.
-    """
+    """Normalize any phone string to E.164 for consistent CLIENTS_CONFIG lookup."""
     if not phone:
         return ""
     return normalize_israeli_phone(phone)
@@ -80,19 +93,17 @@ async def send_lead_to_webhook(webhook_url: str, lead_data: dict) -> bool:
     return False
 
 
-# ── Client configuration ─────────────────────────────────────────────────────
-# Key   = Twilio "To" phone number
+# ── Client configuration ──────────────────────────────────────────────────────
+# Key   = normalized E.164 Twilio "To" phone number
 # Value = client config dict
 #
 # To add a new client: add one entry here. No other code changes required.
 
-# ── Normalize both numbers up front ──────────────────────────────────────────
 _roi_phone_raw    = ROI_PHONE_NUMBER
 _studio_phone_raw = STUDIO_PHONE_NUMBER
 _roi_phone        = normalize_phone_key(_roi_phone_raw)
 _studio_phone     = normalize_phone_key(_studio_phone_raw)
 
-# ── Define both client configs ────────────────────────────────────────────────
 _ROI_CONFIG = {
     "client_name":    "Roi Insurance",
     "assistant_name": "מאיה",
@@ -154,7 +165,6 @@ _STUDIO_CONFIG = {
     ),
 }
 
-# ── Build CLIENTS_CONFIG ──────────────────────────────────────────────────────
 CLIENTS_CONFIG: dict[str, dict] = {}
 
 if _roi_phone:
@@ -170,15 +180,13 @@ if _studio_phone:
 else:
     print("❌ CLIENTS_CONFIG: Studio phone missing — STUDIO_PHONE_NUMBER is not set!")
 
-# Fallback: Roi is the default for any unrecognized number
 _DEFAULT_CLIENT: dict = CLIENTS_CONFIG.get(_roi_phone, next(iter(CLIENTS_CONFIG.values()), {}))
 
-# ── Startup routing diagnostics ───────────────────────────────────────────────
 print("=" * 60)
-print("🔧 STARTUP — ROUTING CONFIG DIAGNOSTICS")
-print(f"   TWILIO_PHONE_NUMBER  raw='{_roi_phone_raw}'    normalized='{_roi_phone}'    {'✅' if _roi_phone else '❌ MISSING'}")
-print(f"   STUDIO_PHONE_NUMBER  raw='{_studio_phone_raw}'    normalized='{_studio_phone}'    {'✅' if _studio_phone else '❌ MISSING'}")
-print(f"   Numbers equal?  {_roi_phone == _studio_phone and bool(_roi_phone)}")
+print("🔧 STARTUP — ROUTING CONFIG")
+print(f"   TWILIO_PHONE_NUMBER  raw='{_roi_phone_raw}'  normalized='{_roi_phone}'  {'✅' if _roi_phone else '❌ MISSING'}")
+print(f"   STUDIO_PHONE_NUMBER  raw='{_studio_phone_raw}'  normalized='{_studio_phone}'  {'✅' if _studio_phone else '❌ MISSING'}")
+print(f"   Numbers equal? {_roi_phone == _studio_phone and bool(_roi_phone)}")
 print(f"   CLIENTS_CONFIG keys ({len(CLIENTS_CONFIG)}): {list(CLIENTS_CONFIG.keys())}")
 print(f"   Default fallback: '{_DEFAULT_CLIENT.get('client_name', 'none')}'")
 print("=" * 60)
@@ -198,14 +206,9 @@ def build_system_prompt(client_config: dict, caller_phone: str) -> str:
     booking_rules = client_config.get("booking_rules", "")
     extra_notes   = client_config.get("extra_notes", "")
 
-    fields_str = "\n".join(f"  - {f}" for f in required)
-
-    booking_section = (
-        f"\nBOOKING RULES:\n{booking_rules}\n" if booking_rules else ""
-    )
-    extra_section = (
-        f"\nEXTRA NOTES:\n{extra_notes}\n" if extra_notes else ""
-    )
+    fields_str      = "\n".join(f"  - {f}" for f in required)
+    booking_section = f"\nBOOKING RULES:\n{booking_rules}\n" if booking_rules else ""
+    extra_section   = f"\nEXTRA NOTES:\n{extra_notes}\n" if extra_notes else ""
 
     return f"""OPERATIONAL RULES — STRICT COMPLIANCE REQUIRED.
 
@@ -253,28 +256,35 @@ SESSION INFO:
 
 @router.post("/voice")
 async def voice_entry(request: Request):
-    form_data    = await request.form()
-    caller_phone = form_data.get("From", "")
-    to_number    = form_data.get("To", "")
-    call_sid     = form_data.get("CallSid", "")
+    form_data = await request.form()
+    raw_to    = form_data.get("To", "")
+    raw_from  = form_data.get("From", "")
+    call_sid  = form_data.get("CallSid", "")
+
+    norm_to   = normalize_phone_key(raw_to)
+    norm_from = normalize_phone_key(raw_from)
+
+    # Store call metadata before WebSocket connects — keyed by CallSid.
+    # The WebSocket endpoint reads from here; it never depends on URL params
+    # carrying phone numbers (which are mangled by + encoding in some proxies).
+    _cleanup_stale_contexts()
+    CALL_CONTEXT[call_sid] = {
+        "to":         norm_to,
+        "from":       norm_from,
+        "raw_to":     raw_to,
+        "raw_from":   raw_from,
+        "created_at": datetime.now().timestamp(),
+    }
 
     print("=" * 60)
-    print("📲 [1] TWILIO WEBHOOK RECEIVED")
-    print(f"       To       = '{to_number}'")
-    print(f"       From     = '{caller_phone}'")
-    print(f"       CallSid  = '{call_sid}'")
-    print(f"       All form fields: {dict(form_data)}")
+    print(f"📲 [1] /voice webhook — stored context for CallSid='{call_sid}'")
+    print(f"   raw_to='{raw_to}'  normalized_to='{norm_to}'")
+    print(f"   raw_from='{raw_from}'  normalized_from='{norm_from}'")
+    print(f"   CALL_CONTEXT size: {len(CALL_CONTEXT)}")
+    print("=" * 60)
 
     host       = request.url.hostname
-    stream_url = (
-        f"wss://{host}/voice-ai/stream"
-        f"?to={quote(to_number, safe='')}"
-        f"&from={quote(caller_phone, safe='')}"
-        f"&call_sid={quote(call_sid, safe='')}"
-    )
-    print(f"📲 [2] STREAM URL BUILT")
-    print(f"       {stream_url}")
-    print("=" * 60)
+    stream_url = f"wss://{host}/voice-ai/stream?call_sid={quote(call_sid, safe='')}"
 
     response = VoiceResponse()
     connect  = Connect()
@@ -289,48 +299,41 @@ async def voice_entry(request: Request):
 @router.websocket("/stream")
 async def websocket_endpoint(twilio_ws: WebSocket):
     await twilio_ws.accept()
-    print("✅ Twilio connection accepted")
 
-    caller_phone  = twilio_ws.query_params.get("from", "")
-    to_number_raw = twilio_ws.query_params.get("to", "")
-    call_sid      = twilio_ws.query_params.get("call_sid", "")
-    to_number     = normalize_phone_key(to_number_raw)
-
-    # ── [3] Fail-fast param trace ──────────────────────────────────────────
+    # ── [2] Read CallSid from query param ─────────────────────────────────
+    call_sid = twilio_ws.query_params.get("call_sid", "")
     print("=" * 60)
-    print("📞 [3] WEBSOCKET /stream — QUERY PARAMS")
-    print(f"   raw_to        = '{to_number_raw}'")
-    print(f"   normalized_to = '{to_number}'")
-    print(f"   raw_from      = '{caller_phone}'")
-    print(f"   call_sid      = '{call_sid}'")
-    print(f"   all params    = {dict(twilio_ws.query_params)}")
+    print(f"📞 [2] /stream connected — call_sid from query param: '{call_sid}'")
 
-    # ── [4] Client lookup — explicit trace ────────────────────────────────
-    print(f"   CLIENTS_CONFIG keys ({len(CLIENTS_CONFIG)}): {list(CLIENTS_CONFIG.keys())}")
-    _lookup_result = CLIENTS_CONFIG.get(to_number)
-    print(f"   CLIENTS_CONFIG.get('{to_number}') = {'<found: ' + _lookup_result.get('client_name','?') + '>' if _lookup_result else 'None (no match)'}")
+    # ── [3] Resolve call context from memory ──────────────────────────────
+    call_ctx = CALL_CONTEXT.get(call_sid)
 
-    if _lookup_result:
-        client_config = _lookup_result
-        match_type    = "EXACT MATCH"
+    if not call_ctx:
+        # Fallback: try to extract call_sid from the Twilio stream start event
+        print(f"⚠️  [3] No context in CALL_CONTEXT for '{call_sid}' — waiting for start event")
+        call_ctx = None  # will be resolved below after start event
+
+    if call_ctx:
+        caller_phone  = call_ctx["from"]
+        to_number     = call_ctx["to"]
+        print(f"✅ [3] Context resolved from CALL_CONTEXT:")
+        print(f"   to (normalized)   = '{to_number}'")
+        print(f"   from (normalized) = '{caller_phone}'")
+    else:
+        # No context found yet — will attempt to fill from start event
+        caller_phone = ""
+        to_number    = ""
+
+    # ── [4] Client lookup ─────────────────────────────────────────────────
+    client_config = CLIENTS_CONFIG.get(to_number) if to_number else None
+    if client_config:
+        print(f"✅ [4] CLIENT SELECTED (EXACT MATCH): '{client_config.get('client_name')}'")
     else:
         client_config = _DEFAULT_CLIENT
-        match_type    = "FALLBACK"
-
-    print(f"   [4] SELECTED ({match_type}): '{client_config.get('client_name', 'none')}'")
-
-    # ── Hard fail: studio number must not resolve to Roi ──────────────────
-    if to_number and to_number == _studio_phone and client_config.get("client_name") != "Maya BPM Dance Studio":
-        msg = (
-            f"ROUTING BUG: Studio number '{to_number}' resolved to "
-            f"'{client_config.get('client_name')}' instead of 'Maya BPM Dance Studio'. "
-            f"CLIENTS_CONFIG keys: {list(CLIENTS_CONFIG.keys())}"
-        )
-        print(f"❌ {msg}")
-        raise RuntimeError(msg)
+        print(f"⚠️  [4] CLIENT SELECTED (FALLBACK): '{client_config.get('client_name', 'none')}' — to_number='{to_number}' not in config")
 
     if not client_config:
-        print("❌ No client config found and no default — closing connection.")
+        print("❌ No client config and no default — closing.")
         await twilio_ws.close()
         return
 
@@ -339,31 +342,19 @@ async def websocket_endpoint(twilio_ws: WebSocket):
         await twilio_ws.close()
         return
 
-    # ── [4b] Before build_system_prompt ───────────────────────────────────
-    print(f"   [4b] building prompt for client_config['client_name'] = '{client_config.get('client_name')}'")
-
     system_prompt = build_system_prompt(client_config, caller_phone)
     webhook_url   = client_config.get("webhook_url", "")
     voice         = client_config.get("voice", "shimmer")
 
-    # ── [4c] After build_system_prompt ────────────────────────────────────
-    print(f"   [4c] prompt built for '{client_config.get('client_name')}' — first 120 chars:")
-    print(f"        '{system_prompt[:120].strip()}'")
-    print(f"   webhook_url = '{webhook_url}'")
+    print(f"   [5] prompt for '{client_config.get('client_name')}' — first 120 chars:")
+    print(f"       '{system_prompt[:120].strip()}'")
     print("=" * 60)
 
     openai_url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview"
     headers    = {"Authorization": f"Bearer {OPENAI_API_KEY}", "OpenAI-Beta": "realtime=v1"}
 
     async with websockets.connect(openai_url, additional_headers=headers) as openai_ws:
-        print("✅ Connected to OpenAI Realtime API")
-        # ── [5] Immediately before session_update send ────────────────────
-        print("=" * 60)
-        print("🤖 [5] ABOUT TO SEND session.update TO OPENAI")
-        print(f"   client_name            = '{client_config.get('client_name')}'")
-        print(f"   voice                  = '{voice}'")
-        print(f"   instructions[:120]     = '{system_prompt[:120].strip()}'")
-        print("=" * 60)
+        print(f"✅ Connected to OpenAI Realtime API | client='{client_config.get('client_name')}'")
 
         session_update = {
             "type": "session.update",
@@ -429,16 +420,34 @@ async def websocket_endpoint(twilio_ws: WebSocket):
         is_ai_speaking    = False
         speech_started_at = None
         _SILENCE_MS       = 1000  # must match silence_duration_ms above
-        _MIN_SPEECH_MS    = 300   # minimum real speech before we allow an interruption
+        _MIN_SPEECH_MS    = 300   # minimum real speech before allowing interruption
 
         async def receive_from_twilio():
-            nonlocal stream_sid
+            nonlocal stream_sid, caller_phone, to_number, client_config, system_prompt, webhook_url, voice
             try:
                 async for message in twilio_ws.iter_text():
                     data = json.loads(message)
+
                     if data["event"] == "start":
                         stream_sid = data["start"]["streamSid"]
                         print(f"📡 Stream started: {stream_sid}")
+
+                        # If call context wasn't resolved from CALL_CONTEXT yet,
+                        # try using the callSid from the start event as a second chance.
+                        if not to_number:
+                            fallback_sid = data["start"].get("callSid", "")
+                            if fallback_sid and fallback_sid != call_sid:
+                                print(f"⚠️  Trying fallback callSid from start event: '{fallback_sid}'")
+                                fb_ctx = CALL_CONTEXT.get(fallback_sid)
+                                if fb_ctx:
+                                    caller_phone  = fb_ctx["from"]
+                                    to_number     = fb_ctx["to"]
+                                    client_config = CLIENTS_CONFIG.get(to_number, _DEFAULT_CLIENT)
+                                    system_prompt = build_system_prompt(client_config, caller_phone)
+                                    webhook_url   = client_config.get("webhook_url", "")
+                                    voice         = client_config.get("voice", "shimmer")
+                                    print(f"✅ Context resolved from start event — client='{client_config.get('client_name')}'")
+
                     elif data["event"] == "media":
                         await openai_ws.send(json.dumps({
                             "type":  "input_audio_buffer.append",
@@ -512,7 +521,8 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                             await send_lead_to_webhook(webhook_url, lead_payload)
 
                         if func_name == "end_call":
-                            print("👋 end_call triggered — disconnecting")
+                            print(f"👋 end_call triggered for '{client_config.get('client_name')}' — disconnecting")
+                            CALL_CONTEXT.pop(call_sid, None)
                             await asyncio.sleep(2)
                             await twilio_ws.close()
                             break
@@ -521,3 +531,6 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                 print(f"⚠️ OpenAI Receiver Error: {e}")
 
         await asyncio.gather(receive_from_twilio(), receive_from_openai())
+
+        # Cleanup on normal call end
+        CALL_CONTEXT.pop(call_sid, None)
