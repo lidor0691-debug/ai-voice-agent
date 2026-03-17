@@ -18,7 +18,7 @@ OPENAI_API_KEY = (
     .replace("\u2029", "")
 )
 
-ROI_PHONE_NUMBER    = os.getenv("ROI_PHONE_NUMBER", "")
+ROI_PHONE_NUMBER    = os.getenv("TWILIO_PHONE_NUMBER", "")   # Roi's Twilio number
 ROI_WEBHOOK_URL     = os.getenv("ROI_WEBHOOK_URL") or os.getenv("MAKE_WEBHOOK_URL", "")
 
 STUDIO_PHONE_NUMBER = os.getenv("STUDIO_PHONE_NUMBER", "")
@@ -155,6 +155,11 @@ _DEFAULT_CLIENT: dict = CLIENTS_CONFIG.get(
     normalize_phone_key(ROI_PHONE_NUMBER),
     next(iter(CLIENTS_CONFIG.values()), {}),
 )
+
+# ── Startup routing diagnostics ───────────────────────────────────────────────
+print(f"🔧 ROI_PHONE_NUMBER  (TWILIO_PHONE_NUMBER) raw='{ROI_PHONE_NUMBER}'  normalized='{normalize_phone_key(ROI_PHONE_NUMBER)}'")
+print(f"🔧 STUDIO_PHONE_NUMBER                     raw='{STUDIO_PHONE_NUMBER}'  normalized='{normalize_phone_key(STUDIO_PHONE_NUMBER)}'")
+print(f"🔧 CLIENTS_CONFIG keys: {list(CLIENTS_CONFIG.keys())}")
 
 
 # ── Dynamic prompt builder ────────────────────────────────────────────────────
