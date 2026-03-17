@@ -257,7 +257,12 @@ async def voice_entry(request: Request):
     to_number    = form_data.get("To", "")
     call_sid     = form_data.get("CallSid", "")
 
-    print(f"📲 /voice webhook received | To='{to_number}' | From='{caller_phone}' | CallSid='{call_sid}'")
+    print("=" * 60)
+    print("📲 [1] TWILIO WEBHOOK RECEIVED")
+    print(f"       To       = '{to_number}'")
+    print(f"       From     = '{caller_phone}'")
+    print(f"       CallSid  = '{call_sid}'")
+    print(f"       All form fields: {dict(form_data)}")
 
     host       = request.url.hostname
     stream_url = (
@@ -266,7 +271,9 @@ async def voice_entry(request: Request):
         f"&from={quote(caller_phone, safe='')}"
         f"&call_sid={quote(call_sid, safe='')}"
     )
-    print(f"📲 /voice stream URL: {stream_url}")
+    print(f"📲 [2] STREAM URL BUILT")
+    print(f"       {stream_url}")
+    print("=" * 60)
 
     response = VoiceResponse()
     connect  = Connect()
@@ -288,17 +295,24 @@ async def websocket_endpoint(twilio_ws: WebSocket):
     call_sid      = twilio_ws.query_params.get("call_sid", "")
     to_number     = normalize_phone_key(to_number_raw)
 
-    # ── Routing debug ──────────────────────────────────────────────────────
-    print(f"📞 /stream connected | To (raw): '{to_number_raw}' | To (normalized): '{to_number}' | From: '{caller_phone}' | CallSid: '{call_sid}'")
-    print(f"📒 CLIENTS_CONFIG keys: {list(CLIENTS_CONFIG.keys())}")
+    # ── [3] WebSocket params received ─────────────────────────────────────
+    print("=" * 60)
+    print("📞 [3] WEBSOCKET /stream CONNECTED")
+    print(f"       to   (raw query param) = '{to_number_raw}'")
+    print(f"       to   (normalized)      = '{to_number}'")
+    print(f"       from (raw query param) = '{caller_phone}'")
+    print(f"       call_sid               = '{call_sid}'")
+    print(f"       CLIENTS_CONFIG keys    = {list(CLIENTS_CONFIG.keys())}")
 
-    # Route to the correct client; fall back to default (Roi) if unknown
+    # ── [4] Client lookup ──────────────────────────────────────────────────
     client_config = CLIENTS_CONFIG.get(to_number)
     if client_config:
-        print(f"✅ Matched client: '{client_config.get('client_name')}'")
+        match_type = "EXACT MATCH"
+        print(f"✅ [4] CLIENT SELECTED ({match_type}): '{client_config.get('client_name')}'")
     else:
         client_config = _DEFAULT_CLIENT
-        print(f"⚠️  No match for '{to_number}' — falling back to default: '{client_config.get('client_name', 'none')}'")
+        match_type = "FALLBACK"
+        print(f"⚠️  [4] CLIENT SELECTED ({match_type}): '{client_config.get('client_name', 'none')}' (no entry for '{to_number}')")
 
     if not client_config:
         print("❌ No client config found and no default — closing connection.")
@@ -314,11 +328,22 @@ async def websocket_endpoint(twilio_ws: WebSocket):
     webhook_url   = client_config.get("webhook_url", "")
     voice         = client_config.get("voice", "shimmer")
 
+    print(f"       selected client_name = '{client_config.get('client_name')}'")
+    print(f"       selected webhook_url = '{webhook_url}'")
+    print(f"       prompt fingerprint   = '{system_prompt[:120].strip()}'")
+    print("=" * 60)
+
     openai_url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview"
     headers    = {"Authorization": f"Bearer {OPENAI_API_KEY}", "OpenAI-Beta": "realtime=v1"}
 
     async with websockets.connect(openai_url, additional_headers=headers) as openai_ws:
         print("✅ Connected to OpenAI Realtime API")
+        print("=" * 60)
+        print("🤖 [5] SENDING SESSION TO OPENAI")
+        print(f"       client_name      = '{client_config.get('client_name')}'")
+        print(f"       voice            = '{voice}'")
+        print(f"       prompt[:120]     = '{system_prompt[:120].strip()}'")
+        print("=" * 60)
 
         session_update = {
             "type": "session.update",
