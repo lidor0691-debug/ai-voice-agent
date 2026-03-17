@@ -306,16 +306,41 @@ async def voice_entry(request: Request):
 async def websocket_endpoint(twilio_ws: WebSocket):
     await twilio_ws.accept()
 
-    # ── [WS] Read CallSid from query param ───────────────────────────────────
+    # ── Phase 1: resolve call_sid ─────────────────────────────────────────
+    # Try query param first; if missing, read Twilio messages until the
+    # "start" event arrives (which always contains callSid).
+    # We MUST have call_sid before opening OpenAI — routing depends on it.
     print("=" * 60)
     print(f"[WS] raw query params    = {dict(twilio_ws.query_params)}")
-    call_sid = twilio_ws.query_params.get("call_sid", "")
+    call_sid   = twilio_ws.query_params.get("call_sid", "")
+    stream_sid = None
+    _pending_audio: list[str] = []   # buffer media that arrives before start
+
     print(f"[WS] call_sid from query = '{call_sid}'")
+
+    if not CALL_CONTEXT.get(call_sid):
+        # call_sid is missing or not yet in CALL_CONTEXT — wait for start event
+        print(f"[WS] call_sid not in CALL_CONTEXT — reading messages until start event")
+        try:
+            async for raw_msg in twilio_ws.iter_text():
+                evt = json.loads(raw_msg)
+                if evt["event"] == "start":
+                    start_sid  = evt["start"].get("callSid", "")
+                    stream_sid = evt["start"].get("streamSid", "")
+                    print(f"[WS] call_sid from start event  = '{start_sid}'")
+                    print(f"[WS] stream_sid from start event = '{stream_sid}'")
+                    if start_sid:
+                        call_sid = start_sid
+                    break
+                elif evt["event"] == "media":
+                    _pending_audio.append(evt["media"]["payload"])
+        except Exception as e:
+            print(f"[WS ERROR] Failed while waiting for start event: {e}")
+
     print(f"[WS] CALL_CONTEXT keys   = {list(CALL_CONTEXT.keys())}")
 
-    # ── Resolve call context from memory ─────────────────────────────────
+    # ── Phase 2: resolve routing from CALL_CONTEXT ───────────────────────
     call_ctx = CALL_CONTEXT.get(call_sid)
-
     if call_ctx:
         caller_phone = call_ctx["from"]
         to_number    = call_ctx["to"]
@@ -323,13 +348,13 @@ async def websocket_endpoint(twilio_ws: WebSocket):
     else:
         caller_phone = ""
         to_number    = ""
-        print(f"[WS ERROR] Missing CALL_CONTEXT for call_sid='{call_sid}' — using fallback (empty to_number)")
+        print(f"[WS ERROR] Missing CALL_CONTEXT for call_sid='{call_sid}' — routing will fall back")
 
-    # ── Routing ───────────────────────────────────────────────────────────
+    # ── Phase 3: client lookup ────────────────────────────────────────────
     print(f"[ROUTING] to_number used for lookup = '{to_number}'")
     print(f"[ROUTING] CLIENTS_CONFIG keys       = {list(CLIENTS_CONFIG.keys())}")
     _exact = CLIENTS_CONFIG.get(to_number) if to_number else None
-    print(f"[ROUTING] exact lookup result       = {'<' + _exact.get('client_name','?') + '>' if _exact else 'None'}")
+    print(f"[ROUTING] exact lookup result       = {'<' + _exact.get('client_name', '?') + '>' if _exact else 'None'}")
 
     if _exact:
         client_config = _exact
@@ -338,18 +363,18 @@ async def websocket_endpoint(twilio_ws: WebSocket):
         client_config = _DEFAULT_CLIENT
         print(f"[ROUTING] selected client_name     = '{client_config.get('client_name', 'none')}' (FALLBACK)")
 
-    # ── Fail-fast: wrong client for known number ─────────────────────────
-    if to_number == _studio_phone and _studio_phone:
+    # ── Fail-fast assertions ──────────────────────────────────────────────
+    if to_number and to_number == _studio_phone:
         if client_config.get("client_name") != "Maya BPM Dance Studio":
             raise RuntimeError(
                 f"ROUTING BUG: Studio call (to='{to_number}') resolved to "
-                f"'{client_config.get('client_name')}' — CLIENTS_CONFIG keys: {list(CLIENTS_CONFIG.keys())}"
+                f"'{client_config.get('client_name')}' — CLIENTS_CONFIG: {list(CLIENTS_CONFIG.keys())}"
             )
-    if to_number == _roi_phone and _roi_phone:
+    if to_number and to_number == _roi_phone:
         if client_config.get("client_name") != "Roi Insurance":
             raise RuntimeError(
                 f"ROUTING BUG: Roi call (to='{to_number}') resolved to "
-                f"'{client_config.get('client_name')}' — CLIENTS_CONFIG keys: {list(CLIENTS_CONFIG.keys())}"
+                f"'{client_config.get('client_name')}' — CLIENTS_CONFIG: {list(CLIENTS_CONFIG.keys())}"
             )
 
     if not client_config:
@@ -365,15 +390,15 @@ async def websocket_endpoint(twilio_ws: WebSocket):
     system_prompt = build_system_prompt(client_config, caller_phone)
     webhook_url   = client_config.get("webhook_url", "")
     voice         = client_config.get("voice", "shimmer")
+
+    print(f"[OPENAI] selected client_name = '{client_config.get('client_name')}'")
+    print(f"[OPENAI] prompt first 120     = '{system_prompt[:120].strip()}'")
     print("=" * 60)
 
     openai_url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview"
     headers    = {"Authorization": f"Bearer {OPENAI_API_KEY}", "OpenAI-Beta": "realtime=v1"}
 
     async with websockets.connect(openai_url, additional_headers=headers) as openai_ws:
-        print(f"[OPENAI] selected client_name = '{client_config.get('client_name')}'")
-        print(f"[OPENAI] prompt first 120     = '{system_prompt[:120].strip()}'")
-        print("=" * 60)
 
         session_update = {
             "type": "session.update",
@@ -433,40 +458,30 @@ async def websocket_endpoint(twilio_ws: WebSocket):
         }
 
         await openai_ws.send(json.dumps(session_update))
+
+        # Flush audio that arrived while we were waiting for the start event
+        for payload in _pending_audio:
+            await openai_ws.send(json.dumps({
+                "type":  "input_audio_buffer.append",
+                "audio": payload,
+            }))
+        _pending_audio.clear()
+
         await openai_ws.send(json.dumps({"type": "response.create"}))
 
-        stream_sid        = None
         is_ai_speaking    = False
         speech_started_at = None
         _SILENCE_MS       = 1000  # must match silence_duration_ms above
         _MIN_SPEECH_MS    = 300   # minimum real speech before allowing interruption
 
         async def receive_from_twilio():
-            nonlocal stream_sid, caller_phone, to_number, client_config, system_prompt, webhook_url, voice
+            nonlocal stream_sid
             try:
                 async for message in twilio_ws.iter_text():
                     data = json.loads(message)
-
                     if data["event"] == "start":
                         stream_sid = data["start"]["streamSid"]
                         print(f"📡 Stream started: {stream_sid}")
-
-                        # If call context wasn't resolved from CALL_CONTEXT yet,
-                        # try using the callSid from the start event as a second chance.
-                        if not to_number:
-                            fallback_sid = data["start"].get("callSid", "")
-                            if fallback_sid and fallback_sid != call_sid:
-                                print(f"⚠️  Trying fallback callSid from start event: '{fallback_sid}'")
-                                fb_ctx = CALL_CONTEXT.get(fallback_sid)
-                                if fb_ctx:
-                                    caller_phone  = fb_ctx["from"]
-                                    to_number     = fb_ctx["to"]
-                                    client_config = CLIENTS_CONFIG.get(to_number, _DEFAULT_CLIENT)
-                                    system_prompt = build_system_prompt(client_config, caller_phone)
-                                    webhook_url   = client_config.get("webhook_url", "")
-                                    voice         = client_config.get("voice", "shimmer")
-                                    print(f"✅ Context resolved from start event — client='{client_config.get('client_name')}'")
-
                     elif data["event"] == "media":
                         await openai_ws.send(json.dumps({
                             "type":  "input_audio_buffer.append",
