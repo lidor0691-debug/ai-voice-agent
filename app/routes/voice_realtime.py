@@ -45,6 +45,18 @@ def normalize_israeli_phone(phone: str) -> str:
     return f"+972{national}"
 
 
+def normalize_phone_key(phone: str) -> str:
+    """
+    Normalize any phone number string to a consistent E.164-style key
+    used for CLIENTS_CONFIG lookups.  Strips spaces, dashes, parentheses,
+    and applies Israeli +972 normalization so that '0501234567',
+    '+972501234567', and '972-50-123-4567' all produce the same key.
+    """
+    if not phone:
+        return ""
+    return normalize_israeli_phone(phone)
+
+
 async def send_lead_to_webhook(webhook_url: str, lead_data: dict) -> bool:
     """Send collected lead data to the given webhook URL."""
     if not webhook_url:
@@ -76,7 +88,7 @@ async def send_lead_to_webhook(webhook_url: str, lead_data: dict) -> bool:
 CLIENTS_CONFIG: dict[str, dict] = {}
 
 if ROI_PHONE_NUMBER:
-    CLIENTS_CONFIG[ROI_PHONE_NUMBER] = {
+    CLIENTS_CONFIG[normalize_phone_key(ROI_PHONE_NUMBER)] = {
         "client_name":    "Roi Insurance",
         "assistant_name": "מאיה",
         "business_type":  "insurance agency",
@@ -101,7 +113,7 @@ if ROI_PHONE_NUMBER:
     }
 
 if STUDIO_PHONE_NUMBER:
-    CLIENTS_CONFIG[STUDIO_PHONE_NUMBER] = {
+    CLIENTS_CONFIG[normalize_phone_key(STUDIO_PHONE_NUMBER)] = {
         "client_name":    "Maya BPM Dance Studio",
         "assistant_name": "מאיה",
         "business_type":  "dance studio",
@@ -139,7 +151,10 @@ if STUDIO_PHONE_NUMBER:
     }
 
 # Fallback: use Roi's config if the incoming number isn't recognized
-_DEFAULT_CLIENT: dict = CLIENTS_CONFIG.get(ROI_PHONE_NUMBER, next(iter(CLIENTS_CONFIG.values()), {}))
+_DEFAULT_CLIENT: dict = CLIENTS_CONFIG.get(
+    normalize_phone_key(ROI_PHONE_NUMBER),
+    next(iter(CLIENTS_CONFIG.values()), {}),
+)
 
 
 # ── Dynamic prompt builder ────────────────────────────────────────────────────
@@ -234,17 +249,26 @@ async def websocket_endpoint(twilio_ws: WebSocket):
     await twilio_ws.accept()
     print("✅ Twilio connection accepted")
 
-    caller_phone = twilio_ws.query_params.get("caller_phone", "")
-    to_number    = twilio_ws.query_params.get("to_number", "")
+    caller_phone  = twilio_ws.query_params.get("caller_phone", "")
+    to_number_raw = twilio_ws.query_params.get("to_number", "")
+    to_number     = normalize_phone_key(to_number_raw)
+
+    # ── Routing debug ──────────────────────────────────────────────────────
+    print(f"📞 Incoming call | To (raw): '{to_number_raw}' | To (normalized): '{to_number}' | From: '{caller_phone}'")
+    print(f"📒 CLIENTS_CONFIG keys: {list(CLIENTS_CONFIG.keys())}")
 
     # Route to the correct client; fall back to default (Roi) if unknown
-    client_config = CLIENTS_CONFIG.get(to_number) or _DEFAULT_CLIENT
+    client_config = CLIENTS_CONFIG.get(to_number)
+    if client_config:
+        print(f"✅ Matched client: '{client_config.get('client_name')}'")
+    else:
+        client_config = _DEFAULT_CLIENT
+        print(f"⚠️  No match for '{to_number}' — falling back to default: '{client_config.get('client_name', 'none')}'")
+
     if not client_config:
-        print("❌ No client config found — closing connection.")
+        print("❌ No client config found and no default — closing connection.")
         await twilio_ws.close()
         return
-
-    print(f"📋 Client: {client_config.get('client_name')} | To: {to_number} | From: {caller_phone}")
 
     if not OPENAI_API_KEY:
         print("❌ Missing OpenAI API Key")
