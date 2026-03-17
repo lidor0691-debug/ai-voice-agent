@@ -10,143 +10,256 @@ from datetime import datetime
 
 router = APIRouter()
 
-raw_api_key = os.getenv("OPENAI_API_KEY", "")
-OPENAI_API_KEY = raw_api_key.strip().replace("\u2028", "").replace("\u2029", "")
-MAKE_WEBHOOK_URL = os.getenv("MAKE_WEBHOOK_URL")
-CALENDAR_ID = os.getenv("CALENDAR_ID", "")
+# ── Environment variables ────────────────────────────────────────────────────
+OPENAI_API_KEY = (
+    os.getenv("OPENAI_API_KEY", "")
+    .strip()
+    .replace("\u2028", "")
+    .replace("\u2029", "")
+)
+
+ROI_PHONE_NUMBER    = os.getenv("ROI_PHONE_NUMBER", "")
+ROI_WEBHOOK_URL     = os.getenv("ROI_WEBHOOK_URL") or os.getenv("MAKE_WEBHOOK_URL", "")
+
+STUDIO_PHONE_NUMBER = os.getenv("STUDIO_PHONE_NUMBER", "")
+STUDIO_WEBHOOK_URL  = os.getenv("STUDIO_WEBHOOK_URL", "")
 
 current_date = datetime.now().strftime("%Y-%m-%d")
 
 
+# ── Utility ──────────────────────────────────────────────────────────────────
+
 def normalize_israeli_phone(phone: str) -> str:
-    """
-    Normalize a phone number to E.164 format for Israel (+972).
-    Removes spaces/dashes, strips leading zeros, and prefixes +972.
-    """
+    """Normalize a phone number to E.164 format for Israel (+972)."""
     if not phone:
         return phone
-
-    # Keep only digits
     digits = "".join(ch for ch in phone if ch.isdigit())
-
-    # Strip country code if present
     if digits.startswith("972"):
         national = digits[3:]
     else:
         national = digits
-
-    # Strip leading zeros from national part
     while national.startswith("0"):
         national = national[1:]
-
     if not national:
         return phone.strip()
-
     return f"+972{national}"
 
 
-async def process_agency_lead(lead_data: dict) -> bool:
-    """
-    Send collected lead data to the configured Make.com webhook URL.
-    Uses the MAKE_WEBHOOK_URL environment variable configured in Railway.
-    """
-    if not MAKE_WEBHOOK_URL:
-        print("⚠️ MAKE_WEBHOOK_URL is not configured — skipping lead webhook.")
+async def send_lead_to_webhook(webhook_url: str, lead_data: dict) -> bool:
+    """Send collected lead data to the given webhook URL."""
+    if not webhook_url:
+        print("⚠️ No webhook URL configured — skipping lead.")
         return False
-
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.post(
-                MAKE_WEBHOOK_URL,
+            resp = await client.post(
+                webhook_url,
                 json=lead_data,
                 headers={"Content-Type": "application/json"},
             )
-            response.raise_for_status()
-            print(
-                f"✅ Lead sent to Make.com webhook | status={response.status_code}"
-            )
+            resp.raise_for_status()
+            print(f"✅ Lead sent to webhook | status={resp.status_code}")
             return True
     except httpx.HTTPStatusError as exc:
-        print(
-            f"❌ Make.com webhook HTTP error {exc.response.status_code}: {exc.response.text}"
-        )
+        print(f"❌ Webhook HTTP error {exc.response.status_code}: {exc.response.text}")
     except Exception as exc:
-        print(f"❌ Failed to send lead to Make.com webhook: {exc}")
-
+        print(f"❌ Webhook request failed: {exc}")
     return False
 
 
-# Insurance-agent demo: operational rules for voice AI — no dialogue simulation
-SYSTEM_PROMPT = f"""OPERATIONAL RULES — STRICT COMPLIANCE REQUIRED.
+# ── Client configuration ─────────────────────────────────────────────────────
+# Key   = Twilio "To" phone number
+# Value = client config dict
+#
+# To add a new client: add one entry here. No other code changes required.
+
+CLIENTS_CONFIG: dict[str, dict] = {}
+
+if ROI_PHONE_NUMBER:
+    CLIENTS_CONFIG[ROI_PHONE_NUMBER] = {
+        "client_name":    "Roi Insurance",
+        "assistant_name": "מאיה",
+        "business_type":  "insurance agency",
+        "tone":           "professional, calm, trustworthy",
+        "greeting": (
+            "שלום, אני מאיה המזכירה הדיגיטלית של רועי. "
+            "רועי לא פנוי כרגע. באיזה נושא אוכל לסייע?"
+        ),
+        "goal": "collect insurance lead details for Roi to follow up on",
+        "required_fields": ["name", "phone_number", "insurance_type"],
+        "booking_rules": "",
+        "webhook_url": ROI_WEBHOOK_URL,
+        "voice": "shimmer",
+        "extra_notes": (
+            "Focus on trust and clarity. "
+            "If the caller mentions 'תביעה' (insurance claim), respond with empathy: "
+            "'אהמ... אוי, אני מצטערת לשמוע. בוא נראה איך אפשר לעזור', "
+            "then continue gently with the questions. "
+            "Once you have name, phone, and topic, say exactly: "
+            "'תודה רבה. אני מעבירה לרועי את הפרטים עכשיו, והוא יחזור אליך בהקדם.'"
+        ),
+    }
+
+if STUDIO_PHONE_NUMBER:
+    CLIENTS_CONFIG[STUDIO_PHONE_NUMBER] = {
+        "client_name":    "Maya BPM Dance Studio",
+        "assistant_name": "מאיה",
+        "business_type":  "dance studio",
+        "tone":           "friendly, warm, personal, light",
+        "greeting": (
+            "שלום הגעת למאיה BPM! "
+            "את מתעניינת לגבי ריקוד בת מצווה או סטודיו לריקוד?"
+        ),
+        "goal": "collect lead details and book a free trial dance class",
+        "required_fields": [
+            "interest_type (bat mitzvah choreography or studio classes)",
+            "girl_name",
+            "school_grade",
+            "dance_experience",
+            "parent_name",
+            "parent_phone",
+        ],
+        "booking_rules": (
+            "Trial classes are available on Sundays and Wednesdays only.\n"
+            "Group schedule by grade:\n"
+            "  - Kindergarten + Grade 1: Sunday at 17:00\n"
+            "  - Grades 2–4: 17:45–18:40\n"
+            "  - Grades 5–6: 18:40–19:40\n"
+            "  - Older girls: 19:40–20:40\n"
+            "Always offer 2 free trial classes to every new student."
+        ),
+        "webhook_url": STUDIO_WEBHOOK_URL,
+        "voice": "shimmer",
+        "extra_notes": (
+            "Make every girl feel welcome and excited about dancing. "
+            "Keep the conversation short and naturally guide toward booking a trial. "
+            "After collecting the grade, suggest the matching time slot. "
+            "Always mention the 2 free trial classes."
+        ),
+    }
+
+# Fallback: use Roi's config if the incoming number isn't recognized
+_DEFAULT_CLIENT: dict = CLIENTS_CONFIG.get(ROI_PHONE_NUMBER, next(iter(CLIENTS_CONFIG.values()), {}))
+
+
+# ── Dynamic prompt builder ────────────────────────────────────────────────────
+
+def build_system_prompt(client_config: dict, caller_phone: str) -> str:
+    """Build a full system prompt from a client config dict."""
+    name          = client_config.get("assistant_name", "מאיה")
+    client_name   = client_config.get("client_name", "")
+    business      = client_config.get("business_type", "")
+    tone          = client_config.get("tone", "professional")
+    greeting      = client_config.get("greeting", "שלום, במה אוכל לעזור?")
+    goal          = client_config.get("goal", "")
+    required      = client_config.get("required_fields", [])
+    booking_rules = client_config.get("booking_rules", "")
+    extra_notes   = client_config.get("extra_notes", "")
+
+    fields_str = "\n".join(f"  - {f}" for f in required)
+
+    booking_section = (
+        f"\nBOOKING RULES:\n{booking_rules}\n" if booking_rules else ""
+    )
+    extra_section = (
+        f"\nEXTRA NOTES:\n{extra_notes}\n" if extra_notes else ""
+    )
+
+    return f"""OPERATIONAL RULES — STRICT COMPLIANCE REQUIRED.
 
 IDENTITY:
-You are Maya, the digital secretary of Roi, an independent insurance agent in Israel. Current date: {current_date}. You speak Hebrew in a short, friendly, natural tone. You are female.
+You are {name}, the AI voice assistant for {client_name} ({business}).
+Current date: {current_date}. You speak Hebrew. You are female.
+Your tone: {tone}.
 
 VOICE INTERACTION RULES (MANDATORY):
-1. NEVER simulate, predict, or generate the caller's responses. You do not speak for the caller. You do not answer your own questions. You do not invent what the caller said or will say.
-2. NEVER INVENT OR ASSUME A CALLER'S NAME. If you do not yet know the caller's name, you MUST ask: "סליחה, עם מי יש לי את הכבוד?" Do NOT address the caller by any name unless they have explicitly told you their name in this call. Using a made-up name is strictly forbidden.
-3. You are an interactive voice assistant. Output ONLY your own lines. Ask exactly ONE question at a time, then STOP. Wait in silence for the caller to respond. Do not continue speaking until the caller has responded.
-4. Your style is warm, human and empathetic. You sound like a real assistant helping Roi, not like a robot reading a form. Use short, natural Hebrew fillers like "אהמ...", "אוקיי", "סבבה", "מעולה", "הבנתי", "אהלן" when appropriate — they make you sound natural and attentive. If the caller is describing a claim, difficulty or problem, you may say things like "מצטערת לשמוע" or "זה באמת לא נעים" before continuing. If the caller mentions the word "תביעה" or describes an insurance claim, respond with empathy first, for example: "אהמ... אוי, אני מצטערת לשמוע. בוא נראה איך אפשר לעזור", ואז המשיכי בעדינות לשאלות.
-5. Speak at a natural, relaxed pace, with short sentences. Do not sound like you are reading a list. Keep things conversational and flowing, but still concise.
-6. CONVERSATION START: As soon as the call connects, you MUST speak first without waiting for the caller. Your first utterance in the conversation MUST be exactly:
-   "שלום, אני מאיה המזכירה הדיגיטלית של רועי. רועי לא פנוי כרגע. באיזה נושא אוכל לסייע?"
+1. NEVER simulate, predict, or generate the caller's responses. You do not speak for the caller.
+2. NEVER invent or assume a caller's name. If unknown, ask: "סליחה, עם מי יש לי את הכבוד?"
+   Do NOT address the caller by name unless they have explicitly told you their name in this call.
+3. Ask exactly ONE question at a time, then STOP and wait for the caller to respond.
+4. Use short, natural Hebrew fillers — "אהמ...", "אוקיי", "הבנתי", "מעולה", "סבבה" — to sound human and attentive.
+5. Speak at a relaxed, conversational pace with short sentences.
+6. CONVERSATION START: Speak first the moment the call connects. Your first utterance MUST be:
+   "{greeting}"
    Then STOP and wait for the caller.
 
-CALL FLOW FOR INSURANCE DEMO:
-7. After the greeting, you may ask at most THREE short questions:
-   - Name: בקשי את השם הפרטי של המתקשר. אם אינך יודעת את שמו, שאלי: "סליחה, עם מי יש לי את הכבוד?"
-   - Phone number: בקשי את מספר הטלפון לחזרה, אם חסר או לא ברור.
-   - Short explanation: בקשי הסבר קצר על מה הוא צריך מרועי (למשל ביטוח רכב, דירה, חיים וכדומה).
-8. Keep each question short, simple, and natural in Hebrew. Do not over‑explain. Do not ask follow‑up questions beyond these three topics.
-9. Once you have the caller's name, phone number, and a short explanation (or as much as they are willing to give), you MUST say exactly:
-   "תודה רבה. אני מעבירה לרועי את הפרטים עכשיו, והוא יחזור אליך בהקדם."
-   Say this once in a warm, confident tone.
-10. After saying the closing sentence, call the tool process_agency_lead with the collected details (name, phone number, topic, and any important notes).
-11. After process_agency_lead completes, say: "מעולה, רשמתי הכל. יש עוד משהו שאוכל לעזור בו לפני שנסגור?" Then STOP and wait for the caller to respond.
-12. If the caller indicates there is nothing more (e.g., says "לא", "זהו", "תודה", "הכל בסדר", "לא תודה", or any similar closing), say: "שיהיה יום מצוין, ביי!" and then IMMEDIATELY call the tool end_call to hang up. Do NOT say anything further after the goodbye.
+GOAL:
+{goal}
+
+REQUIRED INFORMATION TO COLLECT:
+{fields_str}
+{booking_section}{extra_section}
+CALL FLOW:
+7. Collect all required fields one question at a time through natural conversation.
+8. Once you have all required information (or as much as the caller is willing to give),
+   say the appropriate warm closing for this business and call the tool process_agency_lead
+   with all collected details.
+9. After process_agency_lead completes, say:
+   "מעולה, רשמתי הכל. יש עוד משהו שאוכל לעזור בו לפני שנסגור?"
+   Then STOP and wait for the caller.
+10. If the caller indicates there is nothing more (e.g., "לא", "זהו", "תודה", "הכל בסדר", "לא תודה"),
+    say: "שיהיה יום מצוין, ביי!" and IMMEDIATELY call the tool end_call.
+    Do NOT say anything further after the goodbye.
+
+SESSION INFO:
+- Caller phone (Twilio From): {caller_phone}
+- If the caller provides no alternative phone, you may use this number.
 """
-VOICE = "shimmer"
+
+
+# ── Twilio entry point ────────────────────────────────────────────────────────
 
 @router.post("/voice")
 async def voice_entry(request: Request):
-    # שליפת נתוני השיחה מטוויליו
-    form_data = await request.form()
-    caller_phone = form_data.get('From', 'לא ידוע')
-    
+    form_data    = await request.form()
+    caller_phone = form_data.get("From", "")
+    to_number    = form_data.get("To", "")
+
     response = VoiceResponse()
-    connect = Connect()
-    host = request.url.hostname
-    # אנחנו מעבירים את המספר כפרמטר בכתובת ה-WebSocket
-    connect.stream(url=f'wss://{host}/voice-ai/stream?caller_phone={caller_phone}')
+    connect  = Connect()
+    host     = request.url.hostname
+    connect.stream(
+        url=f"wss://{host}/voice-ai/stream"
+            f"?caller_phone={caller_phone}&to_number={to_number}"
+    )
     response.append(connect)
     response.append(Hangup())
     return Response(content=str(response), media_type="application/xml")
+
+
+# ── WebSocket / realtime engine ───────────────────────────────────────────────
 
 @router.websocket("/stream")
 async def websocket_endpoint(twilio_ws: WebSocket):
     await twilio_ws.accept()
     print("✅ Twilio connection accepted")
-    
-    caller_phone = twilio_ws.query_params.get('caller_phone', 'לא ידוע')
-    
+
+    caller_phone = twilio_ws.query_params.get("caller_phone", "")
+    to_number    = twilio_ws.query_params.get("to_number", "")
+
+    # Route to the correct client; fall back to default (Roi) if unknown
+    client_config = CLIENTS_CONFIG.get(to_number) or _DEFAULT_CLIENT
+    if not client_config:
+        print("❌ No client config found — closing connection.")
+        await twilio_ws.close()
+        return
+
+    print(f"📋 Client: {client_config.get('client_name')} | To: {to_number} | From: {caller_phone}")
+
     if not OPENAI_API_KEY:
         print("❌ Missing OpenAI API Key")
         await twilio_ws.close()
         return
 
-    openai_url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview"
-    headers = {"Authorization": f"Bearer {OPENAI_API_KEY}", "OpenAI-Beta": "realtime=v1"}
+    system_prompt = build_system_prompt(client_config, caller_phone)
+    webhook_url   = client_config.get("webhook_url", "")
+    voice         = client_config.get("voice", "shimmer")
 
-    # התיקון הקריטי של ההדרים נמצא כאן, מיושר מושלם
+    openai_url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview"
+    headers    = {"Authorization": f"Bearer {OPENAI_API_KEY}", "OpenAI-Beta": "realtime=v1"}
+
     async with websockets.connect(openai_url, additional_headers=headers) as openai_ws:
         print("✅ Connected to OpenAI Realtime API")
-        
-        FINAL_PROMPT = SYSTEM_PROMPT + f"""
-SESSION PARAMETERS:
-- Caller phone (Twilio From): {caller_phone}.
-- If the caller does not provide a different number, you may confirm or repeat this number with them.
-- Remember: maximum 3 questions (name, phone number, short explanation) and then the exact closing sentence and end_call.
-"""
 
         session_update = {
             "type": "session.update",
@@ -157,35 +270,38 @@ SESSION PARAMETERS:
                     "prefix_padding_ms": 500,
                     "silence_duration_ms": 1000,
                 },
-                "input_audio_format": "g711_ulaw",
+                "input_audio_format":  "g711_ulaw",
                 "output_audio_format": "g711_ulaw",
-                "voice": VOICE,
-                "instructions": FINAL_PROMPT,
-                "modalities": ["audio", "text"],
-                "temperature": 0.7,
+                "voice":        voice,
+                "instructions": system_prompt,
+                "modalities":   ["audio", "text"],
+                "temperature":  0.7,
                 "tools": [
                     {
                         "type": "function",
                         "name": "process_agency_lead",
-                        "description": "שולחת את פרטי הפונה למערכת של רועי כדי שרועי יוכל לחזור אליו.",
+                        "description": (
+                            f"Send all collected caller details to {client_config.get('client_name')}. "
+                            "Call this once you have gathered the required information."
+                        ),
                         "parameters": {
                             "type": "object",
                             "properties": {
                                 "name": {
                                     "type": "string",
-                                    "description": "השם הפרטי של הפונה",
+                                    "description": "Caller's name",
                                 },
                                 "phone_number": {
                                     "type": "string",
-                                    "description": "מספר הטלפון לחזרה (אם לא ידוע, אפשר להשתמש במספר של השיחה)",
+                                    "description": "Phone number to call back",
                                 },
                                 "topic": {
                                     "type": "string",
-                                    "description": "הנושא שבגללו הפונה צריך את רועי (למשל ביטוח רכב, דירה וכו׳)",
+                                    "description": "Main topic or interest (e.g. insurance type, dance interest)",
                                 },
                                 "notes": {
                                     "type": "string",
-                                    "description": "מידע נוסף שיכול לעזור לרועי להבין את הבקשה",
+                                    "description": "All other collected details as a summary",
                                 },
                             },
                             "required": ["name", "phone_number", "topic"],
@@ -195,7 +311,7 @@ SESSION PARAMETERS:
                     {
                         "type": "function",
                         "name": "end_call",
-                        "description": "מנתקת את השיחה",
+                        "description": "Hang up the call immediately.",
                         "parameters": {"type": "object", "properties": {}},
                     },
                 ],
@@ -203,27 +319,26 @@ SESSION PARAMETERS:
         }
 
         await openai_ws.send(json.dumps(session_update))
-        # Trigger the model to speak first immediately according to SYSTEM_PROMPT
         await openai_ws.send(json.dumps({"type": "response.create"}))
 
-        stream_sid = None
-        is_ai_speaking = False
+        stream_sid        = None
+        is_ai_speaking    = False
         speech_started_at = None
-        _SILENCE_MS = 1000   # must match silence_duration_ms in session config above
-        _MIN_SPEECH_MS = 300  # caller must sustain speech this long before interrupting AI
+        _SILENCE_MS       = 1000  # must match silence_duration_ms above
+        _MIN_SPEECH_MS    = 300   # minimum real speech before we allow an interruption
 
         async def receive_from_twilio():
             nonlocal stream_sid
             try:
                 async for message in twilio_ws.iter_text():
                     data = json.loads(message)
-                    if data['event'] == 'start':
-                        stream_sid = data['start']['streamSid']
-                        print(f"📡 Stream started with SID: {stream_sid}")
-                    elif data['event'] == 'media':
+                    if data["event"] == "start":
+                        stream_sid = data["start"]["streamSid"]
+                        print(f"📡 Stream started: {stream_sid}")
+                    elif data["event"] == "media":
                         await openai_ws.send(json.dumps({
-                            "type": "input_audio_buffer.append",
-                            "audio": data['media']['payload']
+                            "type":  "input_audio_buffer.append",
+                            "audio": data["media"]["payload"],
                         }))
             except Exception as e:
                 print(f"⚠️ Twilio Receiver Error: {e}")
@@ -232,41 +347,41 @@ SESSION PARAMETERS:
             nonlocal is_ai_speaking, speech_started_at
             try:
                 async for message in openai_ws:
-                    response = json.loads(message)
-                    event_type = response.get('type')
+                    event      = json.loads(message)
+                    event_type = event.get("type")
 
-                    # Stream AI audio to Twilio and mark AI as speaking
-                    if event_type == 'response.audio.delta':
+                    # ── Stream AI audio to Twilio ──────────────────────────
+                    if event_type == "response.audio.delta":
                         is_ai_speaking = True
                         if stream_sid:
                             await twilio_ws.send_json({
-                                "event": "media",
+                                "event":     "media",
                                 "streamSid": stream_sid,
-                                "media": {"payload": response['delta']}
+                                "media":     {"payload": event["delta"]},
                             })
                         continue
 
-                    # AI finished speaking — reset state
-                    if event_type in ('response.audio.done', 'response.cancelled'):
-                        is_ai_speaking = False
+                    # ── AI finished speaking ───────────────────────────────
+                    if event_type in ("response.audio.done", "response.cancelled"):
+                        is_ai_speaking    = False
                         speech_started_at = None
                         continue
 
-                    # VAD: caller started speaking — record timestamp, do NOT interrupt yet.
-                    # Waiting for speech_stopped lets us measure actual duration before acting,
-                    # which filters out noise bursts, echo, and brief sounds.
-                    if event_type == 'input_audio_buffer.speech_started':
+                    # ── VAD: caller started speaking ───────────────────────
+                    # Record timestamp; don't interrupt yet — wait for speech_stopped
+                    # to measure actual duration (filters noise, echo, brief sounds).
+                    if event_type == "input_audio_buffer.speech_started":
                         speech_started_at = asyncio.get_event_loop().time()
                         continue
 
-                    # VAD: caller finished speaking — now decide whether to interrupt.
-                    # speech_stopped fires after silence_duration_ms of quiet, so elapsed time
-                    # from speech_started = actual_speech_duration + silence_duration_ms.
-                    # Only interrupt if: AI is currently speaking AND speech was >= _MIN_SPEECH_MS.
-                    if event_type == 'input_audio_buffer.speech_stopped':
+                    # ── VAD: caller finished speaking ──────────────────────
+                    # speech_stopped fires after silence_duration_ms of quiet.
+                    # elapsed = actual_speech + silence_duration_ms.
+                    # Only interrupt if AI is speaking AND speech >= _MIN_SPEECH_MS.
+                    if event_type == "input_audio_buffer.speech_stopped":
                         if speech_started_at is not None and is_ai_speaking:
                             elapsed_ms = (asyncio.get_event_loop().time() - speech_started_at) * 1000
-                            speech_ms = elapsed_ms - _SILENCE_MS
+                            speech_ms  = elapsed_ms - _SILENCE_MS
                             if speech_ms >= _MIN_SPEECH_MS:
                                 if stream_sid:
                                     await twilio_ws.send_json({"event": "clear", "streamSid": stream_sid})
@@ -274,27 +389,30 @@ SESSION PARAMETERS:
                         speech_started_at = None
                         continue
 
+                    # ── Tool calls ─────────────────────────────────────────
                     if event_type == "response.function_call_arguments.done":
-                        func_name = response["name"]
-                        args = json.loads(response["arguments"])
-                        print(f"🛠️ Calling function: {func_name} with args: {args}")
+                        func_name = event["name"]
+                        args      = json.loads(event["arguments"])
+                        print(f"🛠️ Function call: {func_name} | args: {args}")
 
                         if func_name == "process_agency_lead":
                             lead_payload = {
-                                "source": "voice_realtime",
+                                "source":              "voice_realtime",
+                                "client":              client_config.get("client_name", ""),
                                 "caller_phone_twilio": caller_phone,
-                                "name": args.get("name"),
-                                "phone_number": args.get("phone_number") or caller_phone,
-                                "topic": args.get("topic"),
-                                "notes": args.get("notes", ""),
+                                "name":                args.get("name"),
+                                "phone_number":        args.get("phone_number") or caller_phone,
+                                "topic":               args.get("topic"),
+                                "notes":               args.get("notes", ""),
                             }
-                            await process_agency_lead(lead_payload)
+                            await send_lead_to_webhook(webhook_url, lead_payload)
 
                         if func_name == "end_call":
-                            print("👋 Maya requested end_call — disconnecting")
+                            print("👋 end_call triggered — disconnecting")
                             await asyncio.sleep(2)
                             await twilio_ws.close()
                             break
+
             except Exception as e:
                 print(f"⚠️ OpenAI Receiver Error: {e}")
 
