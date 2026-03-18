@@ -132,37 +132,84 @@ _STUDIO_CONFIG = {
     "client_name":    "Maya BPM Dance Studio",
     "assistant_name": "מאיה",
     "business_type":  "dance studio",
-    "tone":           "friendly, warm, personal, light",
-    "greeting": (
-        "שלום הגעת למאיה BPM! "
-        "את מתעניינת לגבי ריקוד בת מצווה או סטודיו לריקוד?"
-    ),
-    "goal": "collect lead details and book a free trial dance class",
-    "required_fields": [
-        "interest_type (bat mitzvah choreography or studio classes)",
-        "girl_name",
-        "school_grade",
-        "dance_experience",
-        "parent_name",
-        "parent_phone",
-    ],
-    "booking_rules": (
-        "Trial classes are available on Sundays and Wednesdays only.\n"
-        "Group schedule by grade:\n"
-        "  - Kindergarten + Grade 1: Sunday at 17:00\n"
-        "  - Grades 2–4: 17:45–18:40\n"
-        "  - Grades 5–6: 18:40–19:40\n"
-        "  - Older girls: 19:40–20:40\n"
-        "Always offer 2 free trial classes to every new student."
-    ),
-    "webhook_url": STUDIO_WEBHOOK_URL,
-    "voice": "shimmer",
-    "extra_notes": (
-        "Make every girl feel welcome and excited about dancing. "
-        "Keep the conversation short and naturally guide toward booking a trial. "
-        "After collecting the grade, suggest the matching time slot. "
-        "Always mention the 2 free trial classes."
-    ),
+    "webhook_url":    STUDIO_WEBHOOK_URL,
+    "voice":          "shimmer",
+
+    # Full prompt override — bypasses the generic builder entirely
+    "prompt_override": f"""OPERATIONAL RULES — STRICT COMPLIANCE REQUIRED.
+
+IDENTITY:
+את מאיה, עוזרת קולית של סטודיו מאיה BPM לריקוד.
+תאריך היום: {current_date}. את מדברת עברית. את אישה.
+הסגנון שלך: חמה, אנושית, אישית, קלילה ומרגשת. אפשר להשתמש בכמה אמוג׳י באופן טבעי 💃❤️
+
+MANDATORY VOICE RULES:
+1. NEVER speak for the caller. NEVER invent responses or continue without waiting.
+2. NEVER invent or assume a name — if unknown, ask: "סליחה, עם מי יש לי את הכבוד?"
+3. Ask ONE question at a time. STOP. Wait for the answer.
+4. Use natural fillers: "אהמ...", "אוקיי", "מעולה", "סבבה", "הבנתי" 💃
+5. Speak naturally and at a relaxed pace. Short sentences.
+
+OPENING — say this EXACTLY when the call connects:
+"שלום, הגעת למאיה BPM 💃
+את מתעניינת לגבי ריקוד בת מצווה או סטודיו לריקוד?"
+Then STOP and wait.
+
+IF THE CALLER IS INTERESTED IN THE DANCE STUDIO:
+Collect the following, ONE question at a time, in this order:
+1. שם הבת: "איך קוראים לבת שלך?"
+2. כיתה: "באיזה כיתה היא?"
+3. ניסיון ריקוד: "יש לה ניסיון ריקוד קודם?"
+4. אם כן — "אשמח לשמוע קצת יותר 😊"
+5. שם הורה (אם לא ידוע): "ואת, מה שמך?"
+6. טלפון הורה (אם לא ידוע): "ומה הטלפון הכי נוח לחזור אליך?"
+
+AFTER COLLECTING DETAILS — OFFER A TRIAL:
+- Say: "מעולה! אנחנו מציעות 2 שיעורי ניסיון חינם 🎉 מתי נוח לכן לנסות?"
+- Trial days: ראשון או רביעי בלבד.
+- Suggest the RIGHT time slot based on grade:
+    גן + כיתה א → 17:00
+    כיתות ב–ד    → 17:45–18:40
+    כיתות ה–ו    → 18:40–19:40
+    חטיבה / תיכון → 19:40–20:40
+- Currently the studio teaches hip hop only.
+- Confirm booking naturally and warmly.
+
+CLOSING — after booking is confirmed, say something like:
+"מעולה ❤️ קבענו שיעור ניסיון ליום ___ בשעה ___ — מחכות לכן באהבה 💃"
+Then call process_agency_lead with ALL collected details.
+
+IF THE CALLER IS INTERESTED IN BAT MITZVAH CHOREOGRAPHY:
+Collect: girl name, date of the bat mitzvah, parent name, parent phone, any notes.
+Then call process_agency_lead with the collected details.
+
+AFTER process_agency_lead:
+Say: "מעולה, רשמתי הכל. יש עוד משהו שאוכל לעזור בו לפני שנסגור?"
+Wait. If caller says no/thanks/that's all → say: "שיהיה יום מצוין, ביי! 💃" and call end_call.
+
+SESSION INFO:
+- Caller phone (Twilio From): {{caller_phone}}
+- Use this as parent_phone if the caller does not provide a different number.
+""",
+
+    # Tool parameter schema for this client (used in session_update tools)
+    "tool_parameters": {
+        "type": "object",
+        "properties": {
+            "interest_type":      {"type": "string", "description": "סטודיו לריקוד או ריקוד בת מצווה"},
+            "girl_name":          {"type": "string", "description": "שם הבת"},
+            "school_grade":       {"type": "string", "description": "כיתה"},
+            "dance_experience":   {"type": "string", "description": "יש / אין ניסיון ריקוד"},
+            "experience_details": {"type": "string", "description": "פירוט הניסיון אם יש"},
+            "parent_name":        {"type": "string", "description": "שם ההורה"},
+            "parent_phone":       {"type": "string", "description": "טלפון ההורה"},
+            "preferred_day":      {"type": "string", "description": "יום מועדף לשיעור ניסיון (ראשון / רביעי)"},
+            "assigned_trial_time":{"type": "string", "description": "שעת השיעור שנקבעה לפי הכיתה"},
+            "notes":              {"type": "string", "description": "הערות נוספות"},
+        },
+        "required": ["girl_name", "parent_phone"],
+        "additionalProperties": False,
+    },
 }
 
 CLIENTS_CONFIG: dict[str, dict] = {}
@@ -192,10 +239,59 @@ print(f"   Default fallback: '{_DEFAULT_CLIENT.get('client_name', 'none')}'")
 print("=" * 60)
 
 
+# ── Client-specific payload builders ─────────────────────────────────────────
+
+def _build_roi_payload(args: dict, caller_phone: str, client_config: dict) -> dict:
+    return {
+        "source":              "voice_realtime",
+        "client":              client_config.get("client_name", ""),
+        "caller_phone_twilio": caller_phone,
+        "name":                args.get("name", ""),
+        "phone_number":        args.get("phone_number") or caller_phone,
+        "topic":               args.get("topic", ""),
+        "notes":               args.get("notes", ""),
+    }
+
+
+def _build_studio_payload(args: dict, caller_phone: str, client_config: dict) -> dict:
+    payload = {
+        "timestamp":           datetime.now().isoformat(),
+        "lead_source":         "voice_realtime",
+        "business_type":       "סטודיו",
+        "girl_name":           args.get("girl_name", ""),
+        "school_grade":        args.get("school_grade", ""),
+        "dance_experience":    args.get("dance_experience", ""),
+        "experience_details":  args.get("experience_details", ""),
+        "parent_name":         args.get("parent_name", ""),
+        "parent_phone":        args.get("parent_phone") or caller_phone,
+        "girl_phone":          "",
+        "preferred_day":       args.get("preferred_day", ""),
+        "assigned_trial_day":  args.get("preferred_day", ""),
+        "assigned_trial_time": args.get("assigned_trial_time", ""),
+        "trial1_status":       "נקבע" if args.get("preferred_day") else "",
+        "trial2_status":       "",
+        "registration_status": "חדש",
+        "notes":               args.get("notes", ""),
+    }
+    print(f"[STUDIO] lead payload: {json.dumps(payload, ensure_ascii=False)}")
+    return payload
+
+
+# Maps client_name → payload builder function
+_PAYLOAD_BUILDERS = {
+    "Roi Insurance":        _build_roi_payload,
+    "Maya BPM Dance Studio": _build_studio_payload,
+}
+
+
 # ── Dynamic prompt builder ────────────────────────────────────────────────────
 
 def build_system_prompt(client_config: dict, caller_phone: str) -> str:
     """Build a full system prompt from a client config dict."""
+    # Studio (and future clients) can supply a full prompt override
+    override = client_config.get("prompt_override")
+    if override:
+        return override.replace("{caller_phone}", caller_phone)
     name          = client_config.get("assistant_name", "מאיה")
     client_name   = client_config.get("client_name", "")
     business      = client_config.get("business_type", "")
@@ -423,29 +519,17 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                             f"Send all collected caller details to {client_config.get('client_name')}. "
                             "Call this once you have gathered the required information."
                         ),
-                        "parameters": {
+                        "parameters": client_config.get("tool_parameters", {
                             "type": "object",
                             "properties": {
-                                "name": {
-                                    "type": "string",
-                                    "description": "Caller's name",
-                                },
-                                "phone_number": {
-                                    "type": "string",
-                                    "description": "Phone number to call back",
-                                },
-                                "topic": {
-                                    "type": "string",
-                                    "description": "Main topic or interest (e.g. insurance type, dance interest)",
-                                },
-                                "notes": {
-                                    "type": "string",
-                                    "description": "All other collected details as a summary",
-                                },
+                                "name":         {"type": "string", "description": "Caller's name"},
+                                "phone_number": {"type": "string", "description": "Phone number to call back"},
+                                "topic":        {"type": "string", "description": "Main topic or interest"},
+                                "notes":        {"type": "string", "description": "All other collected details"},
                             },
                             "required": ["name", "phone_number", "topic"],
                             "additionalProperties": False,
-                        },
+                        }),
                     },
                     {
                         "type": "function",
@@ -540,18 +624,11 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                     if event_type == "response.function_call_arguments.done":
                         func_name = event["name"]
                         args      = json.loads(event["arguments"])
-                        print(f"🛠️ Function call: {func_name} | args: {args}")
+                        print(f"🛠️ Function call: {func_name} | client: {client_config.get('client_name')} | args: {args}")
 
                         if func_name == "process_agency_lead":
-                            lead_payload = {
-                                "source":              "voice_realtime",
-                                "client":              client_config.get("client_name", ""),
-                                "caller_phone_twilio": caller_phone,
-                                "name":                args.get("name"),
-                                "phone_number":        args.get("phone_number") or caller_phone,
-                                "topic":               args.get("topic"),
-                                "notes":               args.get("notes", ""),
-                            }
+                            builder      = _PAYLOAD_BUILDERS.get(client_config.get("client_name"), _build_roi_payload)
+                            lead_payload = builder(args, caller_phone, client_config)
                             await send_lead_to_webhook(webhook_url, lead_payload)
 
                         if func_name == "end_call":
