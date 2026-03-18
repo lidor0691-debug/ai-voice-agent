@@ -73,8 +73,12 @@ def normalize_phone_key(phone: str) -> str:
 
 async def send_lead_to_webhook(webhook_url: str, lead_data: dict) -> bool:
     """Send collected lead data to the given webhook URL."""
+    print("[WEBHOOK] ▶ send_lead_to_webhook called")
+    print(f"[WEBHOOK] 🌐 URL: {webhook_url or '(empty — not configured)'}")
+    print(f"[WEBHOOK] 📦 payload: {json.dumps(lead_data, ensure_ascii=False)}")
+
     if not webhook_url:
-        print("⚠️ No webhook URL configured — skipping lead.")
+        print("[WEBHOOK] ⚠️ No webhook URL configured — lead NOT sent.")
         return False
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -83,13 +87,15 @@ async def send_lead_to_webhook(webhook_url: str, lead_data: dict) -> bool:
                 json=lead_data,
                 headers={"Content-Type": "application/json"},
             )
+            print(f"[WEBHOOK] ← HTTP {resp.status_code}")
+            print(f"[WEBHOOK] ← body: {resp.text[:500]}")
             resp.raise_for_status()
-            print(f"✅ Lead sent to webhook | status={resp.status_code}")
+            print("[WEBHOOK] ✅ Lead delivered successfully")
             return True
     except httpx.HTTPStatusError as exc:
-        print(f"❌ Webhook HTTP error {exc.response.status_code}: {exc.response.text}")
+        print(f"[WEBHOOK] ❌ HTTP error {exc.response.status_code}: {exc.response.text[:500]}")
     except Exception as exc:
-        print(f"❌ Webhook request failed: {exc}")
+        print(f"[WEBHOOK] ❌ Request failed: {exc}")
     return False
 
 
@@ -124,7 +130,10 @@ _ROI_CONFIG = {
         "'אהמ... אוי, אני מצטערת לשמוע. בוא נראה איך אפשר לעזור', "
         "then continue gently with the questions. "
         "Once you have name, phone, and topic, say exactly: "
-        "'תודה רבה. אני מעבירה לרועי את הפרטים עכשיו, והוא יחזור אליך בהקדם.'"
+        "'תודה רבה. אני מעבירה לרועי את הפרטים עכשיו, והוא יחזור אליך בהקדם.' "
+        "Then call process_agency_lead. "
+        "After process_agency_lead completes, say: "
+        "'שיהיה יום טוב, להתראות!' and immediately call end_call."
     ),
 }
 
@@ -136,60 +145,65 @@ _STUDIO_CONFIG = {
     "voice":          "shimmer",
 
     # Full prompt override — bypasses the generic builder entirely
-    "prompt_override": f"""OPERATIONAL RULES — STRICT COMPLIANCE REQUIRED.
+    "prompt_override": f"""אתה מאיה — עוזרת קולית של סטודיו מאיה BPM לריקוד היפ הופ.
+תאריך היום: {current_date}. את מדברת עברית בלבד. את אישה.
 
-IDENTITY:
-את מאיה, עוזרת קולית של סטודיו מאיה BPM לריקוד.
-תאריך היום: {current_date}. את מדברת עברית. את אישה.
-הסגנון שלך: חמה, אנושית, אישית, קלילה ומרגשת. אפשר להשתמש בכמה אמוג׳י באופן טבעי 💃❤️
+האישיות שלך:
+- אנרגטית, חמה, אישית, קצת שובבה
+- מדברת כמו חברה טובה — לא כמו מוקד שירות
+- מרגשת את הבנות שיבואו לרקוד
+- משפטים קצרים, זורמים, לא פורמליים
+- ממש לא רובוטית — תישמעי אנושית וחיה
+- מותר להגיד "וואו", "כיף", "מעולה", "איזה כיף", "יאללה"
+- אפשר להשתמש בכמה מילות מילוי טבעיות: "אהמ...", "אוקיי", "סבבה", "רגע"
 
-MANDATORY VOICE RULES:
-1. NEVER speak for the caller. NEVER invent responses or continue without waiting.
-2. NEVER invent or assume a name — if unknown, ask: "סליחה, עם מי יש לי את הכבוד?"
-3. Ask ONE question at a time. STOP. Wait for the answer.
-4. Use natural fillers: "אהמ...", "אוקיי", "מעולה", "סבבה", "הבנתי" 💃
-5. Speak naturally and at a relaxed pace. Short sentences.
+חוקי ברזל — חובה:
+1. אסור לדבר בשם המתקשרת. NEVER invent responses or speak for the caller.
+2. אסור להמציא שמות — אם לא ידוע, שאלי: "ואת, מה שמך?"
+3. שאלה אחת בכל פעם. עצרי. חכי לתשובה.
+4. אל תמשיכי לפני שקיבלת תשובה.
 
-OPENING — say this EXACTLY when the call connects:
-"שלום, הגעת למאיה BPM 💃
-את מתעניינת לגבי ריקוד בת מצווה או סטודיו לריקוד?"
-Then STOP and wait.
+פתיחה — אמרי את זה בדיוק כשהשיחה מתחברת:
+"היי! הגעת למאיה BPM — סטודיו לריקוד היפ הופ.
+את מתעניינת בשיעורים בסטודיו, או בריקוד לבת מצווה?"
+עצרי. חכי.
 
-IF THE CALLER IS INTERESTED IN THE DANCE STUDIO:
-Collect the following, ONE question at a time, in this order:
-1. שם הבת: "איך קוראים לבת שלך?"
-2. כיתה: "באיזה כיתה היא?"
-3. ניסיון ריקוד: "יש לה ניסיון ריקוד קודם?"
-4. אם כן — "אשמח לשמוע קצת יותר 😊"
-5. שם הורה (אם לא ידוע): "ואת, מה שמך?"
-6. טלפון הורה (אם לא ידוע): "ומה הטלפון הכי נוח לחזור אליך?"
+אם מדובר בסטודיו לריקוד — אספי את המידע הבא, שאלה אחת בכל פעם:
+1. "איך קוראים לבת?" — שם הבת
+2. "באיזה כיתה היא?" — כיתה
+3. "יש לה ניסיון בריקוד?" — כן / לא
+4. אם כן: "מגניב! מה היא עשתה?" — פירוט
+5. "ואת, מה שמך?" — שם האמא / הורה
+6. "ומה הטלפון שלך?" — טלפון הורה
 
-AFTER COLLECTING DETAILS — OFFER A TRIAL:
-- Say: "מעולה! אנחנו מציעות 2 שיעורי ניסיון חינם 🎉 מתי נוח לכן לנסות?"
-- Trial days: ראשון או רביעי בלבד.
-- Suggest the RIGHT time slot based on grade:
+אחרי שאספת את הפרטים — הציעי ניסיון:
+אמרי משהו כמו: "מעולה! אנחנו נותנות שני שיעורי ניסיון חינם — יאללה, מתי נוח לכן?"
+- שיעורי ניסיון רק ביום ראשון או רביעי
+- בחרי את השעה לפי הכיתה:
     גן + כיתה א → 17:00
-    כיתות ב–ד    → 17:45–18:40
-    כיתות ה–ו    → 18:40–19:40
-    חטיבה / תיכון → 19:40–20:40
-- Currently the studio teaches hip hop only.
-- Confirm booking naturally and warmly.
+    כיתות ב–ד   → 17:45
+    כיתות ה–ו   → 18:40
+    חטיבה / תיכון → 19:40
+- הסטודיו עושה היפ הופ בלבד
+- אחרי שנקבע יום ושעה — אשרי בחום
 
-CLOSING — after booking is confirmed, say something like:
-"מעולה ❤️ קבענו שיעור ניסיון ליום ___ בשעה ___ — מחכות לכן באהבה 💃"
-Then call process_agency_lead with ALL collected details.
+סיום אחרי הזמנת ניסיון — אמרי משהו כזה:
+"מושלם! קבענו ביום ___ בשעה ___. מחכות לכן, יהיה כיף! ביי ביי"
+ואז קראי לפונקציה process_agency_lead עם כל הפרטים. ואז קראי end_call.
 
-IF THE CALLER IS INTERESTED IN BAT MITZVAH CHOREOGRAPHY:
-Collect: girl name, date of the bat mitzvah, parent name, parent phone, any notes.
-Then call process_agency_lead with the collected details.
+אם מדובר בריקוד בת מצווה:
+אספי: שם הבת, תאריך בת המצווה, שם הורה, טלפון הורה, הערות.
+סיימי בחום: "נהדר! נחזור אלייך בהקדם. ביי ביי"
+קראי process_agency_lead, ואז end_call.
 
-AFTER process_agency_lead:
-Say: "מעולה, רשמתי הכל. יש עוד משהו שאוכל לעזור בו לפני שנסגור?"
-Wait. If caller says no/thanks/that's all → say: "שיהיה יום מצוין, ביי! 💃" and call end_call.
+חשוב מאוד — תמיד לסיים את השיחה:
+- אחרי process_agency_lead, אמרי משהו קצר וחם לפני הסיום
+- לדוגמה: "מעולה אהובה, קבענו! מחכות לכן. ביי!"
+- ואז קראי end_call מיד
 
-SESSION INFO:
-- Caller phone (Twilio From): {{caller_phone}}
-- Use this as parent_phone if the caller does not provide a different number.
+מידע על השיחה:
+- טלפון המתקשרת (Twilio From): {{caller_phone}}
+- אם לא סיפקה טלפון אחר, השתמשי במספר הזה בתור parent_phone.
 """,
 
     # Tool parameter schema for this client (used in session_update tools)
@@ -254,26 +268,37 @@ def _build_roi_payload(args: dict, caller_phone: str, client_config: dict) -> di
 
 
 def _build_studio_payload(args: dict, caller_phone: str, client_config: dict) -> dict:
+    parent_phone    = args.get("parent_phone") or caller_phone
+    trial_booked    = bool(args.get("preferred_day"))
+    followup_msg    = (
+        "היי, כאן מאיה מהסטודיו 💃\n"
+        f"איזה כיף שדיברנו.\nמחכות לכן לשיעור הניסיון שקבענו ❤️"
+        if trial_booked else
+        "היי, כאן מאיה מהסטודיו 💃\n"
+        "תודה שפנית אלינו. נחזור אלייך ממש בקרוב עם המשך תיאום ❤️"
+    )
     payload = {
-        "timestamp":           datetime.now().isoformat(),
-        "lead_source":         "voice_realtime",
-        "business_type":       "סטודיו",
-        "girl_name":           args.get("girl_name", ""),
-        "school_grade":        args.get("school_grade", ""),
-        "dance_experience":    args.get("dance_experience", ""),
-        "experience_details":  args.get("experience_details", ""),
-        "parent_name":         args.get("parent_name", ""),
-        "parent_phone":        args.get("parent_phone") or caller_phone,
-        "girl_phone":          "",
-        "preferred_day":       args.get("preferred_day", ""),
-        "assigned_trial_day":  args.get("preferred_day", ""),
-        "assigned_trial_time": args.get("assigned_trial_time", ""),
-        "trial1_status":       "נקבע" if args.get("preferred_day") else "",
-        "trial2_status":       "",
-        "registration_status": "חדש",
-        "notes":               args.get("notes", ""),
+        "timestamp":             datetime.now().isoformat(),
+        "lead_source":           "voice_realtime",
+        "business_type":         "סטודיו",
+        "girl_name":             args.get("girl_name", ""),
+        "school_grade":          args.get("school_grade", ""),
+        "dance_experience":      args.get("dance_experience", ""),
+        "experience_details":    args.get("experience_details", ""),
+        "parent_name":           args.get("parent_name", ""),
+        "parent_phone":          parent_phone,
+        "girl_phone":            "",
+        "preferred_day":         args.get("preferred_day", ""),
+        "assigned_trial_day":    args.get("preferred_day", ""),
+        "assigned_trial_time":   args.get("assigned_trial_time", ""),
+        "trial1_status":         "נקבע" if trial_booked else "",
+        "trial2_status":         "",
+        "registration_status":   "חדש",
+        "notes":                 args.get("notes", ""),
+        "followup_target_phone": parent_phone,
+        "followup_message":      followup_msg,
     }
-    print(f"[STUDIO] lead payload: {json.dumps(payload, ensure_ascii=False)}")
+    print(f"[STUDIO] 📦 final payload: {json.dumps(payload, ensure_ascii=False)}")
     return payload
 
 
@@ -557,6 +582,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
         speech_started_at = None
         _SILENCE_MS       = 1000  # must match silence_duration_ms above
         _MIN_SPEECH_MS    = 300   # minimum real speech before allowing interruption
+        lead_sent         = False  # safety: track if process_agency_lead fired
 
         async def receive_from_twilio():
             nonlocal stream_sid
@@ -575,7 +601,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                 print(f"⚠️ Twilio Receiver Error: {e}")
 
         async def receive_from_openai():
-            nonlocal is_ai_speaking, speech_started_at
+            nonlocal is_ai_speaking, speech_started_at, lead_sent
             try:
                 async for message in openai_ws:
                     event      = json.loads(message)
@@ -630,6 +656,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                             builder      = _PAYLOAD_BUILDERS.get(client_config.get("client_name"), _build_roi_payload)
                             lead_payload = builder(args, caller_phone, client_config)
                             await send_lead_to_webhook(webhook_url, lead_payload)
+                            lead_sent = True
 
                         if func_name == "end_call":
                             print(f"👋 end_call triggered for '{client_config.get('client_name')}' — disconnecting")
@@ -642,6 +669,15 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                 print(f"⚠️ OpenAI Receiver Error: {e}")
 
         await asyncio.gather(receive_from_twilio(), receive_from_openai())
+
+        # ── Safety net: force-send lead if process_agency_lead never fired ───
+        if not lead_sent and webhook_url:
+            print(f"[SAFETY] ⚠️ process_agency_lead was never triggered — force-sending fallback lead")
+            builder          = _PAYLOAD_BUILDERS.get(client_config.get("client_name"), _build_roi_payload)
+            fallback_payload = builder({}, caller_phone, client_config)
+            await send_lead_to_webhook(webhook_url, fallback_payload)
+        elif not lead_sent:
+            print("[SAFETY] ⚠️ process_agency_lead never fired and webhook_url is empty — nothing sent")
 
         # Cleanup on normal call end
         CALL_CONTEXT.pop(call_sid, None)
