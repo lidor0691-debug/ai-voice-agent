@@ -268,9 +268,10 @@ def _build_roi_payload(args: dict, caller_phone: str, client_config: dict) -> di
 
 
 def _build_studio_payload(args: dict, caller_phone: str, client_config: dict) -> dict:
-    parent_phone    = args.get("parent_phone") or caller_phone
-    trial_booked    = bool(args.get("preferred_day"))
-    followup_msg    = (
+    raw_parent_phone = args.get("parent_phone") or caller_phone
+    parent_phone     = normalize_israeli_phone(raw_parent_phone) if raw_parent_phone else ""
+    trial_booked     = bool(args.get("preferred_day"))
+    followup_msg     = (
         "היי, כאן מאיה מהסטודיו 💃\n"
         f"איזה כיף שדיברנו.\nמחכות לכן לשיעור הניסיון שקבענו ❤️"
         if trial_booked else
@@ -279,8 +280,9 @@ def _build_studio_payload(args: dict, caller_phone: str, client_config: dict) ->
     )
     payload = {
         "timestamp":             datetime.now().isoformat(),
-        "lead_source":           "voice_realtime",
-        "business_type":         "סטודיו",
+        "source":                "voice_realtime",
+        "client":                "Maya BPM Dance Studio",
+        "service_type":          "studio",
         "girl_name":             args.get("girl_name", ""),
         "school_grade":          args.get("school_grade", ""),
         "dance_experience":      args.get("dance_experience", ""),
