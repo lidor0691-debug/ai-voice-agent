@@ -4,7 +4,7 @@ import asyncio
 import websockets
 import httpx
 from urllib.parse import quote
-from datetime import datetime
+from datetime import datetime, timedelta
 from fastapi import APIRouter, WebSocket, Request
 from fastapi.responses import Response
 from twilio.twiml.voice_response import VoiceResponse, Connect, Hangup
@@ -267,6 +267,9 @@ def _build_roi_payload(args: dict, caller_phone: str, client_config: dict) -> di
     }
 
 
+_HEBREW_WEEKDAY = {"ראשון": 6, "שני": 0, "שלישי": 1, "רביעי": 2, "חמישי": 3, "שישי": 4, "שבת": 5}
+
+
 def _build_studio_payload(args: dict, caller_phone: str, client_config: dict) -> dict:
     raw_parent_phone = args.get("parent_phone") or caller_phone
     parent_phone     = normalize_israeli_phone(raw_parent_phone) if raw_parent_phone else ""
@@ -278,6 +281,17 @@ def _build_studio_payload(args: dict, caller_phone: str, client_config: dict) ->
         "היי, כאן מאיה מהסטודיו 💃\n"
         "תודה שפנית אלינו. נחזור אלייך ממש בקרוב עם המשך תיאום ❤️"
     )
+    # Compute next occurrence of the selected weekday as YYYY-MM-DD HH:MM
+    _preferred  = args.get("preferred_day", "")
+    _time       = args.get("assigned_trial_time", "")
+    _target_wd  = _HEBREW_WEEKDAY.get(_preferred)
+    if _target_wd is not None and _time:
+        _today      = datetime.now()
+        _days_ahead = (_target_wd - _today.weekday()) % 7
+        _date_str   = (_today + timedelta(days=_days_ahead)).strftime("%Y-%m-%d")
+        _assigned   = f"{_date_str} {_time}"
+    else:
+        _assigned   = ""
     payload = {
         "timestamp":             datetime.now().isoformat(),
         "source":                "voice_realtime",
@@ -290,9 +304,9 @@ def _build_studio_payload(args: dict, caller_phone: str, client_config: dict) ->
         "parent_name":           args.get("parent_name", ""),
         "parent_phone":          parent_phone,
         "girl_phone":            "",
-        "preferred_day":         args.get("preferred_day", ""),
-        "assigned_trial_day":    args.get("preferred_day", ""),
-        "assigned_trial_time":   args.get("assigned_trial_time", ""),
+        "preferred_day":         _preferred,
+        "assigned_trial_day":    _assigned,
+        "assigned_trial_time":   _time,
         "trial1_status":         "נקבע" if trial_booked else "",
         "trial2_status":         "",
         "registration_status":   "חדש",
