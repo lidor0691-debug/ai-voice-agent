@@ -534,8 +534,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
     openai_url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview"
     headers    = {"Authorization": f"Bearer {OPENAI_API_KEY}", "OpenAI-Beta": "realtime=v1"}
 
-    try:
-      async with websockets.connect(openai_url, additional_headers=headers, ping_interval=None) as openai_ws:
+    async with websockets.connect(openai_url, additional_headers=headers, ping_interval=None) as openai_ws:
 
         session_update = {
             "type": "session.update",
@@ -726,9 +725,3 @@ async def websocket_endpoint(twilio_ws: WebSocket):
 
         # Cleanup on normal call end
         CALL_CONTEXT.pop(call_sid, None)
-    except Exception as exc:
-        print(f"[WS ERROR] OpenAI WebSocket error: {type(exc).__name__}: {exc}")
-        try:
-            await twilio_ws.close()
-        except Exception:
-            pass
