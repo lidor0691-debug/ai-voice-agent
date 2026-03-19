@@ -416,7 +416,6 @@ async def voice_entry(request: Request):
     connect  = Connect()
     connect.stream(url=stream_url)
     response.append(connect)
-    response.append(Hangup())
     twiml_str = str(response)
     print(f"[VOICE] TwiML returned:\n{twiml_str}")
     print("=" * 60)
