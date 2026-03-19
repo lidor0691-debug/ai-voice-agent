@@ -706,7 +706,11 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                     pass
             _studio_keepalive_task = asyncio.create_task(_studio_keepalive())
 
-        await asyncio.gather(receive_from_twilio(), receive_from_openai())
+        await asyncio.gather(
+            receive_from_twilio(),
+            receive_from_openai(),
+            return_exceptions=True,
+        )
 
         if _studio_keepalive_task is not None:
             _studio_keepalive_task.cancel()
