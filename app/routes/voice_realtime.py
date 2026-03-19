@@ -669,7 +669,36 @@ async def websocket_endpoint(twilio_ws: WebSocket):
             except Exception as e:
                 print(f"⚠️ OpenAI Receiver Error: {e}")
 
+        # ── Studio keep-alive: prevent Heroku 60s idle timeout on Twilio WebSocket ─
+        # Heroku's nginx drops connections when no data is written for 60 seconds.
+        # During silence (AI waiting for caller), nothing is sent to twilio_ws.
+        # Sending a Twilio `mark` event every 15s keeps the connection alive.
+        # `mark` is a documented Media Streams message; it has no audio effect when
+        # nothing is queued, and Twilio's mark-response is ignored by receive_from_twilio.
+        _studio_keepalive_task = None
+        if client_config.get("client_name") == "Maya BPM Dance Studio":
+            async def _studio_keepalive():
+                try:
+                    while True:
+                        await asyncio.sleep(15)
+                        if stream_sid:
+                            await twilio_ws.send_json({
+                                "event": "mark",
+                                "streamSid": stream_sid,
+                                "mark": {"name": "keepalive"},
+                            })
+                except Exception:
+                    pass
+            _studio_keepalive_task = asyncio.create_task(_studio_keepalive())
+
         await asyncio.gather(receive_from_twilio(), receive_from_openai())
+
+        if _studio_keepalive_task is not None:
+            _studio_keepalive_task.cancel()
+            try:
+                await _studio_keepalive_task
+            except (asyncio.CancelledError, Exception):
+                pass
 
         # ── Safety net: force-send lead if process_agency_lead never fired ───
         if not lead_sent and webhook_url:
