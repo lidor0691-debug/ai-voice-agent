@@ -520,7 +520,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
     openai_url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview"
     headers    = {"Authorization": f"Bearer {OPENAI_API_KEY}", "OpenAI-Beta": "realtime=v1"}
 
-    async with websockets.connect(openai_url, additional_headers=headers) as openai_ws:
+    async with websockets.connect(openai_url, additional_headers=headers, ping_interval=None) as openai_ws:
 
         session_update = {
             "type": "session.update",
