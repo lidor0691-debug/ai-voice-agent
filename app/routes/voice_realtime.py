@@ -665,7 +665,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                     if event_type == "response.function_call_arguments.done":
                         func_name = event["name"]
                         args      = json.loads(event["arguments"])
-                        print(f"🛠️ Function call: {func_name} | client: {client_config.get('client_name')} | args: {args}")
+                        print(f"🛠️ Function call: {func_name} | client: {client_config.get('client_name')} | args: {args} | webhook: {webhook_url or '(none)'}")
 
                         if func_name == "process_agency_lead":
                             builder      = _PAYLOAD_BUILDERS.get(client_config.get("client_name"), _build_roi_payload)
