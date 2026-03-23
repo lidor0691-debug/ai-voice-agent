@@ -142,7 +142,7 @@ _STUDIO_CONFIG = {
     "assistant_name": "מאיה",
     "business_type":  "dance studio",
     "webhook_url":    STUDIO_WEBHOOK_URL,
-    "voice":          "shimmer",
+    "voice":          "coral",
 
     # Full prompt override — bypasses the generic builder entirely
     "prompt_override": f"""אתה מאיה — עוזרת קולית של סטודיו מאיה BPM לריקוד היפ הופ.
