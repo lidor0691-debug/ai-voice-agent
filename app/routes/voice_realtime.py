@@ -552,6 +552,25 @@ async def websocket_endpoint(twilio_ws: WebSocket):
         except Exception as e:
             print(f"[WS ERROR] Failed while waiting for start event: {e}")
 
+    # ── Phase 1.5: ensure stream_sid is captured before opening OpenAI ──
+    # If call_sid was resolved from the query param (Phase 1 block skipped),
+    # the Twilio "start" event is still buffered — read it now so that
+    # stream_sid is set before response.create fires and audio starts flowing.
+    if stream_sid is None:
+        try:
+            async for raw_msg in twilio_ws.iter_text():
+                evt = json.loads(raw_msg)
+                if evt["event"] == "start":
+                    if not call_sid:
+                        call_sid = evt["start"].get("callSid", "")
+                    stream_sid = evt["start"].get("streamSid", "")
+                    print(f"[WS] stream_sid from phase 1.5 = '{stream_sid}'")
+                    break
+                elif evt["event"] == "media":
+                    _pending_audio.append(evt["media"]["payload"])
+        except Exception as e:
+            print(f"[WS ERROR] Phase 1.5 start wait failed: {e}")
+
     print(f"[WS] CALL_CONTEXT keys   = {list(CALL_CONTEXT.keys())}")
 
     # ── Phase 2: resolve routing from CALL_CONTEXT ───────────────────────
