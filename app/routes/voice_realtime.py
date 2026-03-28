@@ -152,7 +152,7 @@ _STUDIO_CONFIG = {
 - רכה, חמה, נשית, ביטחון שקט — לא מוקדנית, לא תאגידית
 - מדברת כמו מישהי שאוהבת את מה שהיא עושה ואכפת לה מהלקוחה
 - משפטים קצרים, זורמים, טבעיים — לא נאום, לא מגילה
-- קצב רגוע ונעים — לא ממהרת, לא עצבנית
+- קצב דיבור מהיר וזורם — כמו ישראלית שמדברת בטלפון. לא לעצור בין משפטים, לא להאריך מילים
 - אנושית לחלוטין — מותר להישמע לא מושלמת
 
 המוח השיחתי שלך:
@@ -646,8 +646,8 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                 "turn_detection": {
                     "type": "server_vad",
                     "threshold": 0.75,
-                    "prefix_padding_ms": 500,
-                    "silence_duration_ms": 1000,
+                    "prefix_padding_ms": 300,
+                    "silence_duration_ms": 700,
                 },
                 "input_audio_format":  "g711_ulaw",
                 "output_audio_format": "g711_ulaw",
@@ -699,7 +699,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
 
         is_ai_speaking    = False
         speech_started_at = None
-        _SILENCE_MS       = 1000  # must match silence_duration_ms above
+        _SILENCE_MS       = 700   # must match silence_duration_ms above
         _MIN_SPEECH_MS    = 300   # minimum real speech before allowing interruption
         lead_sent         = False  # safety: track if process_agency_lead fired
 
