@@ -370,13 +370,11 @@ def _build_studio_payload(args: dict, caller_phone: str, client_config: dict) ->
     _preferred  = args.get("preferred_day", "")
     _time       = args.get("assigned_trial_time", "")
     _target_wd  = _HEBREW_WEEKDAY.get(_preferred)
+    _date_str   = ""
     if _target_wd is not None and _time:
         _today      = datetime.now()
         _days_ahead = (_target_wd - _today.weekday()) % 7
         _date_str   = (_today + timedelta(days=_days_ahead)).strftime("%Y-%m-%d")
-        _assigned   = f"{_date_str} {_time}"
-    else:
-        _assigned   = ""
     payload = {
         "timestamp":             datetime.now().isoformat(),
         "source":                "voice_realtime",
@@ -390,7 +388,7 @@ def _build_studio_payload(args: dict, caller_phone: str, client_config: dict) ->
         "parent_phone":          parent_phone,
         "girl_phone":            "",
         "preferred_day":         _preferred,
-        "assigned_trial_day":    _assigned,
+        "assigned_trial_day":    _date_str,
         "assigned_trial_time":   _time,
         "trial1_status":         "נקבע" if trial_booked else "",
         "trial2_status":         "",
