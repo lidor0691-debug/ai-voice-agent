@@ -726,6 +726,8 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                         stream_sid = data["start"]["streamSid"]
                         print(f"📡 Stream started: {stream_sid}")
                     elif data["event"] == "media":
+                        if not opening_greeting_done:
+                            continue  # drop audio until opening greeting has started
                         await openai_ws.send(json.dumps({
                             "type":  "input_audio_buffer.append",
                             "audio": data["media"]["payload"],
