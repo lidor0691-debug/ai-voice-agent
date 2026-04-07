@@ -876,7 +876,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
             _studio_keepalive_task = asyncio.create_task(_studio_keepalive())
 
         async def auto_disconnect_watchdog():
-            """Close call if AI finished speaking and no user speech within 8s — only after user has spoken once."""
+            """Close call if AI finished speaking and no user speech within 20s — only after user has spoken once."""
             nonlocal _ws_open
             await asyncio.sleep(5)  # don't arm until call is established
             while _ws_open:
@@ -887,7 +887,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                     continue
                 if is_ai_speaking or speech_started_at is not None:
                     continue
-                if asyncio.get_event_loop().time() - last_ai_done_ts > 8.0:
+                if asyncio.get_event_loop().time() - last_ai_done_ts > 20.0:
                     print("[WATCHDOG] No user speech after AI done — auto-disconnecting")
                     _ws_open = False
                     try:
