@@ -717,6 +717,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
         _SILENCE_MS            = 180   # must match silence_duration_ms above
         _MIN_SPEECH_MS         = 300   # minimum real speech before allowing interruption
         lead_sent              = False  # safety: track if process_agency_lead fired
+        last_ai_done_ts        = 0.0     # timestamp of last response.audio.done
 
         async def receive_from_twilio():
             nonlocal stream_sid
@@ -742,7 +743,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                 print(f"⚠️ Twilio Receiver Error: {e}")
 
         async def receive_from_openai():
-            nonlocal is_ai_speaking, speech_started_at, lead_sent, _ws_open, opening_greeting_done, listen_after_ts
+            nonlocal is_ai_speaking, speech_started_at, lead_sent, _ws_open, opening_greeting_done, listen_after_ts, last_ai_done_ts
             try:
                 async for message in openai_ws:
                     event      = json.loads(message)
@@ -764,7 +765,10 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                     if event_type in ("response.audio.done", "response.cancelled"):
                         is_ai_speaking    = False
                         speech_started_at = None
-                        listen_after_ts   = asyncio.get_event_loop().time() + 0.7
+                        now = asyncio.get_event_loop().time()
+                        listen_after_ts   = now + 0.7
+                        if event_type == "response.audio.done":
+                            last_ai_done_ts = now
                         continue
 
                     # ── VAD: caller started speaking ───────────────────────
@@ -852,7 +856,26 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                     pass
             _studio_keepalive_task = asyncio.create_task(_studio_keepalive())
 
-        await asyncio.gather(receive_from_twilio(), receive_from_openai())
+        async def auto_disconnect_watchdog():
+            """Close call if AI finished speaking and no user speech starts within 2.5s."""
+            nonlocal _ws_open
+            await asyncio.sleep(5)  # don't arm until call is established
+            while _ws_open:
+                await asyncio.sleep(0.5)
+                if last_ai_done_ts == 0.0:
+                    continue
+                if is_ai_speaking or speech_started_at is not None:
+                    continue
+                if asyncio.get_event_loop().time() - last_ai_done_ts > 2.5:
+                    print("[WATCHDOG] No user speech after AI done — auto-disconnecting")
+                    _ws_open = False
+                    try:
+                        await twilio_ws.close()
+                    except Exception as e:
+                        print(f"[WATCHDOG] close error: {e}")
+                    return
+
+        await asyncio.gather(receive_from_twilio(), receive_from_openai(), auto_disconnect_watchdog())
 
         if _studio_keepalive_task is not None:
             _studio_keepalive_task.cancel()
