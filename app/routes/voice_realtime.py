@@ -661,7 +661,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                     "type": "server_vad",
                     "threshold": 0.75,
                     "prefix_padding_ms": 300,
-                    "silence_duration_ms": 700,
+                    "silence_duration_ms": 400,
                 },
                 "input_audio_format":  "g711_ulaw",
                 "output_audio_format": "g711_ulaw",
@@ -713,7 +713,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
         is_ai_speaking         = False
         speech_started_at      = None
         opening_greeting_done  = False   # blocks interrupts until first greeting completes
-        _SILENCE_MS            = 700   # must match silence_duration_ms above
+        _SILENCE_MS            = 400   # must match silence_duration_ms above
         _MIN_SPEECH_MS         = 300   # minimum real speech before allowing interruption
         lead_sent              = False  # safety: track if process_agency_lead fired
 
@@ -805,12 +805,12 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                         if func_name == "end_call":
                             print(f"👋 end_call triggered for '{client_config.get('client_name')}' — disconnecting")
                             CALL_CONTEXT.pop(call_sid, None)
-                            # Wait for goodbye audio to finish before closing
-                            for _ in range(40):
+                            await asyncio.sleep(0.5)  # allow goodbye audio generation to begin
+                            for _ in range(50):  # poll up to 5s
                                 if not is_ai_speaking:
                                     break
                                 await asyncio.sleep(0.1)
-                            await asyncio.sleep(0.5)  # tail buffer for last audio packet
+                            await asyncio.sleep(0.3)  # short tail buffer
                             _ws_open = False
                             try:
                                 await twilio_ws.close()
