@@ -659,7 +659,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
             "session": {
                 "turn_detection": {
                     "type": "server_vad",
-                    "threshold": 0.75,
+                    "threshold": 0.90,
                     "prefix_padding_ms": 300,
                     "silence_duration_ms": 250,
                 },
@@ -713,6 +713,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
         is_ai_speaking         = False
         speech_started_at      = None
         opening_greeting_done  = False   # blocks interrupts until first greeting completes
+        listen_after_ts        = 0.0     # gate: ignore Twilio audio until this timestamp
         _SILENCE_MS            = 250   # must match silence_duration_ms above
         _MIN_SPEECH_MS         = 300   # minimum real speech before allowing interruption
         lead_sent              = False  # safety: track if process_agency_lead fired
@@ -728,6 +729,11 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                     elif data["event"] == "media":
                         if not opening_greeting_done:
                             continue  # drop audio until opening greeting has started
+                        if is_ai_speaking:
+                            continue  # drop audio while AI is speaking
+                        now = asyncio.get_event_loop().time()
+                        if now < listen_after_ts:
+                            continue  # drop audio during post-speech gate window
                         await openai_ws.send(json.dumps({
                             "type":  "input_audio_buffer.append",
                             "audio": data["media"]["payload"],
@@ -736,7 +742,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                 print(f"⚠️ Twilio Receiver Error: {e}")
 
         async def receive_from_openai():
-            nonlocal is_ai_speaking, speech_started_at, lead_sent, _ws_open, opening_greeting_done
+            nonlocal is_ai_speaking, speech_started_at, lead_sent, _ws_open, opening_greeting_done, listen_after_ts
             try:
                 async for message in openai_ws:
                     event      = json.loads(message)
@@ -758,6 +764,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                     if event_type in ("response.audio.done", "response.cancelled"):
                         is_ai_speaking    = False
                         speech_started_at = None
+                        listen_after_ts   = asyncio.get_event_loop().time() + 0.7
                         continue
 
                     # ── VAD: caller started speaking ───────────────────────
