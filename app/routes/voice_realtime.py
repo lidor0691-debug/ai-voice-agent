@@ -661,7 +661,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                     "type": "server_vad",
                     "threshold": 0.90,
                     "prefix_padding_ms": 300,
-                    "silence_duration_ms": 250,
+                    "silence_duration_ms": 180,
                 },
                 "input_audio_format":  "g711_ulaw",
                 "output_audio_format": "g711_ulaw",
@@ -714,7 +714,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
         speech_started_at      = None
         opening_greeting_done  = False   # blocks interrupts until first greeting completes
         listen_after_ts        = 0.0     # gate: ignore Twilio audio until this timestamp
-        _SILENCE_MS            = 250   # must match silence_duration_ms above
+        _SILENCE_MS            = 180   # must match silence_duration_ms above
         _MIN_SPEECH_MS         = 300   # minimum real speech before allowing interruption
         lead_sent              = False  # safety: track if process_agency_lead fired
 
@@ -814,12 +814,12 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                         if func_name == "end_call":
                             print(f"👋 end_call triggered for '{client_config.get('client_name')}' — disconnecting")
                             CALL_CONTEXT.pop(call_sid, None)
-                            await asyncio.sleep(0.8)  # allow goodbye audio generation to begin
-                            for _ in range(60):  # poll up to 6s
+                            await asyncio.sleep(1.2)  # allow goodbye audio generation to begin
+                            for _ in range(70):  # poll up to 7s
                                 if not is_ai_speaking:
                                     break
                                 await asyncio.sleep(0.1)
-                            await asyncio.sleep(0.8)  # final tail buffer
+                            await asyncio.sleep(1.2)  # final tail buffer
                             _ws_open = False
                             try:
                                 await twilio_ws.close()
