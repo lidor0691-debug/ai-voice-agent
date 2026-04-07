@@ -602,7 +602,9 @@ async def websocket_endpoint(twilio_ws: WebSocket):
     _used_supabase = False
     if to_number:
         try:
+            print(f"[DEBUG] Looking up Supabase for: {to_number}")
             _candidate = await fetch_supabase_agent_config(to_number)
+            print(f"[DEBUG] Supabase result: fallback_used={_candidate.get('fallback_used')}, client_name={_candidate.get('client_name')}, _from_supabase={_candidate.get('_from_supabase')}")
             if _candidate and not _candidate.get("fallback_used"):
                 _candidate["_from_supabase"] = True   # explicit mark
                 _supabase_cfg  = _candidate
@@ -610,6 +612,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                 print(f"[ROUTING] ✅ Supabase match: '{_supabase_cfg.get('client_name')}' — using dashboard config")
             else:
                 print(f"[ROUTING] Supabase: no match for '{to_number}' — trying CLIENTS_CONFIG")
+                print(f"[DEBUG] Supabase safe-default returned — check SUPABASE_URL/SUPABASE_ANON_KEY env vars and that phone_number='{to_number}' exists in agents_config with is_active=true")
         except Exception as _e:
             print(f"[ROUTING] Supabase lookup error: {_e} — falling back to CLIENTS_CONFIG")
 
