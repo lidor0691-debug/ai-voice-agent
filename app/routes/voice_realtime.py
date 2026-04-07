@@ -502,6 +502,14 @@ async def voice_entry(request: Request):
     print(f"[VOICE] CALL_CONTEXT keys after store: {list(CALL_CONTEXT.keys())}")
     print(f"[VOICE] stored context   = {CALL_CONTEXT[call_sid]}")
 
+    # Guard: if no client config exists for this number, return error TwiML now.
+    # This prevents the WebSocket from ever being opened for an unknown number.
+    if not CLIENTS_CONFIG.get(norm_to):
+        print(f"[VOICE] ❌ No client config for norm_to='{norm_to}' — returning error TwiML")
+        err_response = VoiceResponse()
+        err_response.say("מצטערים, אירעה שגיאה. נסו שוב מאוחר יותר.", language="he-IL")
+        return Response(content=str(err_response), media_type="application/xml")
+
     host       = request.url.hostname
     stream_url = f"wss://{host}/voice-ai/stream?call_sid={quote(call_sid, safe='')}"
     print(f"[VOICE] stream_url       = '{stream_url}'")
@@ -596,7 +604,10 @@ async def websocket_endpoint(twilio_ws: WebSocket):
         print(f"[ROUTING] selected client_name     = '{client_config.get('client_name')}' (EXACT MATCH)")
     else:
         print(f"[ROUTING] ❌ No client config for to_number='{to_number}' — closing call")
-        await twilio_ws.close()
+        try:
+            await twilio_ws.close()
+        except Exception as e:
+            print(f"[ROUTING] WebSocket close error (safe to ignore): {e}")
         return
 
     # ── Fail-fast assertions ──────────────────────────────────────────────
