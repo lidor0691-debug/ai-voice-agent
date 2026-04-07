@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, WebSocket, Request
 from fastapi.responses import Response
 from twilio.twiml.voice_response import VoiceResponse, Connect, Hangup
+from app.services.agent_config import fetch_supabase_agent_config, build_supabase_system_prompt
 
 router = APIRouter()
 
@@ -594,36 +595,39 @@ async def websocket_endpoint(twilio_ws: WebSocket):
         to_number    = ""
         print(f"[WS ERROR] Missing CALL_CONTEXT for call_sid='{call_sid}' — routing will fall back")
 
-    # ── Phase 3: client lookup ────────────────────────────────────────────
+    # ── Phase 3: client lookup — Supabase first, CLIENTS_CONFIG fallback ────
     print(f"[ROUTING] to_number used for lookup = '{to_number}'")
-    print(f"[ROUTING] CLIENTS_CONFIG keys       = {list(CLIENTS_CONFIG.keys())}")
-    _exact = CLIENTS_CONFIG.get(to_number) if to_number else None
-    print(f"[ROUTING] exact lookup result       = {'<' + _exact.get('client_name', '?') + '>' if _exact else 'None'}")
 
-    if _exact:
-        client_config = _exact
-        print(f"[ROUTING] selected client_name     = '{client_config.get('client_name')}' (EXACT MATCH)")
-    else:
-        print(f"[ROUTING] ❌ No client config for to_number='{to_number}' — closing call")
+    _supabase_cfg  = None
+    _used_supabase = False
+    if to_number:
         try:
-            await twilio_ws.close()
-        except Exception as e:
-            print(f"[ROUTING] WebSocket close error (safe to ignore): {e}")
-        return
+            _candidate = await fetch_supabase_agent_config(to_number)
+            if _candidate and not _candidate.get("fallback_used"):
+                _candidate["_from_supabase"] = True   # explicit mark
+                _supabase_cfg  = _candidate
+                _used_supabase = True
+                print(f"[ROUTING] ✅ Supabase match: '{_supabase_cfg.get('client_name')}' — using dashboard config")
+            else:
+                print(f"[ROUTING] Supabase: no match for '{to_number}' — trying CLIENTS_CONFIG")
+        except Exception as _e:
+            print(f"[ROUTING] Supabase lookup error: {_e} — falling back to CLIENTS_CONFIG")
 
-    # ── Fail-fast assertions ──────────────────────────────────────────────
-    if to_number and to_number == _studio_phone:
-        if client_config.get("client_name") != "Maya BPM Dance Studio":
-            raise RuntimeError(
-                f"ROUTING BUG: Studio call (to='{to_number}') resolved to "
-                f"'{client_config.get('client_name')}' — CLIENTS_CONFIG: {list(CLIENTS_CONFIG.keys())}"
-            )
-    if to_number and to_number == _roi_phone:
-        if client_config.get("client_name") != "Roi Insurance":
-            raise RuntimeError(
-                f"ROUTING BUG: Roi call (to='{to_number}') resolved to "
-                f"'{client_config.get('client_name')}' — CLIENTS_CONFIG: {list(CLIENTS_CONFIG.keys())}"
-            )
+    if _used_supabase:
+        client_config = _supabase_cfg
+    else:
+        print(f"[ROUTING] CLIENTS_CONFIG keys = {list(CLIENTS_CONFIG.keys())}")
+        _exact = CLIENTS_CONFIG.get(to_number) if to_number else None
+        if _exact:
+            client_config = _exact
+            print(f"[ROUTING] selected client_name = '{client_config.get('client_name')}' (HARDCODED)")
+        else:
+            print(f"[ROUTING] ❌ No client config for to_number='{to_number}' — closing call")
+            try:
+                await twilio_ws.close()
+            except Exception as e:
+                print(f"[ROUTING] WebSocket close error (safe to ignore): {e}")
+            return
 
     if not client_config:
         print("[WS ERROR] No client config and no default — closing.")
@@ -641,11 +645,24 @@ async def websocket_endpoint(twilio_ws: WebSocket):
             print(f"[WS] close error: {e}")
         return
 
-    system_prompt = build_system_prompt(client_config, caller_phone)
+    if _used_supabase:
+        # prompt_override is pre-built by fetch_supabase_agent_config with {{caller_phone}} placeholder
+        _raw_prompt = client_config.get("prompt_override", "")
+        if not _raw_prompt:
+            print(f"[OPENAI] ⚠️ Supabase prompt empty — falling back to hardcoded")
+            system_prompt = build_system_prompt(client_config, caller_phone)
+        else:
+            system_prompt = _raw_prompt.replace("{{caller_phone}}", caller_phone)
+            print(f"[OPENAI] prompt source = supabase")
+    else:
+        system_prompt = build_system_prompt(client_config, caller_phone)
+        print(f"[OPENAI] prompt source = hardcoded")
     webhook_url   = client_config.get("webhook_url", "")
-    voice         = client_config.get("voice", "shimmer")
+    # voice_id is already resolved to an OpenAI voice name by fetch_supabase_agent_config
+    voice         = client_config.get("voice_id") or client_config.get("voice") or "shimmer"
 
     print(f"[OPENAI] selected client_name = '{client_config.get('client_name')}'")
+    print(f"[OPENAI] voice                = '{voice}'")
     print(f"[OPENAI] prompt first 120     = '{system_prompt[:120].strip()}'")
     print("=" * 60)
 
