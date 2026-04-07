@@ -701,21 +701,21 @@ async def websocket_endpoint(twilio_ws: WebSocket):
 
         await openai_ws.send(json.dumps(session_update))
 
-        # Flush audio that arrived while we were waiting for the start event
-        for payload in _pending_audio:
-            await openai_ws.send(json.dumps({
-                "type":  "input_audio_buffer.append",
-                "audio": payload,
-            }))
+        # Discard audio buffered during setup (ringback / line noise / early "hello").
+        # Flushing it before the opening greeting causes phantom user-speech events.
         _pending_audio.clear()
+
+        # Small pause so session.update is fully applied before the greeting fires.
+        await asyncio.sleep(0.25)
 
         await openai_ws.send(json.dumps({"type": "response.create"}))
 
-        is_ai_speaking    = False
-        speech_started_at = None
-        _SILENCE_MS       = 700   # must match silence_duration_ms above
-        _MIN_SPEECH_MS    = 300   # minimum real speech before allowing interruption
-        lead_sent         = False  # safety: track if process_agency_lead fired
+        is_ai_speaking         = False
+        speech_started_at      = None
+        opening_greeting_done  = False   # blocks interrupts until first greeting completes
+        _SILENCE_MS            = 700   # must match silence_duration_ms above
+        _MIN_SPEECH_MS         = 300   # minimum real speech before allowing interruption
+        lead_sent              = False  # safety: track if process_agency_lead fired
 
         async def receive_from_twilio():
             nonlocal stream_sid
@@ -734,7 +734,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                 print(f"⚠️ Twilio Receiver Error: {e}")
 
         async def receive_from_openai():
-            nonlocal is_ai_speaking, speech_started_at, lead_sent, _ws_open
+            nonlocal is_ai_speaking, speech_started_at, lead_sent, _ws_open, opening_greeting_done
             try:
                 async for message in openai_ws:
                     event      = json.loads(message)
@@ -743,6 +743,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                     # ── Stream AI audio to Twilio ──────────────────────────
                     if event_type == "response.audio.delta":
                         is_ai_speaking = True
+                        opening_greeting_done = True   # first audio arrived — greeting started
                         if _ws_open and stream_sid:
                             await twilio_ws.send_json({
                                 "event":     "media",
@@ -760,8 +761,10 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                     # ── VAD: caller started speaking ───────────────────────
                     # Record timestamp; don't interrupt yet — wait for speech_stopped
                     # to measure actual duration (filters noise, echo, brief sounds).
+                    # Ignore during opening greeting to prevent phantom interrupts.
                     if event_type == "input_audio_buffer.speech_started":
-                        speech_started_at = asyncio.get_event_loop().time()
+                        if opening_greeting_done:
+                            speech_started_at = asyncio.get_event_loop().time()
                         continue
 
                     # ── VAD: caller finished speaking ──────────────────────
@@ -769,6 +772,9 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                     # elapsed = actual_speech + silence_duration_ms.
                     # Only interrupt if AI is speaking AND speech >= _MIN_SPEECH_MS.
                     if event_type == "input_audio_buffer.speech_stopped":
+                        if not opening_greeting_done:
+                            speech_started_at = None
+                            continue
                         if speech_started_at is not None and is_ai_speaking:
                             elapsed_ms = (asyncio.get_event_loop().time() - speech_started_at) * 1000
                             speech_ms  = elapsed_ms - _SILENCE_MS
