@@ -735,6 +735,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
         _MIN_SPEECH_MS         = 300   # minimum real speech before allowing interruption
         lead_sent              = False  # safety: track if process_agency_lead fired
         last_ai_done_ts        = 0.0     # timestamp of last response.audio.done
+        user_has_spoken        = False   # watchdog only arms after first user speech
 
         async def receive_from_twilio():
             nonlocal stream_sid
@@ -760,7 +761,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                 print(f"⚠️ Twilio Receiver Error: {e}")
 
         async def receive_from_openai():
-            nonlocal is_ai_speaking, speech_started_at, lead_sent, _ws_open, opening_greeting_done, listen_after_ts, last_ai_done_ts
+            nonlocal is_ai_speaking, speech_started_at, lead_sent, _ws_open, opening_greeting_done, listen_after_ts, last_ai_done_ts, user_has_spoken
             try:
                 async for message in openai_ws:
                     event      = json.loads(message)
@@ -795,6 +796,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                     if event_type == "input_audio_buffer.speech_started":
                         if opening_greeting_done:
                             speech_started_at = asyncio.get_event_loop().time()
+                            user_has_spoken   = True
                         continue
 
                     # ── VAD: caller finished speaking ──────────────────────
@@ -874,16 +876,18 @@ async def websocket_endpoint(twilio_ws: WebSocket):
             _studio_keepalive_task = asyncio.create_task(_studio_keepalive())
 
         async def auto_disconnect_watchdog():
-            """Close call if AI finished speaking and no user speech starts within 2.5s."""
+            """Close call if AI finished speaking and no user speech within 8s — only after user has spoken once."""
             nonlocal _ws_open
             await asyncio.sleep(5)  # don't arm until call is established
             while _ws_open:
                 await asyncio.sleep(0.5)
+                if not user_has_spoken:
+                    continue  # never disconnect before user speaks at least once
                 if last_ai_done_ts == 0.0:
                     continue
                 if is_ai_speaking or speech_started_at is not None:
                     continue
-                if asyncio.get_event_loop().time() - last_ai_done_ts > 2.5:
+                if asyncio.get_event_loop().time() - last_ai_done_ts > 8.0:
                     print("[WATCHDOG] No user speech after AI done — auto-disconnecting")
                     _ws_open = False
                     try:
