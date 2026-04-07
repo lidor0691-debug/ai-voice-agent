@@ -72,3 +72,67 @@ async def test_returns_assets_list_on_success():
     assert len(result) == 2
     assert result[0]["asset_name"] == "confirm"
     assert result[1]["asset_type"] == "link"
+
+
+# ── route tests ───────────────────────────────────────────────────────────────
+
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+
+def _make_test_client():
+    from app.routes.assets import router
+    app = FastAPI()
+    app.include_router(router)
+    return TestClient(app)
+
+
+def test_trigger_route_returns_200_with_empty_assets():
+    with patch("app.routes.assets.get_assets_by_trigger", new=AsyncMock(return_value=[])):
+        client = _make_test_client()
+        resp = client.post("/trigger", json={
+            "client_id":   "client-abc",
+            "trigger_key": "trial_booked",
+        })
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["count"] == 0
+    assert body["assets"] == []
+    assert body["client_id"] == "client-abc"
+    assert body["trigger_key"] == "trial_booked"
+
+
+def test_trigger_route_returns_assets_and_echoes_context():
+    mock_assets = [
+        {"id": "a1", "asset_name": "confirm", "asset_type": "text", "content": "Hi!"}
+    ]
+    with patch("app.routes.assets.get_assets_by_trigger", new=AsyncMock(return_value=mock_assets)):
+        client = _make_test_client()
+        resp = client.post("/trigger", json={
+            "client_id":      "client-abc",
+            "trigger_key":    "trial_booked",
+            "trigger_source": "make",
+            "event_id":       "evt-001",
+            "context":        {"name": "David", "phone": "+972500000000"},
+        })
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["count"] == 1
+    assert body["assets"][0]["asset_name"] == "confirm"
+    assert body["trigger_source"] == "make"
+    assert body["event_id"] == "evt-001"
+    assert body["context"]["name"] == "David"
+
+
+def test_trigger_route_requires_client_id():
+    with patch("app.routes.assets.get_assets_by_trigger", new=AsyncMock(return_value=[])):
+        client = _make_test_client()
+        resp = client.post("/trigger", json={"trigger_key": "trial_booked"})
+    assert resp.status_code == 422  # Pydantic validation error
+
+
+def test_trigger_route_requires_trigger_key():
+    with patch("app.routes.assets.get_assets_by_trigger", new=AsyncMock(return_value=[])):
+        client = _make_test_client()
+        resp = client.post("/trigger", json={"client_id": "client-abc"})
+    assert resp.status_code == 422
