@@ -781,9 +781,11 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                             elapsed_ms = (asyncio.get_event_loop().time() - speech_started_at) * 1000
                             speech_ms  = elapsed_ms - _SILENCE_MS
                             if is_ai_speaking and speech_ms >= _MIN_SPEECH_MS:
-                                if _ws_open and stream_sid:
-                                    await twilio_ws.send_json({"event": "clear", "streamSid": stream_sid})
-                                await openai_ws.send(json.dumps({"type": "response.cancel"}))
+                                print(f"[DIAG] barge-in suppressed (speech_ms={speech_ms:.0f}) — clear/cancel disabled for diagnostic")
+                                # DIAGNOSTIC: interrupt disabled
+                                # if _ws_open and stream_sid:
+                                #     await twilio_ws.send_json({"event": "clear", "streamSid": stream_sid})
+                                # await openai_ws.send(json.dumps({"type": "response.cancel"}))
                         speech_started_at = None
                         continue
 
