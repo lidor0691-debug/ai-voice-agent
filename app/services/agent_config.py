@@ -304,6 +304,7 @@ async def fetch_supabase_agent_config(to_number: str) -> dict:
     return {
         # Identity
         "agent_id":              row.get("id", ""),
+        "client_id":             row.get("client_id", ""),
         "business_name":         business_name,
         "client_name":           agent_name,
         "assistant_name":        agent_name,
