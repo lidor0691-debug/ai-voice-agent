@@ -775,10 +775,10 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                         if not opening_greeting_done:
                             speech_started_at = None
                             continue
-                        if speech_started_at is not None and is_ai_speaking:
+                        if speech_started_at is not None:
                             elapsed_ms = (asyncio.get_event_loop().time() - speech_started_at) * 1000
                             speech_ms  = elapsed_ms - _SILENCE_MS
-                            if speech_ms >= _MIN_SPEECH_MS:
+                            if is_ai_speaking and speech_ms >= _MIN_SPEECH_MS:
                                 if _ws_open and stream_sid:
                                     await twilio_ws.send_json({"event": "clear", "streamSid": stream_sid})
                                 await openai_ws.send(json.dumps({"type": "response.cancel"}))
@@ -803,7 +803,12 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                         if func_name == "end_call":
                             print(f"👋 end_call triggered for '{client_config.get('client_name')}' — disconnecting")
                             CALL_CONTEXT.pop(call_sid, None)
-                            await asyncio.sleep(2)
+                            # Wait for goodbye audio to finish before closing
+                            for _ in range(40):
+                                if not is_ai_speaking:
+                                    break
+                                await asyncio.sleep(0.1)
+                            await asyncio.sleep(0.5)  # tail buffer for last audio packet
                             _ws_open = False
                             try:
                                 await twilio_ws.close()
