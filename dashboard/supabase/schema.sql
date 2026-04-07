@@ -136,6 +136,9 @@ alter table public.clients disable row level security;
 -- =============================================
 -- Migration: add client_id + channel to agents_config
 -- =============================================
+-- No ON DELETE clause on client_id intentionally: deleting a client while
+-- agents still reference it is blocked by PostgreSQL (NO ACTION default).
+-- Remove or reassign agents_config rows before deleting a clients row.
 alter table public.agents_config
   add column if not exists client_id uuid references public.clients(id),
   add column if not exists channel   text default 'voice'
@@ -170,6 +173,9 @@ alter table public.client_assets disable row level security;
 -- =============================================
 -- Bootstrap: run once after clients table created
 -- Creates one clients row per existing agent and back-fills client_id.
+-- WARNING: creates one client per agent row. If multiple agents belong to
+-- the same business, merge the resulting clients rows manually and update
+-- agents_config.client_id accordingly before going live.
 -- Run manually in Supabase SQL editor:
 --
 -- do $$
