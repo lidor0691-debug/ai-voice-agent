@@ -326,15 +326,12 @@ if _studio_phone:
 else:
     print("❌ CLIENTS_CONFIG: Studio phone missing — STUDIO_PHONE_NUMBER is not set!")
 
-_DEFAULT_CLIENT: dict = CLIENTS_CONFIG.get(_roi_phone, next(iter(CLIENTS_CONFIG.values()), {}))
-
 print("=" * 60)
 print("🔧 STARTUP — ROUTING CONFIG")
 print(f"   TWILIO_PHONE_NUMBER  raw='{_roi_phone_raw}'  normalized='{_roi_phone}'  {'✅' if _roi_phone else '❌ MISSING'}")
 print(f"   STUDIO_PHONE_NUMBER  raw='{_studio_phone_raw}'  normalized='{_studio_phone}'  {'✅' if _studio_phone else '❌ MISSING'}")
 print(f"   Numbers equal? {_roi_phone == _studio_phone and bool(_roi_phone)}")
 print(f"   CLIENTS_CONFIG keys ({len(CLIENTS_CONFIG)}): {list(CLIENTS_CONFIG.keys())}")
-print(f"   Default fallback: '{_DEFAULT_CLIENT.get('client_name', 'none')}'")
 print("=" * 60)
 
 
@@ -598,8 +595,9 @@ async def websocket_endpoint(twilio_ws: WebSocket):
         client_config = _exact
         print(f"[ROUTING] selected client_name     = '{client_config.get('client_name')}' (EXACT MATCH)")
     else:
-        client_config = _DEFAULT_CLIENT
-        print(f"[ROUTING] selected client_name     = '{client_config.get('client_name', 'none')}' (FALLBACK)")
+        print(f"[ROUTING] ❌ No client config for to_number='{to_number}' — closing call")
+        await twilio_ws.close()
+        return
 
     # ── Fail-fast assertions ──────────────────────────────────────────────
     if to_number and to_number == _studio_phone:
@@ -770,10 +768,13 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                         print(f"🛠️ Function call: {func_name} | client: {client_config.get('client_name')} | args: {args}")
 
                         if func_name == "process_agency_lead":
-                            builder      = _PAYLOAD_BUILDERS.get(client_config.get("client_name"), _build_roi_payload)
-                            lead_payload = builder(args, caller_phone, client_config)
-                            await send_lead_to_webhook(webhook_url, lead_payload)
-                            lead_sent = True
+                            builder = _PAYLOAD_BUILDERS.get(client_config.get("client_name"))
+                            if builder is None:
+                                print(f"[ERROR] No payload builder for '{client_config.get('client_name')}' — skipping lead")
+                            else:
+                                lead_payload = builder(args, caller_phone, client_config)
+                                await send_lead_to_webhook(webhook_url, lead_payload)
+                                lead_sent = True
 
                         if func_name == "end_call":
                             print(f"👋 end_call triggered for '{client_config.get('client_name')}' — disconnecting")
@@ -819,9 +820,12 @@ async def websocket_endpoint(twilio_ws: WebSocket):
         # ── Safety net: force-send lead if process_agency_lead never fired ───
         if not lead_sent and webhook_url:
             print(f"[SAFETY] ⚠️ process_agency_lead was never triggered — force-sending fallback lead")
-            builder          = _PAYLOAD_BUILDERS.get(client_config.get("client_name"), _build_roi_payload)
-            fallback_payload = builder({}, caller_phone, client_config)
-            await send_lead_to_webhook(webhook_url, fallback_payload)
+            builder = _PAYLOAD_BUILDERS.get(client_config.get("client_name"))
+            if builder is None:
+                print(f"[SAFETY] ❌ No payload builder for '{client_config.get('client_name')}' — skipping fallback lead")
+            else:
+                fallback_payload = builder({}, caller_phone, client_config)
+                await send_lead_to_webhook(webhook_url, fallback_payload)
         elif not lead_sent:
             print("[SAFETY] ⚠️ process_agency_lead never fired and webhook_url is empty — nothing sent")
 
