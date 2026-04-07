@@ -166,3 +166,29 @@ create index if not exists client_assets_lookup_idx
   on public.client_assets(client_id, trigger_key, enabled);
 
 alter table public.client_assets disable row level security;
+
+-- =============================================
+-- Bootstrap: run once after clients table created
+-- Creates one clients row per existing agent and back-fills client_id.
+-- Run manually in Supabase SQL editor:
+--
+-- do $$
+-- declare
+--   agent_row record;
+--   new_client_id uuid;
+-- begin
+--   for agent_row in
+--     select id, coalesce(business_name, agent_name, 'Unknown') as client_name
+--     from public.agents_config
+--     where client_id is null
+--   loop
+--     insert into public.clients (name)
+--     values (agent_row.client_name)
+--     returning id into new_client_id;
+--
+--     update public.agents_config
+--     set client_id = new_client_id
+--     where id = agent_row.id;
+--   end loop;
+-- end $$;
+-- =============================================
