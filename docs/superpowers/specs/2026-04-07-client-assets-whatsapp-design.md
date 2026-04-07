@@ -97,6 +97,7 @@ CREATE TABLE client_assets (
     CHECK (asset_type IN ('text', 'link', 'pdf', 'image', 'video')),
   trigger_key TEXT NOT NULL,
   content     TEXT NOT NULL,   -- message template OR URL
+  sort_order  INT NOT NULL DEFAULT 0,
   enabled     BOOLEAN NOT NULL DEFAULT true,
   created_at  TIMESTAMPTZ DEFAULT now()
 );
@@ -110,7 +111,8 @@ CREATE INDEX idx_client_assets_lookup      ON client_assets(client_id, trigger_k
 - lowercase only
 - underscore-separated words
 - examples: `trial_booked`, `payment_request`, `general_followup`, `lead_qualified`
-- a `sort_order` column can be added later if per-asset ordering is needed beyond `created_at`
+
+**Asset ordering:** sorted by `sort_order ASC`, then `created_at ASC` as a tiebreaker. Default `sort_order = 0` means all assets are equal-priority unless explicitly set.
 
 ---
 
@@ -127,7 +129,7 @@ async def get_assets_by_trigger(client_id: str, trigger_key: str) -> list[dict]:
 ```
 
 - Uses `httpx` + Supabase REST (same pattern as `agent_config.py`)
-- Filters: `client_id=eq.{client_id}&trigger_key=eq.{trigger_key}&enabled=eq.true&order=created_at.asc`
+- Filters: `client_id=eq.{client_id}&trigger_key=eq.{trigger_key}&enabled=eq.true&order=sort_order.asc,created_at.asc`
 - Logs:
   ```
   [ASSETS] Trigger 'trial_booked' → 3 assets found for client {client_id}
@@ -149,6 +151,7 @@ POST /assets/trigger
   "client_id": "uuid",            // required
   "trigger_key": "trial_booked",  // required, lowercase_underscore
   "trigger_source": "voice",      // optional: "voice" | "make" | "external"
+  "event_id": "uuid-or-string",   // optional: caller-supplied idempotency key
   "context": {                    // optional, free-form
     "phone": "+972543033010",
     "name": "David"
@@ -178,13 +181,15 @@ POST /assets/trigger
       "content": "https://pay.example.com/trial/abc"
     }
   ],
+  "event_id": "uuid-or-string",
   "context": { "phone": "+972543033010", "name": "David" }
 }
 ```
 
 - `count: 0` + `assets: []` is a valid result — not an error
 - `context` is passed through unchanged — Make.com performs `{{name}}` substitution, not the backend
-- Assets returned in `created_at ASC` order (deterministic, matches UI order)
+- Assets returned in `sort_order ASC, created_at ASC` order (deterministic, matches UI order)
+- `event_id` is echoed back in the response and logged; no deduplication storage in this version (reserved for future idempotency enforcement)
 
 **Registered in `main.py`:**
 ```python
@@ -235,7 +240,11 @@ Both paths hit the same endpoint. Same schema regardless of source.
                                                 media_url = asset.content
 ```
 
-**Ordering:** Make must preserve the array order returned by the backend (`created_at ASC`). Do not sort or re-order inside the scenario.
+**Ordering:** Make must preserve the array order returned by the backend (`sort_order ASC, created_at ASC`). Do not sort or re-order inside the scenario.
+
+**Delivery pacing:** Introduce a 0.5–1.5s delay between sending consecutive assets (use Make's Sleep/Wait module between iterator steps). This avoids robotic burst sending and reduces the chance of messages arriving out of order on the recipient's device.
+
+**Empty trigger behavior:** A `count: 0` response is explicitly valid — it means no assets are configured for that trigger. Make should treat this as a no-op and not error. Triggers are not required to always have assets; sparse coverage is fine. No fallback/default asset is sent when the result is empty.
 
 **Error handling:** HTTP module on `/assets/trigger` should be set to "ignore errors" or "resume" — a 5xx from the backend should not kill the scenario, but should log.
 
@@ -324,11 +333,14 @@ channel: 'voice' | 'whatsapp' | null;
 Backend logs for every trigger resolution:
 
 ```
-[ASSETS] Trigger 'trial_booked' → 2 assets found for client {client_id}
-[ASSETS] Trigger 'payment_request' → 0 assets (no match)
+[ASSETS] Trigger 'trial_booked' → 2 assets found for client {client_id} (event_id={event_id})
+[ASSETS] Trigger 'payment_request' → 0 assets (no match) for client {client_id}
 [ASSETS] Supabase not configured — skipping asset lookup
 [ASSETS] Error fetching assets for client {client_id}: {error}
 ```
+
+**Future observability (not in this version):**  
+A future `asset_trigger_log` table can record each trigger execution: `client_id`, `trigger_key`, `event_id`, `assets_sent` (count), `triggered_at`, `trigger_source`. This would allow the dashboard to show a history of what was sent and when, and enable deduplication via `event_id`. For now, structured `print`/logging output is sufficient.
 
 ---
 
@@ -348,4 +360,5 @@ Backend logs for every trigger resolution:
 - `{{name}}` template substitution in the backend
 - Message queuing or retry infrastructure
 - Multi-client merge UI (assets are 1:1 with agents at launch, mergeable later)
-- `sort_order` column (use `created_at ASC` for now)
+- Idempotency enforcement via `event_id` (field is in schema and echoed, but no deduplication storage yet)
+- `asset_trigger_log` observability table (future — see Section 7)
