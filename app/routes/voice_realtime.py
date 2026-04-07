@@ -529,6 +529,7 @@ async def voice_entry(request: Request):
 @router.websocket("/stream")
 async def websocket_endpoint(twilio_ws: WebSocket):
     await twilio_ws.accept()
+    _ws_open = True   # guarded flag — prevents send/close after disconnect
 
     # ── Phase 1: resolve call_sid ─────────────────────────────────────────
     # Try query param first; if missing, read Twilio messages until the
@@ -626,12 +627,18 @@ async def websocket_endpoint(twilio_ws: WebSocket):
 
     if not client_config:
         print("[WS ERROR] No client config and no default — closing.")
-        await twilio_ws.close()
+        try:
+            await twilio_ws.close()
+        except Exception as e:
+            print(f"[WS] close error: {e}")
         return
 
     if not OPENAI_API_KEY:
         print("[WS ERROR] Missing OpenAI API Key")
-        await twilio_ws.close()
+        try:
+            await twilio_ws.close()
+        except Exception as e:
+            print(f"[WS] close error: {e}")
         return
 
     system_prompt = build_system_prompt(client_config, caller_phone)
@@ -727,7 +734,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                 print(f"⚠️ Twilio Receiver Error: {e}")
 
         async def receive_from_openai():
-            nonlocal is_ai_speaking, speech_started_at, lead_sent
+            nonlocal is_ai_speaking, speech_started_at, lead_sent, _ws_open
             try:
                 async for message in openai_ws:
                     event      = json.loads(message)
@@ -736,7 +743,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                     # ── Stream AI audio to Twilio ──────────────────────────
                     if event_type == "response.audio.delta":
                         is_ai_speaking = True
-                        if stream_sid:
+                        if _ws_open and stream_sid:
                             await twilio_ws.send_json({
                                 "event":     "media",
                                 "streamSid": stream_sid,
@@ -766,7 +773,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                             elapsed_ms = (asyncio.get_event_loop().time() - speech_started_at) * 1000
                             speech_ms  = elapsed_ms - _SILENCE_MS
                             if speech_ms >= _MIN_SPEECH_MS:
-                                if stream_sid:
+                                if _ws_open and stream_sid:
                                     await twilio_ws.send_json({"event": "clear", "streamSid": stream_sid})
                                 await openai_ws.send(json.dumps({"type": "response.cancel"}))
                         speech_started_at = None
@@ -791,7 +798,11 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                             print(f"👋 end_call triggered for '{client_config.get('client_name')}' — disconnecting")
                             CALL_CONTEXT.pop(call_sid, None)
                             await asyncio.sleep(2)
-                            await twilio_ws.close()
+                            _ws_open = False
+                            try:
+                                await twilio_ws.close()
+                            except Exception as e:
+                                print(f"[WS] end_call close error: {e}")
                             break
 
             except Exception as e:
