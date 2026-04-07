@@ -503,9 +503,19 @@ async def voice_entry(request: Request):
     print(f"[VOICE] CALL_CONTEXT keys after store: {list(CALL_CONTEXT.keys())}")
     print(f"[VOICE] stored context   = {CALL_CONTEXT[call_sid]}")
 
-    # Guard: if no client config exists for this number, return error TwiML now.
-    # This prevents the WebSocket from ever being opened for an unknown number.
-    if not CLIENTS_CONFIG.get(norm_to):
+    # Guard: reject unknown numbers. Check CLIENTS_CONFIG first (fast), then Supabase.
+    # This prevents the WebSocket from opening for truly unknown numbers.
+    _known_in_hardcoded = bool(CLIENTS_CONFIG.get(norm_to))
+    _known_in_supabase  = False
+    if not _known_in_hardcoded:
+        print(f"[VOICE] '{norm_to}' not in CLIENTS_CONFIG — checking Supabase")
+        try:
+            _sb = await fetch_supabase_agent_config(norm_to)
+            _known_in_supabase = bool(_sb and not _sb.get("fallback_used"))
+            print(f"[VOICE] Supabase pre-check: known={_known_in_supabase}, client='{_sb.get('client_name')}'")
+        except Exception as _e:
+            print(f"[VOICE] Supabase pre-check error: {_e}")
+    if not _known_in_hardcoded and not _known_in_supabase:
         print(f"[VOICE] ❌ No client config for norm_to='{norm_to}' — returning error TwiML")
         err_response = VoiceResponse()
         err_response.say("מצטערים, אירעה שגיאה. נסו שוב מאוחר יותר.", language="he-IL")
