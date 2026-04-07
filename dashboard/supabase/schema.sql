@@ -140,3 +140,29 @@ alter table public.agents_config
   add column if not exists client_id uuid references public.clients(id),
   add column if not exists channel   text default 'voice'
                                      check (channel in ('voice', 'whatsapp'));
+
+-- =============================================
+-- Migration: client_assets table
+-- =============================================
+create table if not exists public.client_assets (
+  id          uuid primary key default gen_random_uuid(),
+  client_id   uuid not null references public.clients(id) on delete cascade,
+  asset_name  text not null,
+  asset_type  text not null check (asset_type in ('text', 'link', 'pdf', 'image', 'video')),
+  trigger_key text not null,
+  content     text not null,
+  sort_order  int  not null default 0,
+  enabled     boolean not null default true,
+  created_at  timestamptz not null default now()
+);
+
+create index if not exists client_assets_client_id_idx
+  on public.client_assets(client_id);
+
+create index if not exists client_assets_trigger_key_idx
+  on public.client_assets(trigger_key);
+
+create index if not exists client_assets_lookup_idx
+  on public.client_assets(client_id, trigger_key, enabled);
+
+alter table public.client_assets disable row level security;
