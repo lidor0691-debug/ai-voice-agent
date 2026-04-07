@@ -100,6 +100,7 @@ def test_trigger_route_returns_200_with_empty_assets():
     assert body["assets"] == []
     assert body["client_id"] == "client-abc"
     assert body["trigger_key"] == "trial_booked"
+    assert body["context"] == {}
 
 
 def test_trigger_route_returns_assets_and_echoes_context():
