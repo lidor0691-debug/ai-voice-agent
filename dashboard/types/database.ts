@@ -68,6 +68,11 @@ export interface AgentConfig {
   client_id: string | null;
   channel: 'voice' | 'whatsapp' | null;
 
+  // WhatsApp behavior control (Make.com consumes these to build OpenAI prompt)
+  whatsapp_goal: string | null;
+  whatsapp_required_fields: Json | null;   // always array when set, e.g. ["name","phone"]
+  whatsapp_rules: Json | null;             // always array when set, e.g. [{"rule":"..."}]
+
   // Scheduling
   schedule: Json | null;
 

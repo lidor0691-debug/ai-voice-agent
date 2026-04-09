@@ -1,118 +1,159 @@
 export const dynamic = "force-dynamic";
 
-import { Users, CalendarCheck, Bike, Sparkles } from "lucide-react";
-import { Header } from "@/components/layout/header";
-import { StatCard } from "@/components/dashboard/stat-card";
-import { LeadsTable } from "@/components/dashboard/leads-table";
-import { ActivityChart } from "@/components/dashboard/activity-chart";
-import { fetchLeadsFromSheets, fetchLeads } from "@/lib/api";
-import { MOCK_LEADS } from "@/lib/mock-data";
-import { computeStats } from "@/lib/utils";
+import Link from "next/link";
+import { Bot, Phone, BookOpen, Circle, ArrowRight } from "lucide-react";
+import { supabase } from "@/lib/supabase";
+import { AgentConfig, CallLog, KnowledgeItem } from "@/types/database";
+import { TestAgent } from "@/components/dashboard/test-agent";
 
 export default async function DashboardPage() {
-  // Priority: Google Sheets → FastAPI backend → mock data
-  let leads = MOCK_LEADS;
-  try {
-    leads = await fetchLeadsFromSheets();
-  } catch {
-    try {
-      leads = await fetchLeads();
-    } catch {
-      // all sources unavailable — use mock data
-    }
-  }
+  const [agentRes, callRes, knowledgeRes] = await Promise.all([
+    supabase
+      .from("agents_config")
+      .select("id, agent_name, is_active, system_prompt, first_message, phone_number")
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("call_logs")
+      .select("id, status, created_at")
+      .order("created_at", { ascending: false })
+      .limit(10),
+    supabase
+      .from("knowledge_items")
+      .select("id, is_active"),
+  ]);
 
-  const stats = computeStats(leads);
-  const testRidePct = stats.total ? Math.round((stats.testRides / stats.total) * 100) : 0;
-  const appointmentPct = stats.total ? Math.round((stats.appointments / stats.total) * 100) : 0;
+  const agents = agentRes.data as Pick<AgentConfig, "id" | "agent_name" | "is_active" | "system_prompt" | "first_message" | "phone_number">[] | null;
+  const calls  = callRes.data as Pick<CallLog, "id" | "status" | "created_at">[] | null;
+  const knowledge = knowledgeRes.data as Pick<KnowledgeItem, "id" | "is_active">[] | null;
+
+  const totalAgents   = agents?.length ?? 0;
+  const activeAgents  = agents?.filter((a) => a.is_active).length ?? 0;
+  const totalCalls    = calls?.length ?? 0;
+  const knowledgeCount = knowledge?.length ?? 0;
+
+  const recentCalls = calls?.slice(0, 5) ?? [];
 
   return (
-    <>
-      <Header title="לוח בקרה" subtitle="Maya AI — Honda Voice Assistant" />
-      <main className="flex-1 overflow-y-auto p-8 space-y-6" dir="rtl">
-        {/* KPI Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-          <StatCard
-            title="סך הכל פניות"
-            value={stats.total}
-            subtitle={`${stats.thisWeek} השבוע`}
-            trend={18}
-            icon={Users}
-            iconColor="text-brand-600"
-            iconBg="bg-brand-50"
-          />
-          <StatCard
-            title="נסיעות מבחן"
-            value={stats.testRides}
-            subtitle={`${testRidePct}% מהפניות`}
-            trend={12}
-            icon={Bike}
-            iconColor="text-green-600"
-            iconBg="bg-green-50"
-          />
-          <StatCard
-            title="תורים נקבעו"
-            value={stats.appointments}
-            subtitle={`${appointmentPct}% המרה`}
-            trend={8}
-            icon={CalendarCheck}
-            iconColor="text-blue-600"
-            iconBg="bg-blue-50"
-          />
-          <StatCard
-            title="לידים חדשים"
-            value={stats.newLeads}
-            subtitle="ממתינים לטיפול"
-            trend={-5}
-            icon={Sparkles}
-            iconColor="text-amber-600"
-            iconBg="bg-amber-50"
-          />
+    <div className="flex-1 overflow-y-auto">
+      <div className="px-8 py-5 border-b border-border">
+        <h1 className="text-white font-semibold text-lg">Dashboard</h1>
+        <p className="text-gray-500 text-sm mt-0.5">Maya AI Agent Platform</p>
+      </div>
+
+      <div className="p-8 space-y-6">
+        {/* KPI cards */}
+        <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+          {[
+            { label: "Total Agents",     value: totalAgents,    icon: Bot,      color: "text-brand-400",   bg: "bg-brand-600/10",   href: "/dashboard/agents" },
+            { label: "Active Agents",    value: activeAgents,   icon: Circle,   color: "text-emerald-400", bg: "bg-emerald-500/10", href: "/dashboard/agents" },
+            { label: "Recent Calls",     value: totalCalls,     icon: Phone,    color: "text-blue-400",    bg: "bg-blue-500/10",    href: "/dashboard/calls" },
+            { label: "Knowledge Items",  value: knowledgeCount, icon: BookOpen, color: "text-amber-400",   bg: "bg-amber-500/10",   href: "/dashboard/knowledge" },
+          ].map(({ label, value, icon: Icon, color, bg, href }) => (
+            <Link
+              key={label}
+              href={href}
+              className="group bg-surface-2 border border-border rounded-xl p-5 hover:border-brand-600/30 transition-all"
+            >
+              <div className={`w-9 h-9 rounded-xl ${bg} flex items-center justify-center mb-4`}>
+                <Icon className={`w-4 h-4 ${color}`} />
+              </div>
+              <p className="text-2xl font-bold text-white">{value}</p>
+              <p className="text-gray-500 text-xs mt-1">{label}</p>
+            </Link>
+          ))}
         </div>
 
-        {/* Chart + System Status */}
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-          <div className="xl:col-span-1">
-            <ActivityChart leads={leads} />
+        {/* Main grid */}
+        <div className="grid grid-cols-1 xl:grid-cols-5 gap-6">
+          {/* Test Agent */}
+          <div className="xl:col-span-3">
+            <TestAgent
+              agents={
+                agents?.map((a) => ({
+                  id: a.id,
+                  agent_name: a.agent_name,
+                  system_prompt: a.system_prompt,
+                  first_message: a.first_message,
+                })) ?? []
+              }
+            />
           </div>
 
-          <div className="xl:col-span-2">
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm h-full p-6 flex flex-col justify-between">
-              <div>
-                <h2 className="text-slate-800 font-semibold text-sm mb-4">
-                  סטטוס מערכת
-                </h2>
-                <div className="space-y-0">
-                  {[
-                    { label: "שרת FastAPI", status: "פעיל" },
-                    { label: "Twilio Voice Webhook", status: "מחובר" },
-                    { label: "Google Sheets", status: "מחובר" },
-                    { label: "SMS Notifications", status: "פעיל" },
-                    { label: "Hebrew TTS — Polly.Ayelet", status: "פעיל" },
-                  ].map(({ label, status }) => (
-                    <div
-                      key={label}
-                      className="flex items-center justify-between py-2.5 border-b border-slate-50 last:border-0"
+          {/* Side panels */}
+          <div className="xl:col-span-2 space-y-4">
+            {/* Agents quick list */}
+            <div className="bg-surface-2 border border-border rounded-xl p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-white text-sm font-medium">Your Agents</h2>
+                <Link href="/dashboard/agents" className="text-gray-500 hover:text-brand-400 text-xs flex items-center gap-1 transition-colors">
+                  View all <ArrowRight className="w-3 h-3" />
+                </Link>
+              </div>
+              {!agents?.length ? (
+                <p className="text-gray-600 text-xs text-center py-4">No agents yet</p>
+              ) : (
+                <div className="space-y-1">
+                  {agents.slice(0, 4).map((agent) => (
+                    <Link
+                      key={agent.id}
+                      href={`/dashboard/agents/${agent.id}`}
+                      className="flex items-center justify-between py-2 px-2 rounded-lg hover:bg-surface-3 transition-colors group"
                     >
-                      <span className="text-slate-600 text-sm">{label}</span>
-                      <div className="flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-                        <span className="text-sm text-slate-500">{status}</span>
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-6 h-6 rounded-lg bg-brand-600/15 flex items-center justify-center">
+                          <span className="text-brand-400 text-[10px] font-bold">
+                            {agent.agent_name.charAt(0).toUpperCase()}
+                          </span>
+                        </div>
+                        <span className="text-gray-300 text-sm group-hover:text-white transition-colors">
+                          {agent.agent_name}
+                        </span>
                       </div>
+                      <span className={`w-1.5 h-1.5 rounded-full ${agent.is_active ? "bg-emerald-400" : "bg-gray-600"}`} />
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Recent calls */}
+            <div className="bg-surface-2 border border-border rounded-xl p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-white text-sm font-medium">Recent Calls</h2>
+                <Link href="/dashboard/calls" className="text-gray-500 hover:text-brand-400 text-xs flex items-center gap-1 transition-colors">
+                  View all <ArrowRight className="w-3 h-3" />
+                </Link>
+              </div>
+              {recentCalls.length === 0 ? (
+                <p className="text-gray-600 text-xs text-center py-4">No calls yet</p>
+              ) : (
+                <div className="space-y-1">
+                  {recentCalls.map((call) => (
+                    <div key={call.id} className="flex items-center justify-between py-1.5 px-2 rounded-lg">
+                      <div className="flex items-center gap-2">
+                        <Phone className="w-3 h-3 text-gray-600" />
+                        <span className="text-gray-400 text-xs">
+                          {new Date(call.created_at).toLocaleString("en-US", {
+                            month: "short", day: "numeric",
+                            hour: "2-digit", minute: "2-digit",
+                          })}
+                        </span>
+                      </div>
+                      <span className={`text-xs font-medium ${
+                        call.status === "completed" ? "text-emerald-400" :
+                        call.status === "missed"    ? "text-amber-400"   :
+                        "text-red-400"
+                      }`}>
+                        {call.status ?? "—"}
+                      </span>
                     </div>
                   ))}
                 </div>
-              </div>
-              <p className="text-slate-400 text-xs mt-4">
-                עדכון אחרון: {new Date().toLocaleTimeString("he-IL")}
-              </p>
+              )}
             </div>
           </div>
         </div>
-
-        {/* Recent leads — clickable rows open detail panel */}
-        <LeadsTable leads={leads} limit={5} showViewAll />
-      </main>
-    </>
+      </div>
+    </div>
   );
 }

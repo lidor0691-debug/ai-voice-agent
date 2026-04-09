@@ -156,6 +156,18 @@ export function AgentForm({ initial, agentId }: Props) {
     initial?.schedule != null ? JSON.stringify(initial.schedule, null, 2) : ""
   );
 
+  const [requiredFieldsText, setRequiredFieldsText] = useState<string>(
+    initial?.whatsapp_required_fields != null
+      ? JSON.stringify(initial.whatsapp_required_fields, null, 2)
+      : ""
+  );
+
+  const [rulesText, setRulesText] = useState<string>(
+    initial?.whatsapp_rules != null
+      ? JSON.stringify(initial.whatsapp_rules, null, 2)
+      : ""
+  );
+
   const [form, setForm] = useState<Partial<FormData>>({
     business_name: "",
     agent_name: "",
@@ -181,6 +193,9 @@ export function AgentForm({ initial, agentId }: Props) {
     whatsapp_followup_enabled: false,
     whatsapp_followup_type: "none",
     whatsapp_followup_template: "",
+    whatsapp_goal: null,
+    whatsapp_required_fields: null,
+    whatsapp_rules: null,
     ...initial,
   });
 
@@ -694,6 +709,68 @@ export function AgentForm({ initial, agentId }: Props) {
                       set("schedule", JSON.parse(e.target.value));
                     } catch {
                       set("schedule", null);
+                    }
+                  }}
+                />
+              </Field>
+            </div>
+
+            {/* WhatsApp behavior control */}
+            <div className="bg-surface-2 border border-border rounded-xl p-6 space-y-4">
+              <div>
+                <h2 className="text-white font-semibold text-base">התנהגות בוואטסאפ</h2>
+                <p className="text-gray-500 text-sm mt-1">
+                  מה מאיה אמורה להשיג בשיחת וואטסאפ — Make.com ישתמש במידע הזה לבניית הפרומפט
+                </p>
+              </div>
+
+              <Field
+                label="מטרת השיחה"
+                hint="תאר במשפט אחד מה מאיה צריכה להשיג בשיחת הוואטסאפ"
+              >
+                <Textarea
+                  rows={3}
+                  placeholder="לאסוף את פרטי הלקוח ולקבוע פגישה ייעוץ ראשונית"
+                  value={form.whatsapp_goal ?? ""}
+                  onChange={(e) => set("whatsapp_goal", e.target.value || null)}
+                />
+              </Field>
+
+              <Field
+                label="שדות חובה לאיסוף"
+                hint='מערך JSON — לדוגמה: ["שם מלא","מספר טלפון","תחום עניין"]'
+              >
+                <Textarea
+                  rows={4}
+                  placeholder='["שם מלא", "מספר טלפון", "תחום עניין"]'
+                  value={requiredFieldsText}
+                  onChange={(e) => {
+                    setRequiredFieldsText(e.target.value);
+                    try {
+                      const parsed = JSON.parse(e.target.value);
+                      set("whatsapp_required_fields", Array.isArray(parsed) ? parsed : null);
+                    } catch {
+                      set("whatsapp_required_fields", null);
+                    }
+                  }}
+                />
+              </Field>
+
+              <Field
+                label="חוקים להתנהגות"
+                hint='מערך JSON של חוקים — לדוגמה: [{"rule":"שאל רק שאלה אחת בכל פעם"}]'
+              >
+                <Textarea
+                  rows={4}
+                  placeholder='[{"rule": "שאל רק שאלה אחת בכל פעם"}, {"rule": "אל תבטיח מחירים"}]'
+                  value={rulesText}
+                  onChange={(e) => {
+                    setRulesText(e.target.value);
+                    try {
+                      const parsed = JSON.parse(e.target.value);
+                      set("whatsapp_rules", Array.isArray(parsed) ? parsed : null);
+                    } catch {
+                      set("whatsapp_rules", null);
                     }
                   }}
                 />

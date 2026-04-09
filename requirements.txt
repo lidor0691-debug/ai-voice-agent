@@ -7,4 +7,3 @@ python-dotenv==1.0.1
 python-multipart==0.0.12
 gspread==6.1.2
 google-auth==2.29.0
-elevenlabs==1.13.0

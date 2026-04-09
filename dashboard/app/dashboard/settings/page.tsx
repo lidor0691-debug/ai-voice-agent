@@ -1,110 +1,122 @@
-import { Header } from "@/components/layout/header";
-import { Card, CardHeader, CardContent } from "@/components/ui/card";
+"use client";
 
-function SettingRow({
-  label,
-  description,
-  value,
-}: {
-  label: string;
-  description: string;
-  value: string;
-}) {
+import { useState } from "react";
+import { Check, ExternalLink } from "lucide-react";
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-start justify-between py-4 border-b border-slate-50 last:border-0">
-      <div>
-        <p className="text-slate-800 text-sm font-medium">{label}</p>
-        <p className="text-slate-400 text-xs mt-0.5">{description}</p>
-      </div>
-      <div className="ml-8 flex-shrink-0">
-        <span className="text-slate-600 text-sm font-mono bg-slate-50 border border-slate-200 rounded px-2 py-1">
-          {value}
-        </span>
-      </div>
+    <div className="bg-surface-2 border border-border rounded-xl p-6">
+      <h2 className="text-white font-medium text-sm mb-5">{title}</h2>
+      {children}
+    </div>
+  );
+}
+
+function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-1.5">
+      <label className="block text-sm text-gray-300">{label}</label>
+      {children}
+      {hint && <p className="text-xs text-gray-600">{hint}</p>}
     </div>
   );
 }
 
 export default function SettingsPage() {
+  const [saved, setSaved] = useState(false);
+
+  const handleSave = () => {
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
   return (
-    <>
-      <Header title="הגדרות" subtitle="תצורת מערכת ואינטגרציות" />
-      <main className="flex-1 overflow-y-auto p-8 space-y-6 max-w-3xl">
-        <Card>
-          <CardHeader>
-            <h2 className="text-slate-800 font-semibold text-sm">
-              Twilio — Voice & SMS
-            </h2>
-          </CardHeader>
-          <CardContent className="divide-y divide-slate-50 py-0">
-            <SettingRow
-              label="Account SID"
-              description="מזהה חשבון Twilio שלך"
-              value="AC••••••••••••••••"
-            />
-            <SettingRow
-              label="Phone Number"
-              description="מספר הטלפון של Maya AI"
-              value="+1 (XXX) XXX-XXXX"
-            />
-            <SettingRow
-              label="Voice Webhook"
-              description="URL לשיחות נכנסות"
-              value="/voice/incoming"
-            />
-          </CardContent>
-        </Card>
+    <div className="flex-1 overflow-y-auto">
+      <div className="sticky top-0 z-10 bg-surface-0/80 backdrop-blur border-b border-border px-8 py-4 flex items-center justify-between">
+        <div>
+          <h1 className="text-white font-semibold text-lg">Settings</h1>
+          <p className="text-gray-500 text-sm mt-0.5">Platform configuration</p>
+        </div>
+        <button
+          onClick={handleSave}
+          className="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+        >
+          {saved ? <Check className="w-4 h-4" /> : null}
+          {saved ? "Saved!" : "Save Changes"}
+        </button>
+      </div>
 
-        <Card>
-          <CardHeader>
-            <h2 className="text-slate-800 font-semibold text-sm">
-              Make.com — Webhook
-            </h2>
-          </CardHeader>
-          <CardContent className="divide-y divide-slate-50 py-0">
-            <SettingRow
-              label="Webhook URL"
-              description="נשלחות כאן נתוני הלידים"
-              value="https://hook.eu1.make.com/••••"
-            />
-            <SettingRow
-              label="Payload Format"
-              description="פורמט הנתונים שנשלחים"
-              value="JSON"
-            />
-          </CardContent>
-        </Card>
+      <div className="p-8 max-w-2xl space-y-6">
+        <Section title="Platform">
+          <div className="space-y-4">
+            <Field label="Workspace Name">
+              <input
+                defaultValue="My Workspace"
+                className="w-full bg-surface-3 border border-border rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-brand-600 transition-colors"
+              />
+            </Field>
+            <Field label="Default Language">
+              <select className="w-full bg-surface-3 border border-border rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-brand-600 transition-colors">
+                <option value="en" className="bg-surface-3">English</option>
+                <option value="he" className="bg-surface-3">Hebrew</option>
+                <option value="es" className="bg-surface-3">Spanish</option>
+              </select>
+            </Field>
+          </div>
+        </Section>
 
-        <Card>
-          <CardHeader>
-            <h2 className="text-slate-800 font-semibold text-sm">
-              קול ושפה — Hebrew TTS
-            </h2>
-          </CardHeader>
-          <CardContent className="divide-y divide-slate-50 py-0">
-            <SettingRow
-              label="Voice Engine"
-              description="מנוע ה-TTS של Maya AI"
-              value="Amazon Polly"
-            />
-            <SettingRow
-              label="Voice Name"
-              description="קול עברי נשי"
-              value="Polly.Ayelet"
-            />
-            <SettingRow
-              label="STT Language"
-              description="שפת זיהוי דיבור"
-              value="he-IL"
-            />
-          </CardContent>
-        </Card>
+        <Section title="Integrations">
+          <div className="space-y-4">
+            <Field
+              label="Supabase URL"
+              hint="Set via NEXT_PUBLIC_SUPABASE_URL in .env.local"
+            >
+              <div className="w-full bg-surface-3/50 border border-border rounded-lg px-3 py-2 text-sm text-gray-500 font-mono truncate">
+                (configured via environment variable)
+              </div>
+            </Field>
 
-        <p className="text-slate-400 text-xs text-center">
-          לשינוי הגדרות, ערוך את קובץ{" "}
-          <code className="bg-slate-100 px-1 rounded">.env</code> בשרת FastAPI
-        </p>
-      </main>
-    </>
+            <Field
+              label="FastAPI Backend URL"
+              hint="Used for the Test Agent feature"
+            >
+              <input
+                defaultValue="http://localhost:8000"
+                className="w-full bg-surface-3 border border-border rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-brand-600 transition-colors"
+              />
+            </Field>
+          </div>
+        </Section>
+
+        <Section title="Database Schema">
+          <div className="space-y-3">
+            <p className="text-gray-500 text-sm">
+              Run the schema migration in your Supabase SQL editor to create the required tables.
+            </p>
+            <div className="bg-surface-3 rounded-lg p-3">
+              <p className="text-gray-400 text-xs font-mono">
+                Schema file: <span className="text-gray-200">dashboard/supabase/schema.sql</span>
+              </p>
+            </div>
+            <a
+              href="https://supabase.com/dashboard"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 text-brand-400 hover:text-brand-300 text-sm transition-colors"
+            >
+              Open Supabase Dashboard
+              <ExternalLink className="w-3.5 h-3.5" />
+            </a>
+          </div>
+        </Section>
+
+        <Section title="About">
+          <div className="space-y-2 text-sm text-gray-500">
+            <p>Maya AI Platform — v1.0.0</p>
+            <p>Next.js · TypeScript · Supabase · Tailwind CSS</p>
+          </div>
+        </Section>
+      </div>
+    </div>
   );
 }

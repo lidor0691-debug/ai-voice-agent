@@ -4,49 +4,40 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
-  Users,
-  BarChart3,
+  Bot,
+  Phone,
+  BookOpen,
   Settings,
-  PhoneCall,
-  HelpCircle,
+  Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
-  { href: "/dashboard", label: "לוח בקרה", icon: LayoutDashboard },
-  { href: "/dashboard/leads", label: "פניות", icon: Users },
-  { href: "/dashboard/analytics", label: "אנליטיקה", icon: BarChart3 },
-  { href: "/dashboard/settings", label: "הגדרות", icon: Settings },
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/dashboard/agents", label: "Agents", icon: Bot },
+  { href: "/dashboard/calls", label: "Call Logs", icon: Phone },
+  { href: "/dashboard/knowledge", label: "Knowledge", icon: BookOpen },
+  { href: "/dashboard/settings", label: "Settings", icon: Settings },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="w-60 min-h-screen bg-slate-900 flex flex-col flex-shrink-0" dir="ltr">
-      {/* Workspace label */}
-      <div className="px-5 pt-4 pb-0">
-        <span className="text-[10px] font-semibold uppercase tracking-widest text-brand-500 select-none">
-          Honda Demo Workspace
-        </span>
-      </div>
-
+    <aside className="w-56 min-h-screen bg-surface-1 border-r border-border flex flex-col flex-shrink-0">
       {/* Brand */}
-      <div className="h-14 flex items-center gap-3 px-5 mt-1 border-b border-slate-800">
-        <div className="w-8 h-8 rounded-lg bg-brand-500 flex items-center justify-center flex-shrink-0">
-          <PhoneCall className="w-4 h-4 text-white" />
+      <div className="h-14 flex items-center gap-3 px-4 border-b border-border">
+        <div className="w-7 h-7 rounded-lg bg-brand-600 flex items-center justify-center flex-shrink-0">
+          <Zap className="w-3.5 h-3.5 text-white" />
         </div>
         <div>
           <p className="text-white font-semibold text-sm leading-none">Maya AI</p>
-          <p className="text-slate-400 text-xs mt-0.5">Voice Assistant</p>
+          <p className="text-gray-500 text-[11px] mt-0.5">Agent Platform</p>
         </div>
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 px-3 py-4 space-y-0.5">
-        <p className="text-slate-500 text-xs font-medium uppercase tracking-wider px-3 mb-3">
-          ניווט
-        </p>
+      <nav className="flex-1 px-2 py-3 space-y-0.5">
         {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
           const active =
             href === "/dashboard"
@@ -58,10 +49,10 @@ export function Sidebar() {
               key={href}
               href={href}
               className={cn(
-                "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
+                "flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
                 active
-                  ? "bg-brand-600 text-white"
-                  : "text-slate-400 hover:text-white hover:bg-slate-800"
+                  ? "bg-brand-600/15 text-brand-400 border border-brand-600/20"
+                  : "text-gray-500 hover:text-gray-200 hover:bg-surface-3"
               )}
             >
               <Icon className="w-4 h-4 flex-shrink-0" />
@@ -72,21 +63,13 @@ export function Sidebar() {
       </nav>
 
       {/* Footer */}
-      <div className="px-3 py-4 border-t border-slate-800">
-        <Link
-          href="#"
-          className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-        >
-          <HelpCircle className="w-4 h-4" />
-          עזרה ותמיכה
-        </Link>
-        <div className="flex items-center gap-3 px-3 py-2.5 mt-1">
-          <div className="w-8 h-8 rounded-full bg-brand-500 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-            מ
+      <div className="px-3 py-3 border-t border-border">
+        <div className="flex items-center gap-2.5 px-2 py-1.5">
+          <div className="w-6 h-6 rounded-full bg-brand-600 flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0">
+            M
           </div>
           <div className="overflow-hidden">
-            <p className="text-slate-300 text-xs font-medium truncate">מנהל מערכת</p>
-            <p className="text-slate-500 text-xs truncate">admin@maya-ai.com</p>
+            <p className="text-gray-300 text-xs font-medium truncate">My Workspace</p>
           </div>
         </div>
       </div>

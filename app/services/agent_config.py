@@ -289,11 +289,18 @@ async def get_whatsapp_agent_config(raw_to: str) -> Optional[dict]:
         row.get("agent_name"), row.get("id"), raw_to,
     )
 
+    # Ensure jsonb array fields are lists or None — never raw strings
+    required_fields = row.get("whatsapp_required_fields")
+    rules           = row.get("whatsapp_rules")
+
     return {
-        "system_prompt": row.get("system_prompt") or None,
-        "tone":          row.get("tone") or None,
-        "schedule":      row.get("schedule") or None,
-        "first_message": row.get("first_message") or None,
+        "system_prompt":            row.get("system_prompt") or None,
+        "tone":                     row.get("tone") or None,
+        "schedule":                 row.get("schedule") or None,
+        "first_message":            row.get("first_message") or None,
+        "whatsapp_goal":            row.get("whatsapp_goal") or None,
+        "whatsapp_required_fields": required_fields if isinstance(required_fields, list) else None,
+        "whatsapp_rules":           rules if isinstance(rules, list) else None,
     }
 
 

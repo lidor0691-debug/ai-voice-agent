@@ -11,9 +11,43 @@
 
   html {
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
   body {
-    @apply bg-slate-50 text-slate-900;
+    @apply bg-surface-0 text-white;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-surface-4 rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-border-strong;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-surface-2 border border-border rounded-xl;
+  }
+
+  .input-base {
+    @apply w-full bg-surface-3 border border-border rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500
+    focus:outline-none focus:ring-1 focus:ring-brand-600 focus:border-brand-600 transition-colors;
+  }
+
+  .btn-primary {
+    @apply bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors;
+  }
+
+  .btn-ghost {
+    @apply bg-transparent hover:bg-surface-3 text-gray-400 hover:text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors border border-border;
   }
 }
