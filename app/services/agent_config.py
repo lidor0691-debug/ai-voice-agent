@@ -251,10 +251,23 @@ async def get_whatsapp_agent_config(raw_to: str) -> Optional[dict]:
 
     Returns a dict with exactly:
         {
-            "system_prompt": str | None,
-            "tone":          str | None,
-            "schedule":      dict | None,
-            "first_message": str | None,
+            # Base business identity — shared across all channels.
+            # Make.com uses this as the foundation for the WhatsApp prompt.
+            "system_prompt":            str | None,
+
+            # Shared channel-agnostic settings
+            "tone":                     str | None,
+            "first_message":            str | None,
+
+            # Business availability / operating hours (jsonb)
+            "schedule":                 dict | None,
+
+            # WhatsApp-specific behavior controls.
+            # Make.com combines these with system_prompt to build
+            # the final WhatsApp prompt — no prompt assembly happens here.
+            "whatsapp_goal":            str | None,
+            "whatsapp_required_fields": list | None,   # always list or None
+            "whatsapp_rules":           list | None,   # always list or None
         }
 
     Returns None if:

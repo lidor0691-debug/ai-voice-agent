@@ -157,14 +157,14 @@ export function AgentForm({ initial, agentId }: Props) {
   );
 
   const [requiredFieldsText, setRequiredFieldsText] = useState<string>(
-    initial?.whatsapp_required_fields != null
-      ? JSON.stringify(initial.whatsapp_required_fields, null, 2)
+    Array.isArray(initial?.whatsapp_required_fields)
+      ? (initial.whatsapp_required_fields as string[]).join("\n")
       : ""
   );
 
   const [rulesText, setRulesText] = useState<string>(
-    initial?.whatsapp_rules != null
-      ? JSON.stringify(initial.whatsapp_rules, null, 2)
+    Array.isArray(initial?.whatsapp_rules)
+      ? (initial.whatsapp_rules as string[]).join("\n")
       : ""
   );
 
@@ -466,8 +466,8 @@ export function AgentForm({ initial, agentId }: Props) {
             </Field>
 
             <Field
-              label="הוראות למאיה"
-              hint="תאר למאיה מה המטרה שלה, אילו שאלות לשאול, ואיך לעזור ללקוחות. ככל שתהיה ספציפי יותר — כך מאיה תעבוד טוב יותר."
+              label="זהות העסק והוראות הליבה"
+              hint="תאר מי מאיה, מה העסק עושה, ואיך היא צריכה להתנהג בכל ערוץ. זהו הבסיס שממנו כל השיחות — גם קוליות וגם וואטסאפ — ייבנו."
             >
               <Textarea
                 rows={10}
@@ -690,14 +690,14 @@ export function AgentForm({ initial, agentId }: Props) {
 
             <div className="bg-surface-2 border border-border rounded-xl p-6 space-y-4">
               <div>
-                <h2 className="text-white font-semibold text-base">לוח זמנים</h2>
+                <h2 className="text-white font-semibold text-base">שעות פעילות</h2>
                 <p className="text-gray-500 text-sm mt-1">
-                  הגדר מתי הנציגה פעילה — JSON אופציונלי
+                  באילו ימים ושעות הנציגה זמינה לענות — אופציונלי
                 </p>
               </div>
               <Field
-                label="schedule"
-                hint='JSON בלבד — לדוגמה: {"days":["Sun","Mon"],"hours":{"start":"09:00","end":"18:00"}}'
+                label="שעות פעילות"
+                hint='JSON — ימים ושעות שבהן הנציגה פעילה. לדוגמה: {"days":["Sun","Mon","Tue","Wed","Thu"],"hours":{"start":"09:00","end":"18:00"}}'
               >
                 <Textarea
                   rows={4}
@@ -720,58 +720,50 @@ export function AgentForm({ initial, agentId }: Props) {
               <div>
                 <h2 className="text-white font-semibold text-base">התנהגות בוואטסאפ</h2>
                 <p className="text-gray-500 text-sm mt-1">
-                  מה מאיה אמורה להשיג בשיחת וואטסאפ — Make.com ישתמש במידע הזה לבניית הפרומפט
+                  הגדרות ספציפיות לערוץ הוואטסאפ — אלה יתווספו על גבי זהות הליבה של הנציגה
                 </p>
               </div>
 
               <Field
-                label="מטרת השיחה"
-                hint="תאר במשפט אחד מה מאיה צריכה להשיג בשיחת הוואטסאפ"
+                label="מטרת השיחה בוואטסאפ"
+                hint="במשפט אחד — מה מאיה צריכה להשיג בשיחת הוואטסאפ?"
               >
                 <Textarea
-                  rows={3}
-                  placeholder="לאסוף את פרטי הלקוח ולקבוע פגישה ייעוץ ראשונית"
+                  rows={2}
+                  placeholder="לאסוף פרטי לקוח ולקבוע פגישת ייעוץ ראשונית"
                   value={form.whatsapp_goal ?? ""}
                   onChange={(e) => set("whatsapp_goal", e.target.value || null)}
                 />
               </Field>
 
               <Field
-                label="שדות חובה לאיסוף"
-                hint='מערך JSON — לדוגמה: ["שם מלא","מספר טלפון","תחום עניין"]'
+                label="פרטים לאיסוף מהלקוח"
+                hint="כתוב פרט אחד בכל שורה — מאיה תוודא שאוספת את כולם"
               >
                 <Textarea
                   rows={4}
-                  placeholder='["שם מלא", "מספר טלפון", "תחום עניין"]'
+                  placeholder={"שם מלא\nמספר טלפון\nגיל הילד\nתחום עניין"}
                   value={requiredFieldsText}
                   onChange={(e) => {
                     setRequiredFieldsText(e.target.value);
-                    try {
-                      const parsed = JSON.parse(e.target.value);
-                      set("whatsapp_required_fields", Array.isArray(parsed) ? parsed : null);
-                    } catch {
-                      set("whatsapp_required_fields", null);
-                    }
+                    const lines = e.target.value.split("\n").map((s) => s.trim()).filter(Boolean);
+                    set("whatsapp_required_fields", lines.length > 0 ? lines : null);
                   }}
                 />
               </Field>
 
               <Field
-                label="חוקים להתנהגות"
-                hint='מערך JSON של חוקים — לדוגמה: [{"rule":"שאל רק שאלה אחת בכל פעם"}]'
+                label="כללי התנהגות"
+                hint="כתוב כלל אחד בכל שורה — מאיה תפעל לפיהם לאורך כל השיחה"
               >
                 <Textarea
                   rows={4}
-                  placeholder='[{"rule": "שאל רק שאלה אחת בכל פעם"}, {"rule": "אל תבטיח מחירים"}]'
+                  placeholder={"שאל רק שאלה אחת בכל הודעה\nאל תבטיח מחירים\nסיים תמיד עם הצעד הבא הברור"}
                   value={rulesText}
                   onChange={(e) => {
                     setRulesText(e.target.value);
-                    try {
-                      const parsed = JSON.parse(e.target.value);
-                      set("whatsapp_rules", Array.isArray(parsed) ? parsed : null);
-                    } catch {
-                      set("whatsapp_rules", null);
-                    }
+                    const lines = e.target.value.split("\n").map((s) => s.trim()).filter(Boolean);
+                    set("whatsapp_rules", lines.length > 0 ? lines : null);
                   }}
                 />
               </Field>
