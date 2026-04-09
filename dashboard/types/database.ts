@@ -68,6 +68,9 @@ export interface AgentConfig {
   client_id: string | null;
   channel: 'voice' | 'whatsapp' | null;
 
+  // Scheduling
+  schedule: Json | null;
+
   created_at: string;
   updated_at: string;
 }
