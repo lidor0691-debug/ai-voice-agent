@@ -224,6 +224,37 @@ async def _fetch_agent_row(to_number: str) -> Optional[dict]:
     return None
 
 
+async def _fetch_agent_row_by_field(field: str, number: str) -> Optional[dict]:
+    """
+    Query Supabase for an active agent by a specific field (e.g. 'whatsapp_number').
+    Tries both the raw value and the digits-only variant.
+    """
+    candidates: list[str] = [number]
+    stripped = _strip_phone(number)
+    if stripped and stripped not in candidates:
+        candidates.append(stripped)
+
+    base_url = f"{_SUPABASE_URL}/rest/v1/agents_config"
+
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        for candidate in candidates:
+            resp = await client.get(
+                base_url,
+                params={field: f"eq.{candidate}", "is_active": "eq.true", "limit": 1},
+                headers=_headers(),
+            )
+            resp.raise_for_status()
+            rows = resp.json()
+            if rows:
+                logger.info(
+                    "Supabase: matched %s '%s' (tried as '%s')",
+                    field, number, candidate,
+                )
+                return rows[0]
+
+    return None
+
+
 async def _fetch_knowledge_items(agent_id: str) -> list[dict]:
     """
     Fetch active knowledge items for an agent, ordered by priority descending.
@@ -288,7 +319,12 @@ async def get_whatsapp_agent_config(raw_to: str) -> Optional[dict]:
     to_number = raw_to.removeprefix("whatsapp:")
 
     try:
-        row = await _fetch_agent_row(to_number)
+        # Primary: match on whatsapp_number (the correct field for WhatsApp channels)
+        row = await _fetch_agent_row_by_field("whatsapp_number", to_number)
+        # Fallback: some agents may still only have phone_number set
+        if row is None:
+            logger.info("[WHATSAPP] No match on whatsapp_number — trying phone_number for '%s'", to_number)
+            row = await _fetch_agent_row_by_field("phone_number", to_number)
     except Exception as exc:
         logger.error("[WHATSAPP] Agent lookup failed for '%s': %s", raw_to, exc)
         return None
