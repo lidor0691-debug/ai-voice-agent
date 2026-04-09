@@ -238,6 +238,65 @@ async def _fetch_knowledge_items(agent_id: str) -> list[dict]:
         return resp.json()
 
 
+# ── WhatsApp inbound lookup ───────────────────────────────────────────────────
+
+async def get_whatsapp_agent_config(raw_to: str) -> Optional[dict]:
+    """
+    Fetch a minimal agent config for an inbound WhatsApp message.
+
+    Accepts the Twilio 'To' value in any of these formats:
+        "whatsapp:+972543033010"   (Twilio webhook format)
+        "+972543033010"            (plain E.164)
+        "972543033010"             (no-plus variant)
+
+    Returns a dict with exactly:
+        {
+            "system_prompt": str | None,
+            "tone":          str | None,
+            "schedule":      dict | None,
+            "first_message": str | None,
+        }
+
+    Returns None if:
+        - Supabase is not configured
+        - No active agent matches the number
+        - Any network/parse error occurs
+    Callers must handle None safely — this function never raises.
+    """
+    if not _is_configured():
+        logger.warning("[WHATSAPP] Supabase not configured — skipping agent lookup")
+        return None
+
+    if not raw_to:
+        logger.warning("[WHATSAPP] get_whatsapp_agent_config called with empty raw_to")
+        return None
+
+    # Strip the "whatsapp:" scheme Twilio prepends on inbound messages
+    to_number = raw_to.removeprefix("whatsapp:")
+
+    try:
+        row = await _fetch_agent_row(to_number)
+    except Exception as exc:
+        logger.error("[WHATSAPP] Agent lookup failed for '%s': %s", raw_to, exc)
+        return None
+
+    if not row:
+        logger.info("[WHATSAPP] No active agent found for '%s'", raw_to)
+        return None
+
+    logger.info(
+        "[WHATSAPP] Agent matched: '%s' (id=%s) for '%s'",
+        row.get("agent_name"), row.get("id"), raw_to,
+    )
+
+    return {
+        "system_prompt": row.get("system_prompt") or None,
+        "tone":          row.get("tone") or None,
+        "schedule":      row.get("schedule") or None,
+        "first_message": row.get("first_message") or None,
+    }
+
+
 # ── Main public function ──────────────────────────────────────────────────────
 
 async def fetch_supabase_agent_config(to_number: str) -> dict:
