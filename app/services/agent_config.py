@@ -333,10 +333,8 @@ async def get_whatsapp_agent_config(raw_to: str) -> Optional[dict]:
         logger.info("[WHATSAPP] No active agent found for '%s'", raw_to)
         return None
 
-    logger.info(
-        "[WHATSAPP] Agent matched: '%s' (id=%s) for '%s'",
-        row.get("agent_name"), row.get("id"), raw_to,
-    )
+    _safe_name = (row.get("agent_name") or "").encode("ascii", errors="replace").decode("ascii")
+    logger.info("[WHATSAPP] Agent matched: '%s' (id=%s) for '%s'", _safe_name, row.get("id"), raw_to)
 
     # Ensure jsonb array fields are lists or None — never raw strings
     required_fields = row.get("whatsapp_required_fields")

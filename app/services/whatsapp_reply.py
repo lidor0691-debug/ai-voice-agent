@@ -107,6 +107,16 @@ async def generate_whatsapp_reply(phone: str, user_message: str) -> dict:
     Never raises — returns an error reply string on failure so Make
     always gets a usable response.
     """
+    try:
+        return await _generate_whatsapp_reply_inner(phone, user_message)
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        safe_err = str(exc).encode("ascii", errors="replace").decode("ascii")
+        return {"reply": f"ERROR: {safe_err}", "messages": []}
+
+
+async def _generate_whatsapp_reply_inner(phone: str, user_message: str) -> dict:
     # Sanitize input — WhatsApp messages can contain Unicode line separators
     user_message = _sanitize(user_message)
 
@@ -142,12 +152,7 @@ async def generate_whatsapp_reply(phone: str, user_message: str) -> dict:
     )
 
     # ── 5. Call OpenAI ────────────────────────────────────────────────────────
-    try:
-        reply = await _call_openai(openai_messages)
-    except Exception as exc:
-        import traceback
-        traceback.print_exc()
-        return {"reply": f"ERROR: {str(exc).encode('ascii', errors='replace').decode('ascii')}", "messages": []}
+    reply = await _call_openai(openai_messages)
 
     # ── 6. Persist updated history ────────────────────────────────────────────
     try:
