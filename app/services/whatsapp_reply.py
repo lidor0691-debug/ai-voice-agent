@@ -64,18 +64,28 @@ def _build_system_message(agent: dict) -> str:
     return "\n\n".join(parts) if parts else "You are a helpful assistant."
 
 
+def _sanitize(text: str) -> str:
+    """Replace Unicode line/paragraph separators that break ASCII encoding."""
+    return text.replace("\u2028", "\n").replace("\u2029", "\n")
+
+
 async def _call_openai(messages: list[dict]) -> str:
     """
     Call OpenAI Chat Completions and return the assistant reply text.
     Raises on HTTP or API error.
     """
+    # Sanitize all message content before sending
+    clean_messages = [
+        {**msg, "content": _sanitize(msg["content"])} if isinstance(msg.get("content"), str) else msg
+        for msg in messages
+    ]
     headers = {
         "Authorization": f"Bearer {_OPENAI_API_KEY}",
         "Content-Type": "application/json",
     }
     payload = {
         "model": _MODEL,
-        "messages": messages,
+        "messages": clean_messages,
     }
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(_OPENAI_CHAT_URL, json=payload, headers=headers)
@@ -125,9 +135,8 @@ async def generate_whatsapp_reply(phone: str, user_message: str) -> dict:
     try:
         reply = await _call_openai(openai_messages)
     except Exception as exc:
-        import traceback
-        traceback.print_exc()
-        return {"reply": f"ERROR: {exc}", "messages": []}
+        logger.error("[WA REPLY] OpenAI call failed for %s: %s", phone, exc)
+        reply = "מצטער, אירעה שגיאה. אנסה שוב."
 
     # ── 6. Persist updated history ────────────────────────────────────────────
     try:
