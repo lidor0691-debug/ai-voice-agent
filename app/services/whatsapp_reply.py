@@ -125,8 +125,9 @@ async def generate_whatsapp_reply(phone: str, user_message: str) -> dict:
     try:
         reply = await _call_openai(openai_messages)
     except Exception as exc:
-        logger.error("[WA REPLY] OpenAI call failed for %s: %s", phone, exc)
-        reply = "מצטער, אירעה שגיאה. אנסה שוב."
+        import traceback
+        traceback.print_exc()
+        return {"reply": f"ERROR: {exc}", "messages": []}
 
     # ── 6. Persist updated history ────────────────────────────────────────────
     try:
