@@ -152,7 +152,7 @@ async def _generate_whatsapp_reply_inner(phone: str, user_message: str) -> dict:
     )
 
     # ── 5. Call OpenAI ────────────────────────────────────────────────────────
-    reply = await _call_openai(openai_messages)
+    reply = _sanitize(await _call_openai(openai_messages))
 
     # ── 6. Persist updated history ────────────────────────────────────────────
     try:
