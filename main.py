@@ -1,22 +1,37 @@
 import sys
 import io
+import logging
 
-# Force UTF-8 on stdout/stderr — Railway defaults to ASCII which crashes
-# on any Unicode character outside range(128) (e.g. \u2028 from Supabase text).
+# ── UTF-8 stdout/stderr (Railway defaults to ASCII) ───────────────────────────
 if hasattr(sys.stdout, "buffer"):
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 if hasattr(sys.stderr, "buffer"):
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
-print("WHATSAPP_REPLY_UTF8_FIX_ACTIVE", flush=True)
+# ── Logging: force UTF-8 handler, replace any pre-existing handlers ───────────
+# force=True ensures uvicorn's default ASCII handler is removed first.
 
-import logging
+class _UnicodeSafeFilter(logging.Filter):
+    """Strip \u2028 / \u2029 from log messages before the handler writes them."""
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.msg, str):
+            record.msg = record.msg.replace("\u2028", " ").replace("\u2029", " ")
+        record.args = tuple(
+            a.replace("\u2028", " ").replace("\u2029", " ") if isinstance(a, str) else a
+            for a in (record.args or ())
+        )
+        return True
 
+_utf8_handler = logging.StreamHandler(sys.stdout)
+_utf8_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s — %(message)s"))
+_utf8_handler.addFilter(_UnicodeSafeFilter())
 logging.basicConfig(
-    stream=sys.stdout,
     level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s — %(message)s",
+    handlers=[_utf8_handler],
+    force=True,   # removes any handler already registered (including uvicorn's)
 )
+
+print("WHATSAPP_REPLY_ASCII_FIX_5079D2B", flush=True)
 
 from dotenv import load_dotenv
 load_dotenv()  # must run before any os.getenv() calls in imported modules
