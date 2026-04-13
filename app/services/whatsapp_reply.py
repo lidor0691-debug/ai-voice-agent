@@ -107,6 +107,9 @@ async def generate_whatsapp_reply(phone: str, user_message: str) -> dict:
     Never raises — returns an error reply string on failure so Make
     always gets a usable response.
     """
+    # Sanitize input — WhatsApp messages can contain Unicode line separators
+    user_message = _sanitize(user_message)
+
     # ── 1. Load agent config ──────────────────────────────────────────────────
     agent = await get_whatsapp_agent_config(phone)
     if agent is None:
