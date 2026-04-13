@@ -1,0 +1,141 @@
+"""
+app/services/whatsapp_reply.py
+================================
+Backend WhatsApp reply generation.
+
+Assembles context (agent config + conversation history) and calls
+OpenAI Chat Completions to produce the assistant reply.
+Memory is persisted to whatsapp_conversations so Make never needs to
+compose or pass history — it only sends the current user message.
+
+Public API
+----------
+generate_whatsapp_reply(phone, user_message) -> dict
+    Returns {"reply": str, "messages": list[dict]}
+"""
+
+import json
+import logging
+import os
+from typing import Optional
+
+import httpx
+
+from app.services.agent_config import get_whatsapp_agent_config
+from app.services.whatsapp_history import append_whatsapp_messages, _load_row, _normalize_messages
+
+logger = logging.getLogger(__name__)
+
+_OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+_OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions"
+_MODEL = "gpt-4o"
+
+
+def _build_system_message(agent: dict) -> str:
+    """
+    Build the system message from the agent config fields.
+    Combines system_prompt (base business identity) with WhatsApp-specific
+    behavior controls (goal, required_fields, rules).
+    """
+    parts: list[str] = []
+
+    system_prompt = (agent.get("system_prompt") or "").strip()
+    if system_prompt:
+        parts.append(system_prompt)
+
+    tone = (agent.get("tone") or "").strip()
+    if tone:
+        parts.append(f"Tone: {tone}")
+
+    goal = (agent.get("whatsapp_goal") or "").strip()
+    if goal:
+        parts.append(f"\nGoal for this conversation:\n{goal}")
+
+    required_fields = agent.get("whatsapp_required_fields")
+    if isinstance(required_fields, list) and required_fields:
+        fields_str = "\n".join(f"- {f}" for f in required_fields)
+        parts.append(f"\nYou must collect the following information from the user:\n{fields_str}")
+
+    rules = agent.get("whatsapp_rules")
+    if isinstance(rules, list) and rules:
+        rules_str = "\n".join(f"- {r}" for r in rules)
+        parts.append(f"\nRules to follow throughout the conversation:\n{rules_str}")
+
+    return "\n\n".join(parts) if parts else "You are a helpful assistant."
+
+
+async def _call_openai(messages: list[dict]) -> str:
+    """
+    Call OpenAI Chat Completions and return the assistant reply text.
+    Raises on HTTP or API error.
+    """
+    headers = {
+        "Authorization": f"Bearer {_OPENAI_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": _MODEL,
+        "messages": messages,
+    }
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.post(_OPENAI_CHAT_URL, json=payload, headers=headers)
+        resp.raise_for_status()
+        data = resp.json()
+        return data["choices"][0]["message"]["content"]
+
+
+async def generate_whatsapp_reply(phone: str, user_message: str) -> dict:
+    """
+    Full pipeline:
+    1. Load agent config by whatsapp_number (falls back to phone_number)
+    2. Build system message from config
+    3. Load + normalize conversation history
+    4. Call OpenAI with [system, ...history, user_message]
+    5. Persist updated history (user + assistant turns)
+    6. Return {"reply": str, "messages": list}
+
+    Never raises — returns an error reply string on failure so Make
+    always gets a usable response.
+    """
+    # ── 1. Load agent config ──────────────────────────────────────────────────
+    agent = await get_whatsapp_agent_config(phone)
+    if agent is None:
+        logger.warning("[WA REPLY] No agent config found for %s — using bare fallback", phone)
+        agent = {}
+
+    # ── 2. Build system message ───────────────────────────────────────────────
+    system_content = _build_system_message(agent)
+
+    # ── 3. Load history ───────────────────────────────────────────────────────
+    try:
+        row = await _load_row(phone)
+        history = _normalize_messages(row.get("messages_json") if row else None)
+    except Exception as exc:
+        logger.error("[WA REPLY] Failed to load history for %s: %s", phone, exc)
+        history = []
+
+    # ── 4. Assemble OpenAI messages array ────────────────────────────────────
+    openai_messages = (
+        [{"role": "system", "content": system_content}]
+        + history
+        + [{"role": "user", "content": user_message}]
+    )
+
+    # ── 5. Call OpenAI ────────────────────────────────────────────────────────
+    try:
+        reply = await _call_openai(openai_messages)
+    except Exception as exc:
+        logger.error("[WA REPLY] OpenAI call failed for %s: %s", phone, exc)
+        reply = "מצטער, אירעה שגיאה. אנסה שוב."
+
+    # ── 6. Persist updated history ────────────────────────────────────────────
+    try:
+        updated_messages = await append_whatsapp_messages(phone, user_message, reply)
+    except Exception as exc:
+        logger.error("[WA REPLY] Failed to persist history for %s: %s", phone, exc)
+        updated_messages = history + [
+            {"role": "user",      "content": user_message},
+            {"role": "assistant", "content": reply},
+        ]
+
+    return {"reply": reply, "messages": updated_messages}
