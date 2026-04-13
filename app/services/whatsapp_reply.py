@@ -113,8 +113,15 @@ async def generate_whatsapp_reply(phone: str, user_message: str) -> dict:
     # ── 1. Load agent config ──────────────────────────────────────────────────
     agent = await get_whatsapp_agent_config(phone)
     if agent is None:
-        logger.warning("[WA REPLY] No agent config found for %s — using bare fallback", phone)
+        logger.warning("[WA REPLY] No agent config found for %s", phone)
         agent = {}
+    else:
+        # Sanitize all string fields in agent config at the source so nothing
+        # downstream (logging, OpenAI, httpx) sees raw \u2028/\u2029 chars.
+        agent = {
+            k: _sanitize(v) if isinstance(v, str) else v
+            for k, v in agent.items()
+        }
 
     # ── 2. Build system message ───────────────────────────────────────────────
     system_content = _build_system_message(agent)
@@ -140,7 +147,7 @@ async def generate_whatsapp_reply(phone: str, user_message: str) -> dict:
     except Exception as exc:
         import traceback
         traceback.print_exc()
-        return {"reply": f"ERROR: {exc}", "messages": []}
+        return {"reply": f"ERROR: {str(exc).encode('ascii', errors='replace').decode('ascii')}", "messages": []}
 
     # ── 6. Persist updated history ────────────────────────────────────────────
     try:
