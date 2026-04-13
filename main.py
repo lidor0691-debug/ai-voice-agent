@@ -1,3 +1,21 @@
+import sys
+import io
+
+# Force UTF-8 on stdout/stderr — Railway defaults to ASCII which crashes
+# on any Unicode character outside range(128) (e.g. \u2028 from Supabase text).
+if hasattr(sys.stdout, "buffer"):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "buffer"):
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+
+import logging
+
+logging.basicConfig(
+    stream=sys.stdout,
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s — %(message)s",
+)
+
 from dotenv import load_dotenv
 load_dotenv()  # must run before any os.getenv() calls in imported modules
 
