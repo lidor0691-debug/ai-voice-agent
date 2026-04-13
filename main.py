@@ -8,6 +8,8 @@ if hasattr(sys.stdout, "buffer"):
 if hasattr(sys.stderr, "buffer"):
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
+print("WHATSAPP_REPLY_UTF8_FIX_ACTIVE", flush=True)
+
 import logging
 
 logging.basicConfig(
