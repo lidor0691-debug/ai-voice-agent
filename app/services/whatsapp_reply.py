@@ -168,6 +168,7 @@ async def generate_whatsapp_reply(phone: str, user_message: str) -> dict:
 
 
 async def _generate_whatsapp_reply_inner(phone: str, user_message: str) -> dict:
+    print("INCOMING PHONE RAW:", repr(phone), flush=True)
     phone = phone.replace("whatsapp:", "").strip()
     user_message = _sanitize(user_message)
 
