@@ -5,4 +5,4 @@ __pycache__/
 service_account.json
 *.pyc
 node_modules/
-.next/
+.next/agent/daemon.log
