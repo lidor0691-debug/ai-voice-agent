@@ -2,30 +2,27 @@ export const dynamic = "force-dynamic";
 
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { supabase } from "@/lib/supabase";
+import { getUserContext } from "@/lib/user-context";
 import { AgentConfig, CallLog } from "@/types/database";
 import { DashboardClientPage } from "./DashboardClientPage";
 
 export default async function DashboardPage() {
   const authClient = await createSupabaseServerClient();
   const { data: { user } } = await authClient.auth.getUser();
-  const clientId = user?.user_metadata?.client_id as string | undefined;
+  const ctx = getUserContext(user);
 
-  if (!clientId) {
-    return (
-      <DashboardClientPage agents={null} calls={null} knowledgeCount={0} />
-    );
+  if (!ctx) {
+    return <DashboardClientPage agents={null} calls={null} knowledgeCount={0} />;
   }
 
-  const agentRes = await supabase
+  const agentQuery = supabase
     .from("agents_config")
     .select("id, agent_name, is_active, system_prompt, first_message, phone_number")
-    .eq("client_id", clientId)
     .order("created_at", { ascending: false });
+  if (!ctx.isAdmin) agentQuery.eq("client_id", ctx.clientId);
+  const agentRes = await agentQuery;
 
-  const agentIds = (agentRes.data ?? []).map(
-    (a: Pick<AgentConfig, "id">) => a.id
-  );
-
+  const agentIds = (agentRes.data ?? []).map((a: Pick<AgentConfig, "id">) => a.id);
   const callRes = agentIds.length > 0
     ? await supabase
         .from("call_logs")
@@ -35,9 +32,7 @@ export default async function DashboardPage() {
         .limit(10)
     : { data: [] };
 
-  const knowledgeRes = await supabase
-    .from("knowledge_items")
-    .select("id, is_active");
+  const knowledgeRes = await supabase.from("knowledge_items").select("id, is_active");
 
   return (
     <DashboardClientPage

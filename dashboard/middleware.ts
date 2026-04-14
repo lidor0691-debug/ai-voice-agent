@@ -43,6 +43,14 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
+  // Non-admin on /admin → redirect to dashboard
+  if (user && pathname.startsWith("/admin")) {
+    const isAdmin = user.user_metadata?.role === "admin";
+    if (!isAdmin) {
+      return NextResponse.redirect(new URL("/dashboard", request.url));
+    }
+  }
+
   return supabaseResponse;
 }
 
