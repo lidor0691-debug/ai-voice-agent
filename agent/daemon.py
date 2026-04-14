@@ -1,11 +1,12 @@
 """
-Maya Dev Agent — main daemon loop.
+Maya Dev Agent — conversational daemon loop.
 
-Run this script as a Windows background process (see install_scheduler.bat).
-It polls the SQLite queue for tasks, runs them via Claude Code, handles
-approval flows, and reports back via WhatsApp.
-
-Loop cycle: 5 seconds when idle, immediate when task found.
+Each WhatsApp message from the owner starts a conversation turn:
+1. Save message to Supabase conversation history
+2. Load history + build prompt
+3. Run claude -p
+4. If APPROVAL_REQUIRED: ask for approval, wait, then execute code task
+5. Save response + send via WhatsApp
 """
 from dotenv import load_dotenv
 load_dotenv()
@@ -15,8 +16,10 @@ import time
 import sys
 
 from agent.config import APPROVAL_TIMEOUT_SECONDS, MAX_TASK_RETRIES
-from agent.queue import TaskQueue, TaskStatus, ApprovalStatus
-from agent.executor import run_task
+from agent.queue import TaskQueue, ApprovalStatus
+from agent.conversation import ConversationStore, format_history, HISTORY_LIMIT
+from agent.context import build_context
+from agent.executor import run_conversation_turn, run_task
 from agent.git_ops import prepare_agent_branch, merge_to_main, get_diff_summary
 from agent.whatsapp import send_to_owner
 
@@ -27,13 +30,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger("agent.daemon")
 
-POLL_INTERVAL = 5  # seconds between queue checks
+POLL_INTERVAL = 5  # seconds
 
 
 def run_daemon():
     logger.info("Maya Dev Agent daemon starting...")
-    send_to_owner("Maya Dev Agent started and ready. Send me a task!")
+    send_to_owner("מאיה Dev Agent מוכנה. שלח לי משימה!")
     q = TaskQueue()
+    conv = ConversationStore()
 
     while True:
         task = q.fetch_next_pending()
@@ -43,83 +47,122 @@ def run_daemon():
 
         task_id = task["id"]
         command = task["command"]
-        logger.info("Processing task %s: %r", task_id, command[:60])
+        logger.info("New message id=%s: %r", task_id, command[:60])
 
         q.set_running(task_id)
-        send_to_owner(f"Starting task: {command[:200]}")
-
-        _process_task(q, task_id, command, attempt=0)
+        _handle_message(q, conv, task_id, command)
 
 
-def _process_task(q: TaskQueue, task_id: str, command: str, attempt: int):
-    # Prepare isolated branch
+def _handle_message(q: TaskQueue, conv: ConversationStore, task_id: str, command: str):
+    conv.save("user", command)
+
+    history_msgs = conv.get_history(limit=HISTORY_LIMIT)
+    history_str = format_history(history_msgs[:-1])
+    context = build_context(history=history_str)
+    full_prompt = f"{context}\n\n{command}\n\n(חשוב: ענה בעברית בלבד)"
+
+    result = run_conversation_turn(full_prompt)
+
+    if result.error:
+        response = f"שגיאה: {result.error}"
+        conv.save("assistant", response)
+        send_to_owner(response)
+        q.set_failed(task_id, error=result.error, attempt=0)
+        return
+
+    if result.task_complete:
+        response_text = result.task_complete
+    else:
+        response_text = result.raw_output[-1000:].strip() if result.raw_output else "(אין פלט)"
+
+    if result.approval_required:
+        _handle_approval(q, conv, task_id, command, result.approval_required)
+        return
+
+    if result.guidance_needed:
+        response = result.guidance_needed[:1400]
+        conv.save("assistant", response)
+        send_to_owner(response)
+        q.set_done(task_id, result="Guidance sent")
+        return
+
+    conv.save("assistant", response_text)
+    send_to_owner(response_text[:1500])
+    q.set_done(task_id, result="Conversation turn complete")
+
+
+def _handle_approval(q: TaskQueue, conv: ConversationStore, task_id: str, command: str, summary: str):
     try:
         prepare_agent_branch()
     except RuntimeError as e:
-        _fail_task(q, task_id, f"Could not prepare git branch: {e}", attempt)
+        msg = f"לא הצלחתי להכין branch: {e}"
+        conv.save("assistant", msg)
+        send_to_owner(msg)
+        q.set_failed(task_id, error=str(e), attempt=0)
         return
 
-    # Run Claude Code
+    approval_msg = f"רוצה לבצע:\n\n{summary}\n\nשלח כן לאישור או לא לביטול."
+    approval_id = q.create_approval(task_id, action="code_change", summary=summary)
+    q.set_awaiting_approval(task_id)
+    conv.save("assistant", approval_msg)
+    send_to_owner(approval_msg)
+
+    approved = _wait_for_approval(q, approval_id)
+    if not approved:
+        msg = "בוטל. לא בוצעו שינויים."
+        conv.save("assistant", msg)
+        send_to_owner(msg)
+        q.set_done(task_id, result="Cancelled by owner")
+        return
+
+    send_to_owner(f"מתחיל: {command[:200]}")
     result = run_task(command)
 
     if result.error:
-        if attempt < MAX_TASK_RETRIES:
-            logger.warning("Task %s failed (attempt %d): %s — retrying", task_id, attempt, result.error)
-            send_to_owner(f"Attempt {attempt + 1} failed: {result.error}\nRetrying...")
-            time.sleep(3)
-            _process_task(q, task_id, command, attempt + 1)
-        else:
-            _fail_task(q, task_id, result.error, attempt)
+        msg = f"נכשל: {result.error[:600]}"
+        conv.save("assistant", msg)
+        send_to_owner(msg)
+        q.set_failed(task_id, error=result.error, attempt=0)
         return
 
-    # Guidance needed (human input required)
-    if result.guidance_needed:
-        q.set_done(task_id, result=f"Guidance provided to owner")
-        send_to_owner(
-            f"I need your help for this task:\n\n{result.guidance_needed[:1400]}"
-        )
-        return
-
-    # Approval required before push/deploy
     if result.approval_required:
         diff = get_diff_summary()
-        approval_msg = (
-            f"Task ready to deploy.\n\n"
-            f"Summary: {result.approval_required}\n\n"
-            f"{diff[:800]}\n\n"
-            f"Reply כן to push+deploy, or לא to cancel."
+        deploy_msg = (
+            f"קוד מוכן לדפלוי.\n\nסיכום: {result.approval_required}\n\n"
+            f"{diff[:600]}\n\nשלח כן לדפלוי או לא לביטול."
         )
-        approval_id = q.create_approval(task_id, action="push", summary=result.approval_required)
+        deploy_approval_id = q.create_approval(task_id, action="push", summary=result.approval_required)
         q.set_awaiting_approval(task_id)
-        send_to_owner(approval_msg)
+        conv.save("assistant", deploy_msg)
+        send_to_owner(deploy_msg)
 
-        # Wait for approval
-        approved = _wait_for_approval(q, approval_id)
-        if approved:
+        deploy_approved = _wait_for_approval(q, deploy_approval_id)
+        if deploy_approved:
             try:
                 merge_to_main()
-                send_to_owner("Deployed to production. All done!")
-                q.set_done(task_id, result="Deployed successfully")
+                done_msg = "עלה לפרודקשן. הכל מוכן!"
+                conv.save("assistant", done_msg)
+                send_to_owner(done_msg)
+                q.set_done(task_id, result="Deployed")
             except RuntimeError as e:
-                _fail_task(q, task_id, f"Deploy failed: {e}", attempt)
+                msg = f"דפלוי נכשל: {e}"
+                conv.save("assistant", msg)
+                send_to_owner(msg)
+                q.set_failed(task_id, error=str(e), attempt=0)
         else:
-            q.set_done(task_id, result="Cancelled by owner")
-            send_to_owner("Cancelled. No changes pushed.")
+            msg = "בוטל. לא נדחף שום דבר."
+            conv.save("assistant", msg)
+            send_to_owner(msg)
+            q.set_done(task_id, result="Deploy cancelled")
         return
 
-    # Task completed without deploy
-    if result.task_complete:
-        q.set_done(task_id, result=result.task_complete)
-        send_to_owner(f"Done! {result.task_complete[:400]}")
-    else:
-        # Completed but no explicit signal — report raw output tail
-        q.set_done(task_id, result="Completed (no explicit signal)")
-        tail = result.raw_output[-600:] if result.raw_output else "(no output)"
-        send_to_owner(f"Task finished.\n\n{tail}")
+    done_text = result.task_complete or result.raw_output[-600:] or "סיימתי"
+    conv.save("assistant", done_text)
+    send_to_owner(f"סיימתי! {done_text[:1400]}")
+    q.set_done(task_id, result="Done")
 
 
 def _wait_for_approval(q: TaskQueue, approval_id: str) -> bool:
-    """Poll queue until approval is resolved or timeout expires. Returns True if approved."""
     deadline = time.time() + APPROVAL_TIMEOUT_SECONDS
     while time.time() < deadline:
         approval = q.get_approval(approval_id)
@@ -128,19 +171,9 @@ def _wait_for_approval(q: TaskQueue, approval_id: str) -> bool:
         if approval and approval["status"] == ApprovalStatus.REJECTED:
             return False
         time.sleep(3)
-    # Timeout
     q.resolve_approval(approval_id, approved=False)
-    send_to_owner("Approval timed out (10 min). Task cancelled — nothing was pushed.")
+    send_to_owner("פג תוקף האישור (10 דקות). המשימה בוטלה.")
     return False
-
-
-def _fail_task(q: TaskQueue, task_id: str, error: str, attempt: int):
-    q.set_failed(task_id, error=error, attempt=attempt)
-    send_to_owner(
-        f"Task failed after {attempt + 1} attempt(s).\n\n"
-        f"Error: {error[:600]}\n\n"
-        f"What should I do next?"
-    )
 
 
 if __name__ == "__main__":
