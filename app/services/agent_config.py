@@ -307,6 +307,8 @@ async def get_whatsapp_agent_config(raw_to: str) -> Optional[dict]:
         - Any network/parse error occurs
     Callers must handle None safely — this function never raises.
     """
+    print("DEBUG_PHONE_IN:", repr(raw_to), flush=True)
+
     if not _is_configured():
         logger.warning("[WHATSAPP] Supabase not configured — skipping agent lookup")
         return None
@@ -317,14 +319,19 @@ async def get_whatsapp_agent_config(raw_to: str) -> Optional[dict]:
 
     # Strip the "whatsapp:" scheme Twilio prepends on inbound messages
     to_number = raw_to.removeprefix("whatsapp:")
+    print("DEBUG_PHONE_NORMALIZED:", repr(to_number), flush=True)
 
     try:
         # Primary: match on whatsapp_number (the correct field for WhatsApp channels)
+        print("DEBUG_QUERY: whatsapp_number =", repr(to_number), flush=True)
         row = await _fetch_agent_row_by_field("whatsapp_number", to_number)
+        print("DEBUG_DB_RESPONSE whatsapp_number:", row, flush=True)
         # Fallback: some agents may still only have phone_number set
         if row is None:
+            print("DEBUG_QUERY: phone_number =", repr(to_number), flush=True)
             logger.info("[WHATSAPP] No match on whatsapp_number — trying phone_number for '%s'", to_number)
             row = await _fetch_agent_row_by_field("phone_number", to_number)
+            print("DEBUG_DB_RESPONSE phone_number:", row, flush=True)
     except Exception as exc:
         logger.error("[WHATSAPP] Agent lookup failed for '%s': %s", raw_to, exc)
         return None
@@ -333,6 +340,7 @@ async def get_whatsapp_agent_config(raw_to: str) -> Optional[dict]:
         logger.info("[WHATSAPP] No active agent found for '%s'", raw_to)
         return None
 
+    print("DEBUG_AGENT_FOUND:", {k: v for k, v in row.items() if k in ("id", "agent_name", "whatsapp_number", "phone_number", "is_active")}, flush=True)
     _safe_name = (row.get("agent_name") or "").encode("ascii", errors="replace").decode("ascii")
     logger.info("[WHATSAPP] Agent matched: '%s' (id=%s) for '%s'", _safe_name, row.get("id"), raw_to)
 
