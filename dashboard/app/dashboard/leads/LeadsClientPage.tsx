@@ -1,136 +1,69 @@
 "use client";
 
-import { useState } from "react";
-import { Download, SlidersHorizontal } from "lucide-react";
+import { Users, CalendarDays, Sparkles, Clock } from "lucide-react";
 import { Header } from "@/components/layout/header";
-import { LeadsTable } from "@/components/dashboard/leads-table";
-import { computeStats } from "@/lib/utils";
-import type { Lead } from "@/types/lead";
-
-const INTENTS = ["נסיעת מבחן", "טיפול / מוסך", "יד 2", "מכירה", "הצעת מחיר"];
-const STATUSES = ["ליד חדש", "בטיפול", "SMS נשלח", "תור נקבע"];
+import { StatCard } from "@/components/dashboard/stat-card";
+import { SupabaseLeadsTable } from "@/components/leads/supabase-leads-table";
+import type { LeadsApiResponse } from "@/types/lead";
 
 interface Props {
-  initialLeads: Lead[];
+  data: LeadsApiResponse;
 }
 
-export function LeadsClientPage({ initialLeads }: Props) {
-  const [intentFilter, setIntentFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("all");
-
-  const filtered = initialLeads.filter((l) => {
-    if (intentFilter !== "all" && !l.intents.includes(intentFilter)) return false;
-    if (statusFilter !== "all") {
-      const effectiveStatus = l.status === "new" ? "ליד חדש" : l.status;
-      if (effectiveStatus !== statusFilter) return false;
-    }
-    return true;
-  });
-
-  const stats = computeStats(initialLeads);
-
-  function handleExport() {
-    const headers = [
-      "שם", "טלפון", "דגם", "כוונה", "ק\"מ",
-      "סטטוס", "מקור", "SMS", "יומן", "תאריך תור", "תאריך פנייה",
-    ];
-    const rows = initialLeads.map((l) => [
-      l.name,
-      l.phone,
-      l.model,
-      l.intents.join(" | "),
-      l.mileage,
-      l.status,
-      l.source,
-      l.sms_sent ? "כן" : "לא",
-      l.calendar_booked ? "כן" : "לא",
-      l.appointment_time ?? "ממתין לתיאום",
-      l.created_at,
-    ]);
-    const csv = [headers, ...rows]
-      .map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","))
-      .join("\n");
-    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "honda-leads.csv";
-    a.click();
-    URL.revokeObjectURL(url);
-  }
+export function LeadsClientPage({ data }: Props) {
+  const { leads, stats } = data;
 
   return (
     <>
-      <Header title="פניות" subtitle={`${stats.total} פניות בסך הכל`} />
-      <main className="flex-1 overflow-y-auto p-8 space-y-5" dir="rtl">
-        {/* Filter bar */}
-        <div className="flex items-start gap-4 flex-wrap">
-          <div className="flex items-center gap-2 text-slate-500 mt-1.5">
-            <SlidersHorizontal className="w-4 h-4" />
-            <span className="text-sm font-medium">סינון:</span>
-          </div>
+      <Header title="לידים" subtitle={`${stats.total} לידים בסך הכל`} />
+      <main className="flex-1 overflow-y-auto p-8 space-y-6" dir="rtl">
 
-          <div>
-            <p className="text-slate-400 text-xs mb-1.5">כוונה</p>
-            <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-lg p-1 flex-wrap">
-              <FilterButton active={intentFilter === "all"} onClick={() => setIntentFilter("all")}>הכל</FilterButton>
-              {INTENTS.map((v) => (
-                <FilterButton key={v} active={intentFilter === v} onClick={() => setIntentFilter(v)}>
-                  {v}
-                </FilterButton>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <p className="text-slate-400 text-xs mb-1.5">סטטוס</p>
-            <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-lg p-1">
-              <FilterButton active={statusFilter === "all"} onClick={() => setStatusFilter("all")}>הכל</FilterButton>
-              {STATUSES.map((v) => (
-                <FilterButton key={v} active={statusFilter === v} onClick={() => setStatusFilter(v)}>
-                  {v}
-                </FilterButton>
-              ))}
-            </div>
-          </div>
-
-          <div className="flex-1" />
-
-          <button
-            onClick={handleExport}
-            className="mt-5 flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors shadow-sm"
-          >
-            <Download className="w-4 h-4" />
-            ייצא CSV
-          </button>
+        {/* Stats Row */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatCard
+            title="סה״כ לידים"
+            value={stats.total}
+            icon={Users}
+            iconBg="bg-brand-50"
+            iconColor="text-brand-600"
+          />
+          <StatCard
+            title="היום"
+            value={stats.today}
+            icon={CalendarDays}
+            iconBg="bg-green-50"
+            iconColor="text-green-600"
+          />
+          <StatCard
+            title="חדשים"
+            value={stats.new}
+            icon={Sparkles}
+            iconBg="bg-yellow-50"
+            iconColor="text-yellow-600"
+          />
+          <StatCard
+            title="בטיפול"
+            value={stats.contacted}
+            icon={Clock}
+            iconBg="bg-blue-50"
+            iconColor="text-blue-600"
+          />
         </div>
 
-        <p className="text-sm text-slate-500">
-          מציג <strong className="text-slate-900">{filtered.length}</strong>{" "}
-          מתוך <strong className="text-slate-900">{stats.total}</strong> פניות
-        </p>
+        {/* Source breakdown */}
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-slate-400 font-medium">מקור:</span>
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+            📞 Voice — {stats.voice}
+          </span>
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+            💬 WhatsApp — {stats.whatsapp}
+          </span>
+        </div>
 
-        <LeadsTable leads={filtered} showSearch />
+        {/* Table */}
+        <SupabaseLeadsTable leads={leads} />
       </main>
     </>
-  );
-}
-
-function FilterButton({
-  children, active, onClick,
-}: {
-  children: React.ReactNode;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={`px-3 py-1 text-sm rounded-md transition-colors whitespace-nowrap ${
-        active ? "bg-brand-500 text-white font-medium" : "text-slate-600 hover:bg-slate-50"
-      }`}
-    >
-      {children}
-    </button>
   );
 }
