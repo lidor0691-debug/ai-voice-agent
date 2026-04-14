@@ -47,6 +47,7 @@ async def agent_command(
     Body: str = Form(...),
 ) -> Response:
     """Receive a WhatsApp message from Twilio. Returns immediately so Twilio never times out."""
+    logger.info("WEBHOOK HIT from=%r body_len=%d body_preview=%r", From, len(Body), Body[:100])
     sender = From.replace("whatsapp:", "").strip()
 
     owner_phone = os.environ.get("OWNER_PHONE", "").strip()
