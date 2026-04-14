@@ -1,7 +1,9 @@
+# agent/executor.py
 """
 Runs `claude -p "<prompt>"` as a subprocess and parses the output for
 special signals (APPROVAL_REQUIRED, TASK_COMPLETE, GUIDANCE_NEEDED).
 """
+import os
 import subprocess
 import logging
 from dataclasses import dataclass
@@ -24,8 +26,18 @@ class ExecutionResult:
 
 def run_task(command: str) -> ExecutionResult:
     """Run a dev task via Claude Code CLI and return the parsed result."""
-    context = build_context()
-    full_prompt = f"{context}\n{command}"
+    try:
+        context = build_context()
+    except Exception as exc:
+        return ExecutionResult(
+            raw_output="",
+            approval_required=None,
+            task_complete=None,
+            guidance_needed=None,
+            error=f"Failed to build context: {exc}",
+        )
+
+    full_prompt = f"{context}\n\n{command}"
 
     logger.info("Running claude -p for command: %r", command[:80])
 
@@ -33,14 +45,17 @@ def run_task(command: str) -> ExecutionResult:
         result = subprocess.run(
             ["claude", "-p", full_prompt, "--allowedTools", "all"],
             cwd=PROJECT_ROOT,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,  # merge stderr into stdout preserving order
             text=True,
             encoding="utf-8",
             errors="replace",
             timeout=1800,  # 30 min max per task
             env=_env_with_api_key(),
         )
-        output = result.stdout + result.stderr
+        output = result.stdout or ""
+        if result.returncode != 0:
+            logger.warning("claude exited with code %d", result.returncode)
     except subprocess.TimeoutExpired:
         return ExecutionResult(
             raw_output="",
@@ -62,27 +77,33 @@ def run_task(command: str) -> ExecutionResult:
 
 
 def _env_with_api_key() -> dict:
-    import os
     env = os.environ.copy()
     env["ANTHROPIC_API_KEY"] = ANTHROPIC_API_KEY
     return env
 
 
 def _parse_output(output: str) -> ExecutionResult:
+    """
+    Scan output for special signal lines. First-wins for all three signals.
+    GUIDANCE_NEEDED collects all content from its line to end of output.
+    """
     approval_required = None
     task_complete = None
     guidance_needed = None
 
-    for line in output.splitlines():
-        if line.startswith("APPROVAL_REQUIRED:"):
-            approval_required = line[len("APPROVAL_REQUIRED:"):].strip()
-        elif line.startswith("TASK_COMPLETE:"):
-            task_complete = line[len("TASK_COMPLETE:"):].strip()
-        elif line.startswith("GUIDANCE_NEEDED:"):
-            # Collect everything from here
-            idx = output.find("GUIDANCE_NEEDED:")
-            guidance_needed = output[idx + len("GUIDANCE_NEEDED:"):].strip()
-            break
+    lines = output.splitlines()
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("APPROVAL_REQUIRED:") and approval_required is None:
+            approval_required = stripped[len("APPROVAL_REQUIRED:"):].strip()
+        elif stripped.startswith("TASK_COMPLETE:") and task_complete is None:
+            task_complete = stripped[len("TASK_COMPLETE:"):].strip()
+        elif stripped.startswith("GUIDANCE_NEEDED:") and guidance_needed is None:
+            # Collect first line + all remaining lines as the guidance body
+            first_line = stripped[len("GUIDANCE_NEEDED:"):].strip()
+            rest = "\n".join(lines[i + 1:]).strip()
+            guidance_needed = f"{first_line}\n{rest}".strip() if rest else first_line
+            break  # GUIDANCE_NEEDED is terminal — stop parsing
 
     return ExecutionResult(
         raw_output=output,

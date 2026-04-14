@@ -1,3 +1,4 @@
+# agent/context.py
 """
 Builds the context preamble injected before every task prompt.
 Gives Claude Code full situational awareness of the project.
@@ -18,13 +19,33 @@ def _run(cmd: str) -> str:
         return "(unavailable)"
 
 
-def build_context() -> str:
-    branch = get_current_branch()
-    commits = get_recent_commits(n=5)
-    commits_str = "\n".join(f"  {c['hash']} {c['message']}" for c in commits)
+def _pytest_status() -> str:
+    """Run pytest and return last 5 lines of output. Windows-compatible."""
+    try:
+        result = subprocess.run(
+            ["python", "-m", "pytest", "tests/", "--tb=no", "-q"],
+            cwd=PROJECT_ROOT,
+            capture_output=True, text=True, timeout=60,
+        )
+        lines = (result.stdout + result.stderr).splitlines()
+        return "\n".join(lines[-5:]) or "(no output)"
+    except Exception:
+        return "(unavailable)"
 
-    # Check for failing tests
-    test_status = _run("python -m pytest tests/ --tb=no -q 2>&1 | tail -5")
+
+def build_context() -> str:
+    try:
+        branch = get_current_branch()
+    except RuntimeError:
+        branch = "(unavailable)"
+
+    try:
+        commits = get_recent_commits(n=5)
+    except RuntimeError:
+        commits = []
+
+    commits_str = "\n".join(f"  {c['hash']} {c['message']}" for c in commits) or "  (none)"
+    test_status = _pytest_status()
 
     return f"""
 === MAYA AI — Dev Agent Context ===
