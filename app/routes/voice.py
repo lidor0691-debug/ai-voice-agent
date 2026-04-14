@@ -23,6 +23,7 @@ from app.services.conversation import (
     get_or_create_session,
 )
 from app.services.lead import enrich_lead, format_sms_confirmation
+from app.services.lead_capture import save_lead
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/voice", tags=["Voice"])
@@ -102,6 +103,13 @@ async def gather_input(
 
         # Fire-and-forget integrations (errors are logged, not raised)
         await send_lead_to_make(enriched)
+        await save_lead({
+            "name": enriched.get("name"),
+            "phone": lead.phone_number,
+            "source": "voice",
+            "service": enriched.get("service"),
+            "status": "new",
+        })
         await send_sms(
             to=lead.phone_number,
             body=format_sms_confirmation(lead.name, lead.phone_number),
