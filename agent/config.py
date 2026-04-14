@@ -8,8 +8,8 @@ OWNER_PHONE: str = os.environ["OWNER_PHONE"]
 # Twilio credentials (already in .env)
 TWILIO_ACCOUNT_SID: str = os.environ["TWILIO_ACCOUNT_SID"]
 TWILIO_AUTH_TOKEN: str = os.environ["TWILIO_AUTH_TOKEN"]
-# The Twilio number used to SEND messages back to the owner
-TWILIO_PHONE_NUMBER: str = os.environ["TWILIO_PHONE_NUMBER"]
+# The WhatsApp Sandbox number used to SEND messages to the owner (agent-specific)
+AGENT_WHATSAPP_FROM: str = os.environ["AGENT_WHATSAPP_FROM"]
 
 # Anthropic API key (for claude CLI)
 ANTHROPIC_API_KEY: str = os.environ["ANTHROPIC_API_KEY"]

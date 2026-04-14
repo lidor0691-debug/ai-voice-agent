@@ -5,7 +5,7 @@ from twilio.rest import Client
 from agent.config import (
     TWILIO_ACCOUNT_SID,
     TWILIO_AUTH_TOKEN,
-    TWILIO_PHONE_NUMBER,
+    AGENT_WHATSAPP_FROM,
     OWNER_PHONE,
 )
 
@@ -20,7 +20,7 @@ def send_to_owner(message: str) -> None:
     try:
         client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
         msg = client.messages.create(
-            from_=f"whatsapp:{TWILIO_PHONE_NUMBER}",
+            from_=f"whatsapp:{AGENT_WHATSAPP_FROM}",
             to=f"whatsapp:{OWNER_PHONE}",
             body=message,
         )

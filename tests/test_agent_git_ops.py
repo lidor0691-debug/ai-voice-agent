@@ -4,6 +4,7 @@ os.environ.setdefault("OWNER_PHONE", "+972500000000")
 os.environ.setdefault("TWILIO_ACCOUNT_SID", "AC_test")
 os.environ.setdefault("TWILIO_AUTH_TOKEN", "token_test")
 os.environ.setdefault("TWILIO_PHONE_NUMBER", "+1234567890")
+os.environ.setdefault("AGENT_WHATSAPP_FROM", "+14155238886")
 os.environ.setdefault("ANTHROPIC_API_KEY", "sk-test")
 
 from agent.git_ops import get_diff_summary, get_recent_commits, get_current_branch
