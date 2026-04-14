@@ -1,7 +1,9 @@
 export const dynamic = "force-dynamic";
 
+import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { LeadsClientPage } from "./LeadsClientPage";
-import type { LeadsApiResponse } from "@/types/lead";
+import { computeLeadsStats } from "@/lib/leads-stats";
+import type { LeadsApiResponse, SupabaseLead } from "@/types/lead";
 
 const EMPTY: LeadsApiResponse = {
   leads: [],
@@ -9,35 +11,29 @@ const EMPTY: LeadsApiResponse = {
 };
 
 export default async function LeadsPage() {
+  const supabase = await createSupabaseServerClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  const clientId = user?.user_metadata?.client_id as string | undefined;
+
+  if (!clientId) {
+    return <LeadsClientPage data={EMPTY} />;
+  }
+
   let data: LeadsApiResponse = EMPTY;
 
   try {
-    const { supabase } = await import("@/lib/supabase");
-
     const { data: rows, error } = await supabase
       .from("leads")
       .select("*")
+      .eq("client_id", clientId)
       .order("created_at", { ascending: false })
       .limit(200);
 
     if (error) throw error;
 
-    const leads = rows ?? [];
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const todayISO = todayStart.toISOString();
-
-    data = {
-      leads,
-      stats: {
-        total: leads.length,
-        today: leads.filter((l: { created_at: string }) => l.created_at >= todayISO).length,
-        new: leads.filter((l: { status: string }) => l.status === "new").length,
-        contacted: leads.filter((l: { status: string }) => l.status === "contacted").length,
-        voice: leads.filter((l: { source: string }) => l.source === "voice").length,
-        whatsapp: leads.filter((l: { source: string }) => l.source === "whatsapp").length,
-      },
-    };
+    const leads = (rows ?? []) as SupabaseLead[];
+    data = { leads, stats: computeLeadsStats(leads) };
   } catch (err) {
     console.error("[LeadsPage] Failed to fetch leads:", err);
   }
