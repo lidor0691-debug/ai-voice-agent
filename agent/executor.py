@@ -37,7 +37,7 @@ def run_task(command: str) -> ExecutionResult:
             error=f"Failed to build context: {exc}",
         )
 
-    full_prompt = f"{context}\n\n{command}"
+    full_prompt = f"{context}\n\n{command}\n\n(חשוב: ענה בעברית בלבד)"
 
     logger.info("Running claude -p for command: %r", command[:80])
 
@@ -64,6 +64,46 @@ def run_task(command: str) -> ExecutionResult:
             task_complete=None,
             guidance_needed=None,
             error="Task timed out after 30 minutes",
+        )
+    except FileNotFoundError as exc:
+        return ExecutionResult(
+            raw_output="",
+            approval_required=None,
+            task_complete=None,
+            guidance_needed=None,
+            error=str(exc),
+        )
+
+    return _parse_output(output)
+
+
+def run_conversation_turn(full_prompt: str) -> ExecutionResult:
+    """Run a single conversation turn with a pre-built prompt (history included)."""
+    logger.info("Running conversation turn, prompt length=%d", len(full_prompt))
+
+    try:
+        claude_cmd = _find_claude()
+        result = subprocess.run(
+            [claude_cmd, "-p", full_prompt, "--allowedTools", "all"],
+            cwd=PROJECT_ROOT,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=1800,
+            env=_env_with_api_key(),
+        )
+        output = result.stdout or ""
+        if result.returncode != 0:
+            logger.warning("claude exited with code %d", result.returncode)
+    except subprocess.TimeoutExpired:
+        return ExecutionResult(
+            raw_output="",
+            approval_required=None,
+            task_complete=None,
+            guidance_needed=None,
+            error="תפג הזמן אחרי 30 דקות",
         )
     except FileNotFoundError as exc:
         return ExecutionResult(
