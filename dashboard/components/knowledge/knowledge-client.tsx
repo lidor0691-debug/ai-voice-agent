@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Plus, Pencil, Trash2, X, Check } from "lucide-react";
 import { KnowledgeItem } from "@/types/database";
+import { useLanguage } from "@/context/language-context";
 
 interface AgentRef {
   id: string;
@@ -72,6 +73,7 @@ export function KnowledgeClient({ agents, initialItems }: Props) {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { t } = useLanguage();
 
   const set = (k: keyof FormState, v: unknown) =>
     setForm((p) => ({ ...p, [k]: v }));
@@ -106,7 +108,7 @@ export function KnowledgeClient({ agents, initialItems }: Props) {
 
   const handleSave = async () => {
     if (!form.agent_id || !form.title.trim() || !form.content.trim()) {
-      setError("Agent, title, and content are required.");
+      setError(t.required_fields_error);
       return;
     }
     setSaving(true);
@@ -141,7 +143,7 @@ export function KnowledgeClient({ agents, initialItems }: Props) {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Delete this knowledge item?")) return;
+    if (!confirm(t.delete_knowledge_confirm)) return;
     const res = await fetch(`/api/knowledge/${id}`, { method: "DELETE" });
     if (res.ok) setItems((prev) => prev.filter((i) => i.id !== id));
   };
@@ -163,9 +165,9 @@ export function KnowledgeClient({ agents, initialItems }: Props) {
       {/* Header */}
       <div className="sticky top-0 z-10 bg-surface-0/80 backdrop-blur border-b border-border px-8 py-4 flex items-center justify-between">
         <div>
-          <h1 className="text-white font-semibold text-lg">Knowledge Base</h1>
+          <h1 className="text-white font-semibold text-lg">{t.page_knowledge_title}</h1>
           <p className="text-gray-500 text-sm mt-0.5">
-            {filtered.length} item{filtered.length !== 1 ? "s" : ""}
+            {filtered.length} {filtered.length !== 1 ? t.knowledge_item_plural : t.knowledge_item_singular}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -174,7 +176,7 @@ export function KnowledgeClient({ agents, initialItems }: Props) {
             onChange={(e) => setFilterAgent(e.target.value)}
             className="bg-surface-2 border border-border rounded-lg px-3 py-2 text-sm text-gray-300 focus:outline-none focus:ring-1 focus:ring-brand-600"
           >
-            <option value="">All agents</option>
+            <option value="">{t.all_agents_option}</option>
             {agents.map((a) => (
               <option key={a.id} value={a.id}>
                 {a.agent_name}
@@ -186,7 +188,7 @@ export function KnowledgeClient({ agents, initialItems }: Props) {
             className="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
           >
             <Plus className="w-4 h-4" />
-            Add Item
+            {t.add_item_btn}
           </button>
         </div>
       </div>
@@ -197,7 +199,7 @@ export function KnowledgeClient({ agents, initialItems }: Props) {
           <div className="bg-surface-2 border border-brand-600/30 rounded-xl p-6 mb-6 space-y-4">
             <div className="flex items-center justify-between mb-2">
               <h2 className="text-white font-medium text-sm">
-                {editingId ? "Edit Item" : "New Knowledge Item"}
+                {editingId ? t.edit_item_title : t.new_item_title}
               </h2>
               <button onClick={() => setShowForm(false)}>
                 <X className="w-4 h-4 text-gray-500 hover:text-white" />
@@ -212,7 +214,7 @@ export function KnowledgeClient({ agents, initialItems }: Props) {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-xs text-gray-400 block mb-1">Agent *</label>
+                <label className="text-xs text-gray-400 block mb-1">{t.field_agent}</label>
                 <Select
                   value={form.agent_id}
                   onChange={(e) => set("agent_id", e.target.value)}
@@ -220,9 +222,9 @@ export function KnowledgeClient({ agents, initialItems }: Props) {
                 />
               </div>
               <div>
-                <label className="text-xs text-gray-400 block mb-1">Category</label>
+                <label className="text-xs text-gray-400 block mb-1">{t.field_category}</label>
                 <Input
-                  placeholder="e.g. Pricing, FAQ, Hours"
+                  placeholder={t.category_placeholder}
                   value={form.category}
                   onChange={(e) => set("category", e.target.value)}
                 />
@@ -230,19 +232,19 @@ export function KnowledgeClient({ agents, initialItems }: Props) {
             </div>
 
             <div>
-              <label className="text-xs text-gray-400 block mb-1">Title *</label>
+              <label className="text-xs text-gray-400 block mb-1">{t.field_title}</label>
               <Input
-                placeholder="Short descriptive title"
+                placeholder={t.title_placeholder}
                 value={form.title}
                 onChange={(e) => set("title", e.target.value)}
               />
             </div>
 
             <div>
-              <label className="text-xs text-gray-400 block mb-1">Content *</label>
+              <label className="text-xs text-gray-400 block mb-1">{t.field_content}</label>
               <textarea
                 rows={4}
-                placeholder="The knowledge content the agent will use…"
+                placeholder={t.content_placeholder}
                 value={form.content}
                 onChange={(e) => set("content", e.target.value)}
                 className="w-full bg-surface-3 border border-border rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-brand-600 resize-none transition-colors"
@@ -252,7 +254,7 @@ export function KnowledgeClient({ agents, initialItems }: Props) {
             <div className="grid grid-cols-2 gap-4 items-end">
               <div>
                 <label className="text-xs text-gray-400 block mb-1">
-                  Priority (1–10)
+                  {t.field_priority}
                 </label>
                 <Input
                   type="number"
@@ -275,7 +277,7 @@ export function KnowledgeClient({ agents, initialItems }: Props) {
                     }`}
                   />
                 </div>
-                <span className="text-sm text-gray-300">Active</span>
+                <span className="text-sm text-gray-300">{t.field_active}</span>
               </label>
             </div>
 
@@ -286,13 +288,13 @@ export function KnowledgeClient({ agents, initialItems }: Props) {
                 className="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
               >
                 <Check className="w-3.5 h-3.5" />
-                {saving ? "Saving…" : "Save"}
+                {saving ? t.saving : t.save}
               </button>
               <button
                 onClick={() => setShowForm(false)}
                 className="text-gray-400 hover:text-white text-sm px-4 py-2 rounded-lg border border-border hover:bg-surface-3 transition-colors"
               >
-                Cancel
+                {t.cancel}
               </button>
             </div>
           </div>
@@ -301,15 +303,15 @@ export function KnowledgeClient({ agents, initialItems }: Props) {
         {/* Empty state */}
         {filtered.length === 0 && !showForm && (
           <div className="flex flex-col items-center justify-center py-24 text-center">
-            <p className="text-white font-medium">No knowledge items</p>
+            <p className="text-white font-medium">{t.no_knowledge_title}</p>
             <p className="text-gray-500 text-sm mt-1 mb-6">
-              Add knowledge items to teach your agents what to say
+              {t.no_knowledge_desc}
             </p>
             <button
               onClick={openCreate}
               className="bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
             >
-              Add First Item
+              {t.add_first_item_btn}
             </button>
           </div>
         )}
@@ -320,11 +322,11 @@ export function KnowledgeClient({ agents, initialItems }: Props) {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-border">
-                  <th className="text-left text-xs text-gray-500 font-medium px-5 py-3">Title</th>
-                  <th className="text-left text-xs text-gray-500 font-medium px-4 py-3">Agent</th>
-                  <th className="text-left text-xs text-gray-500 font-medium px-4 py-3">Category</th>
-                  <th className="text-left text-xs text-gray-500 font-medium px-4 py-3">Priority</th>
-                  <th className="text-left text-xs text-gray-500 font-medium px-4 py-3">Status</th>
+                  <th className="text-left text-xs text-gray-500 font-medium px-5 py-3">{t.col_title}</th>
+                  <th className="text-left text-xs text-gray-500 font-medium px-4 py-3">{t.col_agent}</th>
+                  <th className="text-left text-xs text-gray-500 font-medium px-4 py-3">{t.field_category}</th>
+                  <th className="text-left text-xs text-gray-500 font-medium px-4 py-3">{t.col_priority}</th>
+                  <th className="text-left text-xs text-gray-500 font-medium px-4 py-3">{t.col_status}</th>
                   <th className="px-4 py-3" />
                 </tr>
               </thead>
@@ -362,7 +364,7 @@ export function KnowledgeClient({ agents, initialItems }: Props) {
                               : "bg-gray-500/10 text-gray-500"
                           }`}
                         >
-                          {item.is_active ? "Active" : "Inactive"}
+                          {item.is_active ? t.status_active_badge : t.status_inactive_badge}
                         </span>
                       </button>
                     </td>
