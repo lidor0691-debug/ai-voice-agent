@@ -86,8 +86,8 @@ def _process_task(q: TaskQueue, task_id: str, command: str, attempt: int):
             f"{diff[:800]}\n\n"
             f"Reply כן to push+deploy, or לא to cancel."
         )
-        q.set_awaiting_approval(task_id)
         approval_id = q.create_approval(task_id, action="push", summary=result.approval_required)
+        q.set_awaiting_approval(task_id)
         send_to_owner(approval_msg)
 
         # Wait for approval
