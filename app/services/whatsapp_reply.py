@@ -22,6 +22,7 @@ from typing import Optional
 import httpx
 
 from app.services.agent_config import get_whatsapp_agent_config
+from app.services.lead_capture import save_lead
 from app.services.whatsapp_history import append_whatsapp_messages, _load_row, _normalize_messages
 
 logger = logging.getLogger(__name__)
@@ -200,6 +201,13 @@ async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: st
         print("DEBUG history lookup using customer_phone:", repr(customer_phone), flush=True)
         row = await _load_row(customer_phone)
         history = _normalize_messages(row.get("messages_json") if row else None)
+        # First message from this phone — save as a new lead
+        if row is None:
+            await save_lead({
+                "phone": customer_phone,
+                "source": "whatsapp",
+                "status": "new",
+            })
     except Exception as exc:
         return {"reply": strict_sanitize(f"DIAG_STEP3_FAIL: {exc}"), "messages": []}
 
