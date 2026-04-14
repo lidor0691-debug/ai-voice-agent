@@ -33,8 +33,8 @@ async def agent_command(
     # Twilio sends From as "whatsapp:+972..."
     sender = From.replace("whatsapp:", "").strip()
 
-    owner_phone = os.environ.get("OWNER_PHONE", "")
-    if sender != owner_phone:
+    owner_phone = os.environ.get("OWNER_PHONE", "").strip()
+    if sender.lstrip("+") != owner_phone.lstrip("+"):
         logger.warning("Ignored message from unknown sender: %s", sender)
         return Response(content="<Response/>", media_type="application/xml")
 
