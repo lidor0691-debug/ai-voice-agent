@@ -8,11 +8,11 @@ Incoming approvals (כן/לא) resolve pending approvals in the queue.
 All other messages are enqueued as tasks for the daemon.
 """
 import logging
+import os
 from functools import lru_cache
 
 from fastapi import APIRouter, Form, Response
 
-from agent.config import OWNER_PHONE
 from agent.queue import TaskQueue
 
 logger = logging.getLogger(__name__)
@@ -33,7 +33,8 @@ async def agent_command(
     # Twilio sends From as "whatsapp:+972..."
     sender = From.replace("whatsapp:", "").strip()
 
-    if sender != OWNER_PHONE:
+    owner_phone = os.environ.get("OWNER_PHONE", "")
+    if sender != owner_phone:
         logger.warning("Ignored message from unknown sender: %s", sender)
         return Response(content="<Response/>", media_type="application/xml")
 
