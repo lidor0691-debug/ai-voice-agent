@@ -10,7 +10,7 @@ from agent.config import (
 )
 
 logger = logging.getLogger(__name__)
-_MAX_MSG_LEN = 1600
+_MAX_MSG_LEN = 1400
 
 
 def send_to_owner(message: str) -> None:
