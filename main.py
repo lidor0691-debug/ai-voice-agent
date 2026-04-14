@@ -31,6 +31,18 @@ logging.basicConfig(
     force=True,   # removes any handler already registered (including uvicorn's)
 )
 
+# Silence httpx INFO logs — they can contain \u2028 from OpenAI response content
+# and uvicorn sets propagate=False on its own loggers so our root filter won't reach them.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
+# Force our UTF-8 filter onto uvicorn's loggers (they use propagate=False + own handlers)
+for _uv_logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+    _uv_logger = logging.getLogger(_uv_logger_name)
+    for _h in _uv_logger.handlers:
+        _h.addFilter(_UnicodeSafeFilter())
+        if hasattr(_h, "stream"):
+            _h.stream = sys.stdout
+
 print("WHATSAPP_REPLY_ASCII_FIX_5079D2B", flush=True)
 
 from dotenv import load_dotenv
