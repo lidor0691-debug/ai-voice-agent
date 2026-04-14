@@ -1,11 +1,22 @@
 import { NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { computeLeadsStats } from "@/lib/leads-stats";
 import type { SupabaseLead, LeadsApiResponse } from "@/types/lead";
 
 export async function GET(): Promise<NextResponse<LeadsApiResponse | { error: string }>> {
+  const supabase = await createSupabaseServerClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  const clientId = user?.user_metadata?.client_id as string | undefined;
+
+  if (!clientId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const { data, error } = await supabase
     .from("leads")
     .select("*")
+    .eq("client_id", clientId)
     .order("created_at", { ascending: false })
     .limit(200);
 
@@ -15,19 +26,5 @@ export async function GET(): Promise<NextResponse<LeadsApiResponse | { error: st
   }
 
   const leads = (data ?? []) as SupabaseLead[];
-
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
-  const todayISO = todayStart.toISOString();
-
-  const stats = {
-    total: leads.length,
-    today: leads.filter((l) => l.created_at >= todayISO).length,
-    new: leads.filter((l) => l.status === "new").length,
-    contacted: leads.filter((l) => l.status === "contacted").length,
-    voice: leads.filter((l) => l.source === "voice").length,
-    whatsapp: leads.filter((l) => l.source === "whatsapp").length,
-  };
-
-  return NextResponse.json({ leads, stats });
+  return NextResponse.json({ leads, stats: computeLeadsStats(leads) });
 }
