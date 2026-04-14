@@ -1,37 +1,33 @@
 import { NextResponse } from "next/server";
+import { supabase } from "@/lib/supabase";
+import type { SupabaseLead, LeadsApiResponse } from "@/types/lead";
 
-const BACKEND_URL =
-  process.env.API_BASE_URL || "http://localhost:8000";
+export async function GET(): Promise<NextResponse<LeadsApiResponse | { error: string }>> {
+  const { data, error } = await supabase
+    .from("leads")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(200);
 
-/**
- * GET /api/leads
- * Proxies the FastAPI /leads endpoint.
- * Used by client components that need to fetch leads from the browser.
- */
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const params = new URLSearchParams();
-  if (searchParams.get("status")) params.set("status", searchParams.get("status")!);
-  if (searchParams.get("intent")) params.set("intent", searchParams.get("intent")!);
-
-  const query = params.toString() ? `?${params}` : "";
-
-  try {
-    const res = await fetch(`${BACKEND_URL}/leads${query}`, {
-      next: { revalidate: 60 },
-    });
-
-    if (!res.ok) {
-      throw new Error(`Backend responded with ${res.status}`);
-    }
-
-    const data = await res.json();
-    return NextResponse.json(data);
-  } catch (err) {
-    console.error("[/api/leads] Backend unavailable:", err);
-    return NextResponse.json(
-      { error: "Backend unavailable", leads: [], total: 0 },
-      { status: 503 }
-    );
+  if (error) {
+    console.error("[/api/leads] Supabase error:", error.message);
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
+
+  const leads = (data ?? []) as SupabaseLead[];
+
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const todayISO = todayStart.toISOString();
+
+  const stats = {
+    total: leads.length,
+    today: leads.filter((l) => l.created_at >= todayISO).length,
+    new: leads.filter((l) => l.status === "new").length,
+    contacted: leads.filter((l) => l.status === "contacted").length,
+    voice: leads.filter((l) => l.source === "voice").length,
+    whatsapp: leads.filter((l) => l.source === "whatsapp").length,
+  };
+
+  return NextResponse.json({ leads, stats });
 }
