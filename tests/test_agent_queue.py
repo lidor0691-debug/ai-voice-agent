@@ -1,5 +1,5 @@
 # tests/test_agent_queue.py
-import os, tempfile, pytest
+import os, pytest
 os.environ.setdefault("OWNER_PHONE", "+972500000000")
 os.environ.setdefault("TWILIO_ACCOUNT_SID", "AC_test")
 os.environ.setdefault("TWILIO_AUTH_TOKEN", "token_test")
