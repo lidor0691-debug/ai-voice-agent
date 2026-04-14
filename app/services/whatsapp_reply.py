@@ -69,6 +69,19 @@ def _sanitize(text: str) -> str:
     return text.replace("\u2028", "\n").replace("\u2029", "\n")
 
 
+def strict_sanitize(text: str) -> str:
+    """Guarantee no \u2028/\u2029 leaves the API — applied to every outbound string."""
+    if not text:
+        return ""
+    return (
+        str(text)
+        .replace("\u2028", "\n")
+        .replace("\u2029", "\n")
+        .encode("utf-8", errors="replace")
+        .decode("utf-8")
+    )
+
+
 async def _call_openai(messages: list[dict]) -> str:
     """
     Call OpenAI Chat Completions and return the assistant reply text.
@@ -112,8 +125,10 @@ async def generate_whatsapp_reply(phone: str, user_message: str) -> dict:
     except Exception as exc:
         import traceback
         traceback.print_exc()
-        safe_err = str(exc).encode("ascii", errors="replace").decode("ascii")
-        return {"reply": f"ERROR: {safe_err}", "messages": []}
+        return {
+            "reply": strict_sanitize(f"ERROR: {exc}"),
+            "messages": [],
+        }
 
 
 async def _generate_whatsapp_reply_inner(phone: str, user_message: str) -> dict:
@@ -164,4 +179,10 @@ async def _generate_whatsapp_reply_inner(phone: str, user_message: str) -> dict:
             {"role": "assistant", "content": reply},
         ]
 
-    return {"reply": reply, "messages": updated_messages}
+    return {
+        "reply": strict_sanitize(reply),
+        "messages": [
+            {"role": m["role"], "content": strict_sanitize(m.get("content") or "")}
+            for m in updated_messages
+        ],
+    }
