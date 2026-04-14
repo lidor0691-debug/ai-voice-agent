@@ -26,7 +26,15 @@ from app.services.whatsapp_history import append_whatsapp_messages, _load_row, _
 
 logger = logging.getLogger(__name__)
 
-_OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+_raw_key = os.getenv("OPENAI_API_KEY", "")
+_OPENAI_API_KEY = (
+    _raw_key.strip()
+    .replace("\u2028", "")
+    .replace("\u2029", "")
+    .replace("\r", "")
+    .replace("\n", "")
+)
+logger.info("[KEY DIAG] raw_key[:5]=%r clean_key[:5]=%r", _raw_key[:5], _OPENAI_API_KEY[:5])
 _OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions"
 _MODEL = "gpt-4o"
 
