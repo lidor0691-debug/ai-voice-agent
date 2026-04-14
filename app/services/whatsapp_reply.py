@@ -108,10 +108,12 @@ async def _call_openai(messages: list[dict]) -> str:
     except Exception as exc:
         raise RuntimeError(f"DIAG_STEP5D_FAIL: {exc}") from exc
 
-    # STEP5E: HTTP request using serialized body (not json=payload)
+    # STEP5E: HTTP request — raw ASCII bytes, minimal httpx config, no logging
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(_OPENAI_CHAT_URL, content=body, headers=headers)
+        body_bytes = body.encode("ascii", errors="ignore")
+        headers["Content-Type"] = "application/json; charset=ascii"
+        async with httpx.AsyncClient(timeout=30.0, http2=False, trust_env=False) as client:
+            resp = await client.post(_OPENAI_CHAT_URL, content=body_bytes, headers=headers)
             resp.raise_for_status()
     except RuntimeError:
         raise
