@@ -32,11 +32,6 @@ _MODEL = "gpt-4o"
 
 
 def _build_system_message(agent: dict) -> str:
-    """
-    Build the system message from the agent config fields.
-    Combines system_prompt (base business identity) with WhatsApp-specific
-    behavior controls (goal, required_fields, rules).
-    """
     parts: list[str] = []
 
     system_prompt = (agent.get("system_prompt") or "").strip()
@@ -70,7 +65,7 @@ def _sanitize(text: str) -> str:
 
 
 def strict_sanitize(text: str) -> str:
-    """Guarantee no \u2028/\u2029 leaves the API — applied to every outbound string."""
+    """Guarantee no \\u2028/\\u2029 leaves the API — applied to every outbound string."""
     if not text:
         return ""
     return (
@@ -83,11 +78,6 @@ def strict_sanitize(text: str) -> str:
 
 
 async def _call_openai(messages: list[dict]) -> str:
-    """
-    Call OpenAI Chat Completions and return the assistant reply text.
-    Raises on HTTP or API error.
-    """
-    # Sanitize all message content before sending
     clean_messages = [
         {**msg, "content": _sanitize(msg["content"])} if isinstance(msg.get("content"), str) else msg
         for msg in messages
@@ -108,20 +98,6 @@ async def _call_openai(messages: list[dict]) -> str:
 
 
 async def generate_whatsapp_reply(phone: str, user_message: str) -> dict:
-    return {"reply": "WA_BACKEND_OK_TEST", "messages": []}  # TEMP DIAGNOSTIC — remove after test
-    # fmt: skip
-    """
-    Full pipeline:
-    1. Load agent config by whatsapp_number (falls back to phone_number)
-    2. Build system message from config
-    3. Load + normalize conversation history
-    4. Call OpenAI with [system, ...history, user_message]
-    5. Persist updated history (user + assistant turns)
-    6. Return {"reply": str, "messages": list}
-
-    Never raises — returns an error reply string on failure so Make
-    always gets a usable response.
-    """
     try:
         return await _generate_whatsapp_reply_inner(phone, user_message)
     except Exception as exc:
@@ -134,48 +110,47 @@ async def generate_whatsapp_reply(phone: str, user_message: str) -> dict:
 
 
 async def _generate_whatsapp_reply_inner(phone: str, user_message: str) -> dict:
-    # Sanitize input — WhatsApp messages can contain Unicode line separators
     user_message = _sanitize(user_message)
 
     # ── 1. Load agent config ──────────────────────────────────────────────────
-    agent = await get_whatsapp_agent_config(phone)
+    try:
+        agent = await get_whatsapp_agent_config(phone)
+    except Exception as exc:
+        return {"reply": strict_sanitize(f"DIAG_STEP1_FAIL: {exc}"), "messages": []}
+
     if agent is None:
-        logger.warning("[WA REPLY] No agent config found for %s", phone)
         agent = {}
     else:
-        # Sanitize all string fields in agent config at the source so nothing
-        # downstream (logging, OpenAI, httpx) sees raw \u2028/\u2029 chars.
-        agent = {
-            k: _sanitize(v) if isinstance(v, str) else v
-            for k, v in agent.items()
-        }
+        agent = {k: _sanitize(v) if isinstance(v, str) else v for k, v in agent.items()}
 
     # ── 2. Build system message ───────────────────────────────────────────────
-    system_content = _build_system_message(agent)
+    try:
+        system_content = _build_system_message(agent)
+    except Exception as exc:
+        return {"reply": strict_sanitize(f"DIAG_STEP2_FAIL: {exc}"), "messages": []}
 
     # ── 3. Load history ───────────────────────────────────────────────────────
     try:
         row = await _load_row(phone)
         history = _normalize_messages(row.get("messages_json") if row else None)
     except Exception as exc:
-        logger.error("[WA REPLY] Failed to load history for %s: %s", phone, exc)
-        history = []
+        return {"reply": strict_sanitize(f"DIAG_STEP3_FAIL: {exc}"), "messages": []}
 
-    # ── 4. Assemble OpenAI messages array ────────────────────────────────────
+    # ── 4+5. Call OpenAI ──────────────────────────────────────────────────────
     openai_messages = (
         [{"role": "system", "content": system_content}]
         + history
         + [{"role": "user", "content": user_message}]
     )
-
-    # ── 5. Call OpenAI ────────────────────────────────────────────────────────
-    reply = _sanitize(await _call_openai(openai_messages))
+    try:
+        reply = _sanitize(await _call_openai(openai_messages))
+    except Exception as exc:
+        return {"reply": strict_sanitize(f"DIAG_STEP5_FAIL: {exc}"), "messages": []}
 
     # ── 6. Persist updated history ────────────────────────────────────────────
     try:
         updated_messages = await append_whatsapp_messages(phone, user_message, reply)
     except Exception as exc:
-        logger.error("[WA REPLY] Failed to persist history for %s: %s", phone, exc)
         updated_messages = history + [
             {"role": "user",      "content": user_message},
             {"role": "assistant", "content": reply},
