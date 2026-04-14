@@ -503,14 +503,7 @@ export function AgentForm({ initial, agentId }: Props) {
             >
               <Textarea
                 rows={10}
-                placeholder={`אתה מאיה, נציגת שירות של סטודיו BPM. המטרה שלך היא לברך לקוחות, לספר להם על השיעורים, ולקבל את הפרטים שלהם.
-
-שאלי תמיד:
-- מה השם המלא שלהם
-- מספר הטלפון
-- איזה סוג שיעור מעניין אותם
-
-בסוף השיחה — סכמי את הפרטים ושאלי אם הם רוצים שניצור איתם קשר.`}
+                placeholder={t.af_system_prompt_placeholder}
                 value={form.system_prompt ?? ""}
                 onChange={(e) => set("system_prompt", e.target.value)}
               />
@@ -693,7 +686,7 @@ export function AgentForm({ initial, agentId }: Props) {
               {!form.whatsapp_enabled && (
                 <div className="rounded-lg bg-surface-3/50 border border-border/50 px-4 py-3">
                   <p className="text-xs text-gray-600 leading-relaxed">
-                    כאשר תפעיל את ערוץ הוואטסאפ, מאיה תוכל לשלוח הודעת מעקב לאחר כל שיחה ולהמשיך את השיחה דרך וואטסאפ — כאילו היא אותה נציגה.
+                    {t.af_wa_disabled_hint}
                   </p>
                 </div>
               )}
