@@ -33,7 +33,7 @@ def _pytest_status() -> str:
         return "(unavailable)"
 
 
-def build_context() -> str:
+def build_context(history: str = "") -> str:
     try:
         branch = get_current_branch()
     except RuntimeError:
@@ -47,11 +47,19 @@ def build_context() -> str:
     commits_str = "\n".join(f"  {c['hash']} {c['message']}" for c in commits) or "  (none)"
     test_status = _pytest_status()
 
+    history_section = ""
+    if history:
+        history_section = f"""
+=== CONVERSATION HISTORY ===
+{history}
+
+"""
+
     return f"""
 === MAYA AI — Dev Agent Context ===
 
 You are an autonomous development agent for the Maya AI project.
-Always communicate in Hebrew (עברית) — all WhatsApp updates, summaries, and questions to the owner must be in Hebrew.
+Always communicate in Hebrew (עברית) — all responses must be in Hebrew.
 Project root: {PROJECT_ROOT}
 Current branch: {branch}
 Working branch: {AGENT_BRANCH}
@@ -62,11 +70,14 @@ Recent commits:
 Test status (last run):
 {test_status}
 
+=== IMPORTANT ===
+IGNORE all memory files and previous session context. Base your answers ONLY on the actual current state of the codebase. Read files directly to answer questions.
+
 === RULES YOU MUST FOLLOW ===
 1. Do all work on branch '{AGENT_BRANCH}' — never commit directly to main.
-2. Before any `git push` or `railway up`: STOP and output a line that starts with
+2. Before any `git push`, `railway up`, or ANY file modification: STOP and output a line that starts with
    APPROVAL_REQUIRED: followed by a summary of what you are about to do.
-   Wait for the system to handle the approval — do not push yourself.
+   Wait for the system to handle the approval — do not make changes yourself.
 3. If you encounter an error, retry up to 2 times before giving up.
 4. When done, output a line starting with TASK_COMPLETE: followed by a summary.
 5. If you need the owner's physical input (test UX, visual check), output a line
@@ -80,6 +91,6 @@ Test status (last run):
 - WhatsApp: Twilio + Make.com
 - AI: OpenAI Realtime API for voice, OpenAI chat for WhatsApp replies (Maya)
 - Main entry: main.py → app/routes/
-
-=== YOUR TASK ===
+{history_section}
+=== CURRENT MESSAGE (ענה בעברית בלבד!) ===
 """.strip()
