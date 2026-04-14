@@ -79,6 +79,10 @@ def run_task(command: str) -> ExecutionResult:
 def _env_with_api_key() -> dict:
     env = os.environ.copy()
     env["ANTHROPIC_API_KEY"] = ANTHROPIC_API_KEY
+    # Ensure npm global binaries (claude) are in PATH on Windows
+    npm_path = os.path.join(os.environ.get("APPDATA", ""), "npm")
+    if npm_path not in env.get("PATH", ""):
+        env["PATH"] = npm_path + os.pathsep + env.get("PATH", "")
     return env
 
 
