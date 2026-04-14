@@ -42,8 +42,9 @@ def run_task(command: str) -> ExecutionResult:
     logger.info("Running claude -p for command: %r", command[:80])
 
     try:
+        claude_cmd = _find_claude()
         result = subprocess.run(
-            ["claude", "-p", full_prompt, "--allowedTools", "all"],
+            [claude_cmd, "-p", full_prompt, "--allowedTools", "all"],
             cwd=PROJECT_ROOT,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,  # merge stderr into stdout preserving order
@@ -64,16 +65,36 @@ def run_task(command: str) -> ExecutionResult:
             guidance_needed=None,
             error="Task timed out after 30 minutes",
         )
-    except FileNotFoundError:
+    except FileNotFoundError as exc:
         return ExecutionResult(
             raw_output="",
             approval_required=None,
             task_complete=None,
             guidance_needed=None,
-            error="Claude CLI not found. Is 'claude' in PATH?",
+            error=str(exc),
         )
 
     return _parse_output(output)
+
+
+def _find_claude() -> str:
+    """Return the full path to the claude CLI executable."""
+    import shutil
+    # Try PATH first
+    found = shutil.which("claude")
+    if found:
+        return found
+    # Windows npm global default location
+    appdata = os.environ.get("APPDATA", "")
+    candidates = [
+        os.path.join(appdata, "npm", "claude.cmd"),
+        os.path.join(appdata, "npm", "claude"),
+        r"C:\Users\lidor\AppData\Roaming\npm\claude.cmd",
+    ]
+    for c in candidates:
+        if os.path.exists(c):
+            return c
+    raise FileNotFoundError("Claude CLI not found. Is 'claude' in PATH?")
 
 
 def _env_with_api_key() -> dict:
