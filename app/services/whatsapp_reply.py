@@ -78,23 +78,57 @@ def strict_sanitize(text: str) -> str:
 
 
 async def _call_openai(messages: list[dict]) -> str:
-    clean_messages = [
-        {**msg, "content": _sanitize(msg["content"])} if isinstance(msg.get("content"), str) else msg
-        for msg in messages
-    ]
-    headers = {
-        "Authorization": f"Bearer {_OPENAI_API_KEY}",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "model": _MODEL,
-        "messages": clean_messages,
-    }
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.post(_OPENAI_CHAT_URL, json=payload, headers=headers)
-        resp.raise_for_status()
+    # STEP5A: build clean_messages
+    try:
+        clean_messages = [
+            {**msg, "content": _sanitize(msg["content"])} if isinstance(msg.get("content"), str) else msg
+            for msg in messages
+        ]
+    except Exception as exc:
+        raise RuntimeError(f"DIAG_STEP5A_FAIL: {exc}") from exc
+
+    # STEP5B: build headers
+    try:
+        headers = {
+            "Authorization": f"Bearer {_OPENAI_API_KEY}",
+            "Content-Type": "application/json",
+        }
+    except Exception as exc:
+        raise RuntimeError(f"DIAG_STEP5B_FAIL: {exc}") from exc
+
+    # STEP5C: build payload dict
+    try:
+        payload = {"model": _MODEL, "messages": clean_messages}
+    except Exception as exc:
+        raise RuntimeError(f"DIAG_STEP5C_FAIL: {exc}") from exc
+
+    # STEP5D: serialize to ASCII-safe JSON string
+    try:
+        body = json.dumps(payload, ensure_ascii=True)
+    except Exception as exc:
+        raise RuntimeError(f"DIAG_STEP5D_FAIL: {exc}") from exc
+
+    # STEP5E: HTTP request using serialized body (not json=payload)
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(_OPENAI_CHAT_URL, content=body, headers=headers)
+            resp.raise_for_status()
+    except RuntimeError:
+        raise
+    except Exception as exc:
+        raise RuntimeError(f"DIAG_STEP5E_FAIL: {exc}") from exc
+
+    # STEP5F: parse response JSON
+    try:
         data = resp.json()
+    except Exception as exc:
+        raise RuntimeError(f"DIAG_STEP5F_FAIL: {exc}") from exc
+
+    # STEP5G: extract assistant content
+    try:
         return data["choices"][0]["message"]["content"]
+    except Exception as exc:
+        raise RuntimeError(f"DIAG_STEP5G_FAIL: {exc}") from exc
 
 
 async def generate_whatsapp_reply(phone: str, user_message: str) -> dict:
