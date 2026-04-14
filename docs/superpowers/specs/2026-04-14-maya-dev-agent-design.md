@@ -145,6 +145,37 @@ Status command returns: current branch, last 3 commits, any pending tasks, Railw
 
 ---
 
+## Production isolation (critical)
+
+The agent **never touches production directly**. All work happens on a dedicated `agent/work` branch:
+
+1. Agent creates/resets `agent/work` branch from `main` before every task
+2. Does all work there (code, commits)
+3. Before merging to `main` or deploying to Railway → sends approval request with full diff summary
+4. Only after explicit "כן" → merges + deploys
+5. If user says "לא" → branch is discarded, `main` untouched
+
+Railway production is treated as sacred — the agent never calls `railway up` without approval. Supabase schema changes (migrations) also require approval.
+
+The agent runs in its own process, isolated from the FastAPI server process. A crash or bug in the agent cannot affect the running API.
+
+---
+
+## Flexibility
+
+The agent has no hardcoded task list. It can:
+- Explore any part of the codebase
+- Research errors online (web search)
+- Read Supabase data directly
+- Call Make.com webhooks
+- Test Maya end-to-end via Twilio API
+- Answer any question about the project state
+- Guide the user through any manual action step-by-step
+
+The only constraint is the approval gate before production changes.
+
+---
+
 ## What is NOT in scope
 
 - Multi-user support
