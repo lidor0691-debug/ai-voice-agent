@@ -22,3 +22,27 @@ export interface LeadStats {
   newLeads: number;
   thisWeek: number;
 }
+
+export interface SupabaseLead {
+  id: string;
+  created_at: string;
+  name: string | null;
+  phone: string;
+  source: "voice" | "whatsapp";
+  service: string | null;
+  status: string;
+  notes: string | null;
+  agent_id: string | null;
+}
+
+export interface LeadsApiResponse {
+  leads: SupabaseLead[];
+  stats: {
+    total: number;
+    today: number;
+    new: number;
+    contacted: number;
+    voice: number;
+    whatsapp: number;
+  };
+}
