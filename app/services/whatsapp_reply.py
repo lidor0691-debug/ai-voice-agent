@@ -201,15 +201,16 @@ async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: st
         print("DEBUG history lookup using customer_phone:", repr(customer_phone), flush=True)
         row = await _load_row(customer_phone)
         history = _normalize_messages(row.get("messages_json") if row else None)
-        # First message from this phone — save as a new lead
-        if row is None:
-            await save_lead({
-                "phone": customer_phone,
-                "source": "whatsapp",
-                "status": "new",
-            })
     except Exception as exc:
         return {"reply": strict_sanitize(f"DIAG_STEP3_FAIL: {exc}"), "messages": []}
+
+    # First message from this phone — save as a new lead (independent of history loading)
+    if row is None:
+        await save_lead({
+            "phone": customer_phone,
+            "source": "whatsapp",
+            "status": "new",
+        })
 
     # ── 4+5. Call OpenAI ──────────────────────────────────────────────────────
     openai_messages = (
