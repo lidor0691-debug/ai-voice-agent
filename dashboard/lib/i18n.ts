@@ -599,4 +599,4 @@ export const translations = {
   },
 } as const;
 
-export type Translations = typeof translations.he;
+export type Translations = typeof translations[Lang];
