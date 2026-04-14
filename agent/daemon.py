@@ -7,6 +7,9 @@ approval flows, and reports back via WhatsApp.
 
 Loop cycle: 5 seconds when idle, immediate when task found.
 """
+from dotenv import load_dotenv
+load_dotenv()
+
 import logging
 import time
 import sys
