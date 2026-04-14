@@ -145,6 +145,11 @@ function StepIndicator({ currentStep }: { currentStep: number }) {
 // ── Main form ─────────────────────────────────────────────────────────────────
 
 export function AgentForm({ initial, agentId }: Props) {
+  // Safety guard: in edit mode, block the form entirely if initial data is missing.
+  // This prevents a blank form from overwriting an existing agent row on save.
+  const isEditMode = Boolean(agentId);
+  const initialLoaded = !isEditMode || (initial != null && Object.keys(initial).length > 0);
+
   const router = useRouter();
   const [step, setStep] = useState(1);
   const [saving, setSaving] = useState(false);
@@ -226,16 +231,35 @@ export function AgentForm({ initial, agentId }: Props) {
   const goBack = () => setStep((s) => Math.max(s - 1, 1));
 
   const handleSubmit = async () => {
+    if (!initialLoaded) {
+      setError("לא ניתן לשמור — נתוני הנציגה לא נטענו. רענן את הדף ונסה שנית.");
+      return;
+    }
     const normalizedPhone = normalizePhone(form.phone_number ?? "");
     setSaving(true);
     setError(null);
     try {
       const url = agentId ? `/api/agents/${agentId}` : "/api/agents";
       const method = agentId ? "PATCH" : "POST";
+
+      // For PATCH: only send fields that differ from initial to avoid wiping data
+      let payload: Record<string, unknown>;
+      if (agentId && initial) {
+        payload = {};
+        for (const key of Object.keys(form) as Array<keyof FormData>) {
+          if (form[key] !== (initial as Partial<FormData>)[key]) {
+            payload[key] = form[key];
+          }
+        }
+        payload.phone_number = normalizedPhone;
+      } else {
+        payload = { ...form, phone_number: normalizedPhone };
+      }
+
       const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, phone_number: normalizedPhone }),
+        body: JSON.stringify(payload),
       });
       if (!res.ok) {
         const data = await res.json();
@@ -265,6 +289,14 @@ export function AgentForm({ initial, agentId }: Props) {
       : (form.speaking_rate ?? 1.0) >= 1.2
       ? "מהיר"
       : "רגיל";
+
+  if (!initialLoaded) {
+    return (
+      <div className="flex-1 flex items-center justify-center p-12 text-red-400" dir="rtl">
+        שגיאה בטעינת נתוני הנציגה. רענן את הדף.
+      </div>
+    );
+  }
 
   return (
     <div className="flex-1 overflow-y-auto" dir="rtl">
