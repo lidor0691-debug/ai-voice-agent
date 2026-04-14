@@ -194,6 +194,19 @@ async def _generate_whatsapp_reply_inner(phone: str, user_message: str) -> dict:
     except Exception as exc:
         return {"reply": strict_sanitize(f"DIAG_STEP3_FAIL: {exc}"), "messages": []}
 
+    # ── TEMP DIAG: expose agent config before OpenAI call ────────────────────
+    return {
+        "reply": _sanitize_output("\n".join([
+            "DEBUG_AGENT",
+            f"agent_name={agent.get('agent_name', 'N/A')}",
+            f"phone_number={agent.get('phone_number', 'N/A')}",
+            f"whatsapp_number={agent.get('whatsapp_number', 'N/A')}",
+            f"system_prompt={(agent.get('system_prompt') or '')[:300]}",
+            f"whatsapp_goal={(agent.get('whatsapp_goal') or '')[:200]}",
+            f"system_message={system_content[:500]}",
+        ])),
+        "messages": [],
+    }
     # ── 4+5. Call OpenAI ──────────────────────────────────────────────────────
     openai_messages = (
         [{"role": "system", "content": system_content}]
