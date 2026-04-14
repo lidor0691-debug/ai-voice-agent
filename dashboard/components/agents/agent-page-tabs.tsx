@@ -4,6 +4,7 @@ import { useState } from "react";
 import { AgentConfig } from "@/types/database";
 import { AgentForm } from "./agent-form";
 import { ClientAssetsTab } from "./client-assets-tab";
+import { useLanguage } from "@/context/language-context";
 
 interface Props {
   agent: AgentConfig;
@@ -13,6 +14,7 @@ type Tab = "settings" | "assets";
 
 export function AgentPageTabs({ agent }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>("settings");
+  const { t } = useLanguage();
 
   return (
     <div className="flex-1 overflow-y-auto" dir="rtl">
@@ -27,7 +29,7 @@ export function AgentPageTabs({ agent }: Props) {
                 : "text-gray-500 border-transparent hover:text-gray-300"
             }`}
           >
-            הגדרות נציגה
+            {t.tab_settings}
           </button>
           <button
             onClick={() => setActiveTab("assets")}
@@ -37,7 +39,7 @@ export function AgentPageTabs({ agent }: Props) {
                 : "text-gray-500 border-transparent hover:text-gray-300"
             }`}
           >
-            נכסי לקוח
+            {t.tab_assets}
           </button>
         </div>
       </div>
