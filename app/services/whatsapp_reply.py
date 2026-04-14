@@ -64,6 +64,12 @@ def _sanitize(text: str) -> str:
     return text.replace("\u2028", "\n").replace("\u2029", "\n")
 
 
+def _sanitize_output(text: str) -> str:
+    if not isinstance(text, str):
+        return text
+    return text.replace("\u2028", " ").replace("\u2029", " ")
+
+
 def strict_sanitize(text: str) -> str:
     """Guarantee no \\u2028/\\u2029 leaves the API — applied to every outbound string."""
     if not text:
@@ -200,10 +206,10 @@ async def _generate_whatsapp_reply_inner(phone: str, user_message: str) -> dict:
             {"role": "assistant", "content": reply},
         ]
 
-    return {
-        "reply": strict_sanitize(reply),
-        "messages": [
-            {"role": m["role"], "content": strict_sanitize(m.get("content") or "")}
-            for m in updated_messages
-        ],
-    }
+    reply = _sanitize_output(reply)
+    messages = [
+        {**m, "content": _sanitize_output(m.get("content", ""))}
+        for m in updated_messages
+    ]
+
+    return {"reply": reply, "messages": messages}
