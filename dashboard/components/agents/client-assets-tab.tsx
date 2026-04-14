@@ -196,7 +196,7 @@ export function ClientAssetsTab({ clientId }: Props) {
                 {PRESET_TRIGGERS.map((trigger) => (
                   <option key={trigger} value={trigger}>{trigger}</option>
                 ))}
-                <option value="__custom__">אחר (הזן ידנית)</option>
+                <option value="__custom__">{t.ca_custom_trigger}</option>
               </select>
             ) : (
               <div className="flex gap-2">
@@ -210,7 +210,7 @@ export function ClientAssetsTab({ clientId }: Props) {
                   onClick={() => { setCustomTrigger(false); setForm((f) => ({ ...f, trigger_key: "" })); }}
                   className="px-3 py-2 text-xs text-gray-400 border border-border rounded-lg hover:text-white"
                 >
-                  חזור
+                  {t.ca_back}
                 </button>
               </div>
             )}
@@ -227,7 +227,7 @@ export function ClientAssetsTab({ clientId }: Props) {
               rows={3}
               className="w-full bg-surface-3 border border-border rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-brand-600 resize-none"
               placeholder={form.asset_type === "text"
-                ? 'היי {{name}}! האימון הראשון שלך אושר.'
+                ? t.ca_content_placeholder
                 : "https://example.com/file.pdf"}
               value={form.content}
               onChange={(e) => setForm((f) => ({ ...f, content: e.target.value }))}
