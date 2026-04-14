@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { supabase } from "@/lib/supabase";
 import { computeLeadsStats } from "@/lib/leads-stats";
 import type { SupabaseLead, LeadsApiResponse } from "@/types/lead";
 
 export async function GET(): Promise<NextResponse<LeadsApiResponse | { error: string }>> {
-  const supabase = await createSupabaseServerClient();
-
-  const { data: { user } } = await supabase.auth.getUser();
+  const authClient = await createSupabaseServerClient();
+  const { data: { user } } = await authClient.auth.getUser();
   const clientId = user?.user_metadata?.client_id as string | undefined;
 
   if (!clientId) {

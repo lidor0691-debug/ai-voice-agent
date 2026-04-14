@@ -1,22 +1,21 @@
 export const dynamic = "force-dynamic";
 
 import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { supabase } from "@/lib/supabase";
 import { CallLog, AgentConfig } from "@/types/database";
 import { CallsClientPage } from "./CallsClientPage";
 
 type CallWithAgent = CallLog & { agents_config: Pick<AgentConfig, "agent_name"> | null };
 
 export default async function CallsPage() {
-  const supabase = await createSupabaseServerClient();
-
-  const { data: { user } } = await supabase.auth.getUser();
+  const authClient = await createSupabaseServerClient();
+  const { data: { user } } = await authClient.auth.getUser();
   const clientId = user?.user_metadata?.client_id as string | undefined;
 
   if (!clientId) {
     return <CallsClientPage calls={null} error="Not authenticated" />;
   }
 
-  // Get this client's agent IDs
   const { data: agents } = await supabase
     .from("agents_config")
     .select("id")

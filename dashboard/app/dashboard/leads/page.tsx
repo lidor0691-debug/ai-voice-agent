@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { supabase } from "@/lib/supabase";
 import { LeadsClientPage } from "./LeadsClientPage";
 import { computeLeadsStats } from "@/lib/leads-stats";
 import type { LeadsApiResponse, SupabaseLead } from "@/types/lead";
@@ -11,9 +12,8 @@ const EMPTY: LeadsApiResponse = {
 };
 
 export default async function LeadsPage() {
-  const supabase = await createSupabaseServerClient();
-
-  const { data: { user } } = await supabase.auth.getUser();
+  const authClient = await createSupabaseServerClient();
+  const { data: { user } } = await authClient.auth.getUser();
   const clientId = user?.user_metadata?.client_id as string | undefined;
 
   if (!clientId) {

@@ -1,13 +1,13 @@
 export const dynamic = "force-dynamic";
 
 import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { supabase } from "@/lib/supabase";
 import { AgentConfig, CallLog } from "@/types/database";
 import { DashboardClientPage } from "./DashboardClientPage";
 
 export default async function DashboardPage() {
-  const supabase = await createSupabaseServerClient();
-
-  const { data: { user } } = await supabase.auth.getUser();
+  const authClient = await createSupabaseServerClient();
+  const { data: { user } } = await authClient.auth.getUser();
   const clientId = user?.user_metadata?.client_id as string | undefined;
 
   if (!clientId) {
@@ -16,14 +16,12 @@ export default async function DashboardPage() {
     );
   }
 
-  // Fetch agents filtered by client
   const agentRes = await supabase
     .from("agents_config")
     .select("id, agent_name, is_active, system_prompt, first_message, phone_number")
     .eq("client_id", clientId)
     .order("created_at", { ascending: false });
 
-  // Fetch client's agent IDs to filter calls
   const agentIds = (agentRes.data ?? []).map(
     (a: Pick<AgentConfig, "id">) => a.id
   );

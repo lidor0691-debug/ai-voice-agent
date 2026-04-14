@@ -1,13 +1,13 @@
 export const dynamic = "force-dynamic";
 
 import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { supabase } from "@/lib/supabase";
 import { AgentConfig } from "@/types/database";
 import { AgentsClientPage } from "./AgentsClientPage";
 
 export default async function AgentsPage() {
-  const supabase = await createSupabaseServerClient();
-
-  const { data: { user } } = await supabase.auth.getUser();
+  const authClient = await createSupabaseServerClient();
+  const { data: { user } } = await authClient.auth.getUser();
   const clientId = user?.user_metadata?.client_id as string | undefined;
 
   if (!clientId) {
