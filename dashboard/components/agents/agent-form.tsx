@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { CheckCircle, ChevronRight, ChevronLeft } from "lucide-react";
 import { AgentConfig } from "@/types/database";
+import { useLanguage } from "@/context/language-context";
 
 // ── Phone normalization ────────────────────────────────────────────────────────
 function normalizePhone(raw: string): string {
@@ -24,16 +25,7 @@ interface Props {
   agentId?: string;
 }
 
-// ── Steps ─────────────────────────────────────────────────────────────────────
-
-const STEPS = [
-  { number: 1, label: "פרטי העסק" },
-  { number: 2, label: "איך מאיה מדברת" },
-  { number: 3, label: "מה קורה בשיחות" },
-  { number: 4, label: "קבלת פניות" },
-  { number: 5, label: "וואטסאפ" },
-  { number: 6, label: "הפעלה" },
-] as const;
+// ── Steps (built dynamically inside component from t.*) ───────────────────────
 
 // ── UI primitives ─────────────────────────────────────────────────────────────
 
@@ -100,10 +92,16 @@ function Select({
 
 // ── Step indicator ────────────────────────────────────────────────────────────
 
-function StepIndicator({ currentStep }: { currentStep: number }) {
+function StepIndicator({
+  currentStep,
+  steps,
+}: {
+  currentStep: number;
+  steps: { number: number; label: string }[];
+}) {
   return (
     <div className="flex items-start justify-center gap-1 mb-8">
-      {STEPS.map((step, idx) => {
+      {steps.map((step, idx) => {
         const done = step.number < currentStep;
         const active = step.number === currentStep;
         return (
@@ -128,7 +126,7 @@ function StepIndicator({ currentStep }: { currentStep: number }) {
                 {step.label}
               </span>
             </div>
-            {idx < STEPS.length - 1 && (
+            {idx < steps.length - 1 && (
               <div
                 className={`h-px w-6 mb-5 ${
                   step.number < currentStep ? "bg-emerald-500" : "bg-border"
@@ -149,6 +147,16 @@ export function AgentForm({ initial, agentId }: Props) {
   // This prevents a blank form from overwriting an existing agent row on save.
   const isEditMode = Boolean(agentId);
   const initialLoaded = !isEditMode || (initial != null && Object.keys(initial).length > 0);
+
+  const { t } = useLanguage();
+  const steps = [
+    { number: 1, label: t.step_business },
+    { number: 2, label: t.step_voice },
+    { number: 3, label: t.step_calls },
+    { number: 4, label: t.step_leads },
+    { number: 5, label: t.step_whatsapp },
+    { number: 6, label: t.step_activation },
+  ];
 
   const router = useRouter();
   const [step, setStep] = useState(1);
@@ -210,16 +218,16 @@ export function AgentForm({ initial, agentId }: Props) {
   const goNext = () => {
     if (step === 1) {
       if (!form.agent_name?.trim()) {
-        setError("יש להזין שם לנציגה");
+        setError(t.af_name_required);
         return;
       }
       const normalizedPhone = normalizePhone(form.phone_number ?? "");
       if (!normalizedPhone) {
-        setPhoneError("יש להזין מספר טלפון");
+        setPhoneError(t.af_phone_required);
         return;
       }
       if (!isValidPhone(normalizedPhone)) {
-        setPhoneError("פורמט לא תקין — לדוגמה: +972533470757");
+        setPhoneError(t.af_phone_invalid);
         return;
       }
     }
@@ -232,7 +240,7 @@ export function AgentForm({ initial, agentId }: Props) {
 
   const handleSubmit = async () => {
     if (!initialLoaded) {
-      setError("לא ניתן לשמור — נתוני הנציגה לא נטענו. רענן את הדף ונסה שנית.");
+      setError(t.af_load_error);
       return;
     }
     const normalizedPhone = normalizePhone(form.phone_number ?? "");
@@ -263,7 +271,7 @@ export function AgentForm({ initial, agentId }: Props) {
       });
       if (!res.ok) {
         const data = await res.json();
-        throw new Error(data.error ?? "שמירה נכשלה");
+        throw new Error(data.error ?? t.af_save_failed);
       }
       setSaved(true);
       setTimeout(() => {
@@ -271,29 +279,29 @@ export function AgentForm({ initial, agentId }: Props) {
         router.refresh();
       }, 1200);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "שגיאה לא ידועה");
+      setError(err instanceof Error ? err.message : t.af_unknown_error);
     } finally {
       setSaving(false);
     }
   };
 
   const deliveryLabel: Record<string, string> = {
-    webhook: "מערכת חיצונית",
-    whatsapp: "וואטסאפ",
-    email: "אימייל",
+    webhook: t.af_lead_webhook,
+    whatsapp: t.af_lead_wa,
+    email: t.af_lead_email,
   };
 
   const speakingRateLabel =
     (form.speaking_rate ?? 1.0) <= 0.8
-      ? "איטי"
+      ? t.af_speed_slow
       : (form.speaking_rate ?? 1.0) >= 1.2
-      ? "מהיר"
-      : "רגיל";
+      ? t.af_speed_fast
+      : t.af_speed_normal;
 
   if (!initialLoaded) {
     return (
       <div className="flex-1 flex items-center justify-center p-12 text-red-400" dir="rtl">
-        שגיאה בטעינת נתוני הנציגה. רענן את הדף.
+        {t.af_load_error}
       </div>
     );
   }
@@ -304,19 +312,17 @@ export function AgentForm({ initial, agentId }: Props) {
       <div className="sticky top-0 z-10 bg-surface-0/80 backdrop-blur border-b border-border px-8 py-4 flex items-center justify-between">
         <div>
           <h1 className="text-white font-semibold text-lg">
-            {agentId ? "עריכת נציגה" : "הגדרת נציגה חדשה"}
+            {agentId ? t.af_edit_title : t.af_new_title}
           </h1>
           <p className="text-gray-500 text-sm mt-0.5">
-            {agentId
-              ? "עדכן את הגדרות הנציגה"
-              : "כמה שלבים פשוטים — ומאיה מוכנה לענות לשיחות"}
+            {agentId ? t.af_edit_subtitle : t.af_new_subtitle}
           </p>
         </div>
         <button
           onClick={() => router.back()}
           className="text-gray-400 hover:text-white text-sm px-4 py-2 rounded-lg border border-border hover:bg-surface-3 transition-colors"
         >
-          ביטול
+          {t.af_cancel}
         </button>
       </div>
 
@@ -324,7 +330,7 @@ export function AgentForm({ initial, agentId }: Props) {
         {saved && (
           <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-sm px-4 py-3 rounded-lg mb-6 flex items-center gap-2">
             <CheckCircle className="w-4 h-4 shrink-0" />
-            נשמר — מעביר לרשימה…
+            {t.af_saved_redirect}
           </div>
         )}
         {error && (
@@ -333,33 +339,31 @@ export function AgentForm({ initial, agentId }: Props) {
           </div>
         )}
 
-        <StepIndicator currentStep={step} />
+        <StepIndicator currentStep={step} steps={steps} />
 
         {/* ── שלב 1: פרטי העסק ── */}
         {step === 1 && (
           <div className="bg-surface-2 border border-border rounded-xl p-6 space-y-5">
             <div>
-              <h2 className="text-white font-semibold text-base">פרטי העסק שלך</h2>
-              <p className="text-gray-500 text-sm mt-1">
-                המידע הבסיסי שמאיה צריכה כדי לייצג אותך נכון
-              </p>
+              <h2 className="text-white font-semibold text-base">{t.af_s1_title}</h2>
+              <p className="text-gray-500 text-sm mt-1">{t.af_s1_subtitle}</p>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
-              <Field label="שם העסק" hint="איך הלקוחות מכירים אתכם?">
+              <Field label={t.af_business_name_label} hint={t.af_business_name_hint}>
                 <Input
-                  placeholder="למשל: סטודיו BPM"
+                  placeholder={t.af_business_name_placeholder}
                   value={form.business_name ?? ""}
                   onChange={(e) => set("business_name", e.target.value)}
                 />
               </Field>
               <Field
-                label="שם הנציגה"
-                hint="איך מאיה תציג את עצמה בשיחה?"
+                label={t.af_agent_name_label}
+                hint={t.af_agent_name_hint}
                 required
               >
                 <Input
-                  placeholder="למשל: מאיה"
+                  placeholder={t.af_agent_name_placeholder}
                   value={form.agent_name ?? ""}
                   onChange={(e) => set("agent_name", e.target.value)}
                 />
@@ -367,12 +371,12 @@ export function AgentForm({ initial, agentId }: Props) {
             </div>
 
             <Field
-              label="מספר הטלפון של הנציגה"
-              hint="המספר שהלקוחות מתקשרים אליו — הנציגה תענה עליו אוטומטית"
+              label={t.af_phone_label}
+              hint={t.af_phone_hint}
               required
             >
               <Input
-                placeholder="+972533470757"
+                placeholder={t.af_phone_placeholder}
                 value={form.phone_number ?? ""}
                 onChange={(e) => {
                   set("phone_number", normalizePhone(e.target.value));
@@ -386,34 +390,34 @@ export function AgentForm({ initial, agentId }: Props) {
 
             <div className="grid grid-cols-2 gap-4">
               <Field
-                label="שפת השיחות"
-                hint="באיזו שפה מאיה תדבר עם הלקוחות?"
+                label={t.af_call_language_label}
+                hint={t.af_call_language_hint}
               >
                 <Select
                   value={form.language ?? "he"}
                   onChange={(e) => set("language", e.target.value)}
                   options={[
-                    { value: "he", label: "עברית" },
-                    { value: "en", label: "אנגלית" },
-                    { value: "es", label: "ספרדית" },
-                    { value: "fr", label: "צרפתית" },
-                    { value: "de", label: "גרמנית" },
+                    { value: "he", label: t.af_lang_he },
+                    { value: "en", label: t.af_lang_en },
+                    { value: "es", label: t.af_lang_es },
+                    { value: "fr", label: t.af_lang_fr },
+                    { value: "de", label: t.af_lang_de },
                   ]}
                 />
               </Field>
               <Field
-                label="סגנון הדיבור"
-                hint="איזה אווירה תרצה שתהיה בשיחות?"
+                label={t.af_tone_label}
+                hint={t.af_tone_hint}
               >
                 <Select
                   value={form.tone ?? "friendly"}
                   onChange={(e) => set("tone", e.target.value)}
                   options={[
-                    { value: "friendly", label: "ידידותי ונעים" },
-                    { value: "professional", label: "מקצועי ורציני" },
-                    { value: "formal", label: "רשמי" },
-                    { value: "casual", label: "קז׳ואל ומשוחרר" },
-                    { value: "empathetic", label: "אמפתי ומבין" },
+                    { value: "friendly", label: t.af_tone_friendly },
+                    { value: "professional", label: t.af_tone_professional },
+                    { value: "formal", label: t.af_tone_formal },
+                    { value: "casual", label: t.af_tone_casual },
+                    { value: "empathetic", label: t.af_tone_empathetic },
                   ]}
                 />
               </Field>
@@ -425,33 +429,31 @@ export function AgentForm({ initial, agentId }: Props) {
         {step === 2 && (
           <div className="bg-surface-2 border border-border rounded-xl p-6 space-y-5">
             <div>
-              <h2 className="text-white font-semibold text-base">איך מאיה נשמעת</h2>
-              <p className="text-gray-500 text-sm mt-1">
-                בחר את הקול והקצב שהכי מתאים לעסק שלך
-              </p>
+              <h2 className="text-white font-semibold text-base">{t.af_s2_title}</h2>
+              <p className="text-gray-500 text-sm mt-1">{t.af_s2_subtitle}</p>
             </div>
 
             <Field
-              label="קול הנציגה"
-              hint="בחר קול שמתאים לאופי העסק שלך — ניתן לשנות בכל עת"
+              label={t.af_voice_label}
+              hint={t.af_voice_hint}
             >
               <Select
                 value={form.voice_id ?? "shimmer"}
                 onChange={(e) => set("voice_id", e.target.value)}
                 options={[
-                  { value: "shimmer", label: "שימר — נשי, חמים ונעים" },
-                  { value: "coral", label: "קורל — נשי, מקצועי" },
-                  { value: "sage", label: "סייג׳ — נשי, רגוע" },
-                  { value: "alloy", label: "אלוי — ניטרלי" },
-                  { value: "echo", label: "אקו — גברי" },
-                  { value: "verse", label: "ורס — גברי, מקצועי" },
+                  { value: "shimmer", label: t.af_voice_shimmer },
+                  { value: "coral", label: t.af_voice_coral },
+                  { value: "sage", label: t.af_voice_sage },
+                  { value: "alloy", label: t.af_voice_alloy },
+                  { value: "echo", label: t.af_voice_echo },
+                  { value: "verse", label: t.af_voice_verse },
                 ]}
               />
             </Field>
 
             <Field
-              label="קצב הדיבור"
-              hint="כמה מהר מאיה תדבר — רוב הלקוחות מעדיפים קצב רגיל"
+              label={t.af_speed_label}
+              hint={t.af_speed_hint}
             >
               <div className="space-y-2 pt-1">
                 <input
@@ -466,9 +468,9 @@ export function AgentForm({ initial, agentId }: Props) {
                   className="w-full accent-brand-600"
                 />
                 <div className="flex justify-between text-xs text-gray-500">
-                  <span>איטי</span>
+                  <span>{t.af_speed_slow}</span>
                   <span className="text-white font-medium">{speakingRateLabel}</span>
-                  <span>מהיר</span>
+                  <span>{t.af_speed_fast}</span>
                 </div>
               </div>
             </Field>
@@ -479,27 +481,25 @@ export function AgentForm({ initial, agentId }: Props) {
         {step === 3 && (
           <div className="bg-surface-2 border border-border rounded-xl p-6 space-y-5">
             <div>
-              <h2 className="text-white font-semibold text-base">מה קורה בשיחות</h2>
-              <p className="text-gray-500 text-sm mt-1">
-                הגדר מה מאיה אומרת ואיך היא מתנהגת עם לקוחות
-              </p>
+              <h2 className="text-white font-semibold text-base">{t.af_s3_title}</h2>
+              <p className="text-gray-500 text-sm mt-1">{t.af_s3_subtitle}</p>
             </div>
 
             <Field
-              label="מה מאיה אומרת כשהיא עונה לשיחה?"
-              hint="המשפט הראשון שהלקוח שומע — כתוב אותו בדיוק כפי שתרצה שייאמר"
+              label={t.af_first_message_label}
+              hint={t.af_first_message_hint}
             >
               <Textarea
                 rows={2}
-                placeholder="היי! כאן מאיה מסטודיו BPM. איך אפשר לעזור?"
+                placeholder={t.af_first_message_placeholder}
                 value={form.first_message ?? ""}
                 onChange={(e) => set("first_message", e.target.value)}
               />
             </Field>
 
             <Field
-              label="זהות העסק והוראות הליבה"
-              hint="תאר מי מאיה, מה העסק עושה, ואיך היא צריכה להתנהג בכל ערוץ. זהו הבסיס שממנו כל השיחות — גם קוליות וגם וואטסאפ — ייבנו."
+              label={t.af_system_prompt_label}
+              hint={t.af_system_prompt_hint}
             >
               <Textarea
                 rows={10}
@@ -523,32 +523,21 @@ export function AgentForm({ initial, agentId }: Props) {
           <div className="space-y-4">
             <div className="bg-surface-2 border border-border rounded-xl p-6 space-y-5">
               <div>
-                <h2 className="text-white font-semibold text-base">
-                  איך תקבל פניות?
-                </h2>
-                <p className="text-gray-500 text-sm mt-1">
-                  אחרי כל שיחה, מאיה תשלח לך את פרטי הלקוח — לאן תרצה לקבל
-                  אותם?
-                </p>
+                <h2 className="text-white font-semibold text-base">{t.af_s4_title}</h2>
+                <p className="text-gray-500 text-sm mt-1">{t.af_s4_subtitle}</p>
               </div>
 
               <Field
-                label="דרך קבלת הפניות"
-                hint="בחר את הדרך הנוחה לך ביותר לקבל פרטי לקוחות"
+                label={t.af_lead_method_label}
+                hint={t.af_lead_method_hint}
               >
                 <Select
                   value={form.lead_delivery_method ?? "webhook"}
                   onChange={(e) => set("lead_delivery_method", e.target.value)}
                   options={[
-                    {
-                      value: "whatsapp",
-                      label: "וואטסאפ — קבל הודעה ישירה לטלפון",
-                    },
-                    { value: "email", label: "אימייל — קבל מייל עם הפרטים" },
-                    {
-                      value: "webhook",
-                      label: "מערכת חיצונית — שלח ישירות למערכת שלי",
-                    },
+                    { value: "whatsapp", label: t.af_lead_wa },
+                    { value: "email", label: t.af_lead_email },
+                    { value: "webhook", label: t.af_lead_webhook },
                   ]}
                 />
               </Field>
@@ -556,26 +545,26 @@ export function AgentForm({ initial, agentId }: Props) {
               <Field
                 label={
                   form.lead_delivery_method === "whatsapp"
-                    ? "מספר הוואטסאפ שלך"
+                    ? t.af_lead_wa_number_label
                     : form.lead_delivery_method === "email"
-                    ? "כתובת האימייל שלך"
-                    : "כתובת המערכת שלך"
+                    ? t.af_lead_email_label
+                    : t.af_lead_webhook_label
                 }
                 hint={
                   form.lead_delivery_method === "whatsapp"
-                    ? "הפניות יישלחו לוואטסאפ של המספר הזה אחרי כל שיחה"
+                    ? t.af_lead_wa_number_label
                     : form.lead_delivery_method === "email"
-                    ? "הפניות יישלחו לאימייל הזה אחרי כל שיחה"
-                    : "הפניות יישלחו אוטומטית לכתובת הזו בסיום כל שיחה"
+                    ? t.af_lead_email_label
+                    : t.af_lead_webhook_label
                 }
               >
                 <Input
                   placeholder={
                     form.lead_delivery_method === "whatsapp"
-                      ? "+972543033010"
+                      ? t.af_lead_wa_placeholder
                       : form.lead_delivery_method === "email"
-                      ? "leads@yourcompany.com"
-                      : "https://your-app.com/webhooks/lead"
+                      ? t.af_lead_email_placeholder
+                      : t.af_lead_webhook_placeholder
                   }
                   value={form.lead_delivery_target ?? ""}
                   onChange={(e) => set("lead_delivery_target", e.target.value)}
@@ -585,17 +574,13 @@ export function AgentForm({ initial, agentId }: Props) {
 
             <div className="bg-surface-2 border border-border rounded-xl p-6 space-y-5">
               <div>
-                <h2 className="text-white font-semibold text-base">
-                  העברה לאדם אמיתי
-                </h2>
-                <p className="text-gray-500 text-sm mt-1">
-                  אם לקוח מבקש לדבר עם אדם — לאן להעביר אותו?
-                </p>
+                <h2 className="text-white font-semibold text-base">{t.af_transfer_label}</h2>
+                <p className="text-gray-500 text-sm mt-1">{t.af_transfer_hint}</p>
               </div>
 
               <Field
-                label="מספר טלפון להעברה"
-                hint="אופציונלי — אם לא מוגדר, מאיה תמשיך את השיחה בעצמה"
+                label={t.af_transfer_number_label}
+                hint={t.af_transfer_number_hint}
               >
                 <Input
                   placeholder="+972543033010"
@@ -612,19 +597,15 @@ export function AgentForm({ initial, agentId }: Props) {
           <div className="space-y-4">
             <div className="bg-surface-2 border border-border rounded-xl p-6 space-y-5">
               <div>
-                <h2 className="text-white font-semibold text-base">ערוץ וואטסאפ</h2>
-                <p className="text-gray-500 text-sm mt-1">
-                  מאיה יכולה לשלוח הודעת וואטסאפ לאחר כל שיחה — כדי להמשיך את השיחה שם
-                </p>
+                <h2 className="text-white font-semibold text-base">{t.af_s5_title}</h2>
+                <p className="text-gray-500 text-sm mt-1">{t.af_s5_subtitle}</p>
               </div>
 
               {/* Enable WhatsApp toggle */}
               <div className="flex items-center justify-between py-2 border-b border-border/50">
                 <div>
-                  <p className="text-sm font-medium text-gray-200">הפעל ערוץ וואטסאפ</p>
-                  <p className="text-xs text-gray-500 mt-0.5">
-                    מאפשר למאיה לשלוח ולקבל הודעות דרך וואטסאפ
-                  </p>
+                  <p className="text-sm font-medium text-gray-200">{t.af_wa_enable_label}</p>
+                  <p className="text-xs text-gray-500 mt-0.5">{t.af_wa_enable_hint}</p>
                 </div>
                 <div
                   onClick={() => set("whatsapp_enabled", !form.whatsapp_enabled)}
@@ -643,8 +624,8 @@ export function AgentForm({ initial, agentId }: Props) {
               {form.whatsapp_enabled && (
                 <>
                   <Field
-                    label="מספר הוואטסאפ של העסק"
-                    hint="המספר שממנו מאיה תשלח הודעות — חייב להיות מחובר ל-WhatsApp Business"
+                    label={t.af_wa_number_label}
+                    hint={t.af_wa_number_hint}
                   >
                     <Input
                       placeholder="+972543033010"
@@ -656,10 +637,8 @@ export function AgentForm({ initial, agentId }: Props) {
                   {/* Follow-up toggle */}
                   <div className="flex items-center justify-between py-2 border-t border-border/50">
                     <div>
-                      <p className="text-sm font-medium text-gray-200">שליחת הודעת מעקב אחרי שיחה</p>
-                      <p className="text-xs text-gray-500 mt-0.5">
-                        מיד בסיום השיחה — מאיה תשלח הודעה לוואטסאפ של הלקוח
-                      </p>
+                      <p className="text-sm font-medium text-gray-200">{t.af_wa_followup_label}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">{t.af_wa_followup_hint}</p>
                     </div>
                     <div
                       onClick={() => set("whatsapp_followup_enabled", !form.whatsapp_followup_enabled)}
@@ -678,29 +657,29 @@ export function AgentForm({ initial, agentId }: Props) {
                   {form.whatsapp_followup_enabled && (
                     <>
                       <Field
-                        label="מה לשלוח אחרי השיחה?"
-                        hint="מאיה תשתמש במידע שנאסף בשיחה כדי להתאים את ההודעה"
+                        label={t.af_wa_template_what_label}
+                        hint={t.af_wa_template_what_hint}
                       >
                         <Select
                           value={form.whatsapp_followup_type ?? "none"}
                           onChange={(e) => set("whatsapp_followup_type", e.target.value)}
                           options={[
-                            { value: "summary",      label: "סיכום השיחה — מה דיברנו ומה הצעד הבא" },
-                            { value: "appointment",  label: "אישור פגישה — תאריך, שעה, פרטים" },
-                            { value: "next_step",    label: "הודעת המשך — מה לצפות עכשיו" },
-                            { value: "custom",       label: "הודעה מותאמת אישית" },
+                            { value: "summary",      label: t.af_wa_template_summary },
+                            { value: "appointment",  label: t.af_wa_template_confirm },
+                            { value: "next_step",    label: t.af_wa_template_followup },
+                            { value: "custom",       label: t.af_wa_template_custom },
                           ]}
                         />
                       </Field>
 
                       {form.whatsapp_followup_type === "custom" && (
                         <Field
-                          label="תבנית ההודעה"
-                          hint="כתוב את ההודעה שתישלח — ניתן להשתמש ב-{{name}} ו-{{phone}} לפרטי הלקוח"
+                          label={t.af_wa_template_label}
+                          hint={t.af_wa_template_hint}
                         >
                           <Textarea
                             rows={4}
-                            placeholder="היי {{name}}! כאן מאיה 😊 תודה שדיברנו. אחזור אליך בקרוב עם פרטים נוספים."
+                            placeholder={t.af_wa_template_placeholder}
                             value={form.whatsapp_followup_template ?? ""}
                             onChange={(e) => set("whatsapp_followup_template", e.target.value)}
                           />
@@ -722,14 +701,12 @@ export function AgentForm({ initial, agentId }: Props) {
 
             <div className="bg-surface-2 border border-border rounded-xl p-6 space-y-4">
               <div>
-                <h2 className="text-white font-semibold text-base">שעות פעילות</h2>
-                <p className="text-gray-500 text-sm mt-1">
-                  באילו ימים ושעות הנציגה זמינה לענות — אופציונלי
-                </p>
+                <h2 className="text-white font-semibold text-base">{t.af_wa_hours_label}</h2>
+                <p className="text-gray-500 text-sm mt-1">{t.af_wa_hours_hint}</p>
               </div>
               <Field
-                label="שעות פעילות"
-                hint='JSON — ימים ושעות שבהן הנציגה פעילה. לדוגמה: {"days":["Sun","Mon","Tue","Wed","Thu"],"hours":{"start":"09:00","end":"18:00"}}'
+                label={t.af_wa_hours_label}
+                hint={t.af_wa_hours_hint}
               >
                 <Textarea
                   rows={4}
@@ -750,31 +727,29 @@ export function AgentForm({ initial, agentId }: Props) {
             {/* WhatsApp behavior control */}
             <div className="bg-surface-2 border border-border rounded-xl p-6 space-y-4">
               <div>
-                <h2 className="text-white font-semibold text-base">התנהגות בוואטסאפ</h2>
-                <p className="text-gray-500 text-sm mt-1">
-                  הגדרות ספציפיות לערוץ הוואטסאפ — אלה יתווספו על גבי זהות הליבה של הנציגה
-                </p>
+                <h2 className="text-white font-semibold text-base">{t.af_wa_behavior_title}</h2>
+                <p className="text-gray-500 text-sm mt-1">{t.af_wa_behavior_subtitle}</p>
               </div>
 
               <Field
-                label="מטרת השיחה בוואטסאפ"
-                hint="במשפט אחד — מה מאיה צריכה להשיג בשיחת הוואטסאפ?"
+                label={t.af_wa_goal_label}
+                hint={t.af_wa_goal_hint}
               >
                 <Textarea
                   rows={2}
-                  placeholder="לאסוף פרטי לקוח ולקבוע פגישת ייעוץ ראשונית"
+                  placeholder={t.af_wa_goal_placeholder}
                   value={form.whatsapp_goal ?? ""}
                   onChange={(e) => set("whatsapp_goal", e.target.value || null)}
                 />
               </Field>
 
               <Field
-                label="פרטים לאיסוף מהלקוח"
-                hint="כתוב פרט אחד בכל שורה — מאיה תוודא שאוספת את כולם"
+                label={t.af_wa_required_label}
+                hint={t.af_wa_required_hint}
               >
                 <Textarea
                   rows={4}
-                  placeholder={"שם מלא\nמספר טלפון\nגיל הילד\nתחום עניין"}
+                  placeholder={t.af_wa_required_placeholder}
                   value={requiredFieldsText}
                   onChange={(e) => {
                     setRequiredFieldsText(e.target.value);
@@ -785,12 +760,12 @@ export function AgentForm({ initial, agentId }: Props) {
               </Field>
 
               <Field
-                label="כללי התנהגות"
-                hint="כתוב כלל אחד בכל שורה — מאיה תפעל לפיהם לאורך כל השיחה"
+                label={t.af_wa_rules_label}
+                hint={t.af_wa_rules_hint}
               >
                 <Textarea
                   rows={4}
-                  placeholder={"שאל רק שאלה אחת בכל הודעה\nאל תבטיח מחירים\nסיים תמיד עם הצעד הבא הברור"}
+                  placeholder={t.af_wa_rules_placeholder}
                   value={rulesText}
                   onChange={(e) => {
                     setRulesText(e.target.value);
@@ -809,45 +784,41 @@ export function AgentForm({ initial, agentId }: Props) {
             {/* סיכום */}
             <div className="bg-surface-2 border border-border rounded-xl p-6 space-y-4">
               <div>
-                <h2 className="text-white font-semibold text-base">
-                  סיכום ההגדרות
-                </h2>
-                <p className="text-gray-500 text-sm mt-1">
-                  בדוק שהכל נכון לפני ההפעלה
-                </p>
+                <h2 className="text-white font-semibold text-base">{t.af_s6_title}</h2>
+                <p className="text-gray-500 text-sm mt-1">{t.af_s6_subtitle}</p>
               </div>
 
               <div className="space-y-0">
                 {[
-                  { label: "שם העסק", value: form.business_name || "—" },
-                  { label: "שם הנציגה", value: form.agent_name || "—" },
-                  { label: "מספר טלפון", value: form.phone_number || "—" },
+                  { label: t.af_business_name_label, value: form.business_name || "—" },
+                  { label: t.af_agent_name_label, value: form.agent_name || "—" },
+                  { label: t.af_phone_label, value: form.phone_number || "—" },
                   {
-                    label: "שפה",
+                    label: t.af_call_language_label,
                     value:
                       form.language === "he"
-                        ? "עברית"
+                        ? t.af_lang_he
                         : form.language === "en"
-                        ? "אנגלית"
+                        ? t.af_lang_en
                         : (form.language ?? "—"),
                   },
                   {
-                    label: "קבלת פניות",
+                    label: t.af_lead_method_label,
                     value:
                       deliveryLabel[form.lead_delivery_method ?? "webhook"] ??
                       form.lead_delivery_method ??
                       "—",
                   },
                   {
-                    label: "יעד הפניות",
+                    label: t.af_lead_webhook_label,
                     value: form.lead_delivery_target?.trim()
-                      ? "מוגדר ✓"
-                      : "לא הוגדר",
+                      ? t.af_configured
+                      : t.af_not_configured,
                     warn: !form.lead_delivery_target?.trim(),
                   },
                   {
-                    label: "ערוץ וואטסאפ",
-                    value: form.whatsapp_enabled ? "מופעל ✓" : "לא מופעל",
+                    label: t.af_wa_enable_label,
+                    value: form.whatsapp_enabled ? t.af_configured : t.af_not_configured,
                   },
                 ].map(({ label, value, warn }) => (
                   <div
@@ -871,13 +842,9 @@ export function AgentForm({ initial, agentId }: Props) {
             <div className="bg-surface-2 border border-border rounded-xl p-6">
               <div className="flex items-center justify-between gap-4">
                 <div>
-                  <h2 className="text-white font-semibold text-base">
-                    הפעלת הנציגה
-                  </h2>
+                  <h2 className="text-white font-semibold text-base">{t.af_activation_title}</h2>
                   <p className="text-gray-500 text-sm mt-1">
-                    {form.is_active
-                      ? "הנציגה תענה לשיחות מיד לאחר השמירה"
-                      : "הנציגה לא תענה לשיחות עד שתפעיל אותה"}
+                    {form.is_active ? t.af_active_hint : t.af_inactive_hint}
                   </p>
                 </div>
                 <div
@@ -908,14 +875,14 @@ export function AgentForm({ initial, agentId }: Props) {
               {saved ? (
                 <>
                   <CheckCircle className="w-5 h-5" />
-                  נשמר!
+                  {t.af_saved}
                 </>
               ) : saving ? (
-                "שומר…"
+                t.af_saving
               ) : agentId ? (
-                "שמור שינויים"
+                t.af_save
               ) : (
-                "הפעל את הנציגה"
+                t.af_activate
               )}
             </button>
           </div>
@@ -929,7 +896,7 @@ export function AgentForm({ initial, agentId }: Props) {
               className="flex items-center gap-2 text-gray-400 hover:text-white text-sm px-5 py-2.5 rounded-lg border border-border hover:bg-surface-3 transition-colors"
             >
               <ChevronRight className="w-4 h-4" />
-              הקודם
+              {t.af_prev}
             </button>
           ) : (
             <div />
@@ -939,7 +906,7 @@ export function AgentForm({ initial, agentId }: Props) {
               onClick={goNext}
               className="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-6 py-2.5 rounded-lg transition-colors"
             >
-              הבא
+              {t.af_next}
               <ChevronLeft className="w-4 h-4" />
             </button>
           )}
