@@ -17,9 +17,6 @@ ANTHROPIC_API_KEY: str = os.environ["ANTHROPIC_API_KEY"]
 # Absolute path to the project root (this repo)
 PROJECT_ROOT: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# Path to the SQLite queue DB file
-QUEUE_DB_PATH: str = os.path.join(PROJECT_ROOT, "agent", "agent_queue.db")
-
 # How long (seconds) to wait for owner approval before aborting
 APPROVAL_TIMEOUT_SECONDS: int = int(os.getenv("APPROVAL_TIMEOUT_SECONDS", "600"))  # 10 min
 
