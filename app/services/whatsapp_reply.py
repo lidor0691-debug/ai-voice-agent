@@ -108,13 +108,21 @@ async def _call_openai(messages: list[dict]) -> str:
     except Exception as exc:
         raise RuntimeError(f"DIAG_STEP5D_FAIL: {exc}") from exc
 
-    # STEP5E: HTTP request — raw ASCII bytes, minimal httpx config, no logging
+    # STEP5E: HTTP request — stdlib urllib (no httpx) to isolate transport
     try:
+        import urllib.request as _urllib
         body_bytes = body.encode("ascii", errors="ignore")
-        headers["Content-Type"] = "application/json; charset=ascii"
-        async with httpx.AsyncClient(timeout=30.0, http2=False, trust_env=False) as client:
-            resp = await client.post(_OPENAI_CHAT_URL, content=body_bytes, headers=headers)
-            resp.raise_for_status()
+        req = _urllib.Request(
+            _OPENAI_CHAT_URL,
+            data=body_bytes,
+            headers={
+                "Authorization": headers["Authorization"],
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        with _urllib.urlopen(req, timeout=30) as _resp:
+            raw_response = _resp.read()
     except RuntimeError:
         raise
     except Exception as exc:
@@ -122,7 +130,7 @@ async def _call_openai(messages: list[dict]) -> str:
 
     # STEP5F: parse response JSON
     try:
-        data = resp.json()
+        data = json.loads(raw_response)
     except Exception as exc:
         raise RuntimeError(f"DIAG_STEP5F_FAIL: {exc}") from exc
 
