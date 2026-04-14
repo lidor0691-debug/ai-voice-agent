@@ -108,6 +108,8 @@ async def _call_openai(messages: list[dict]) -> str:
 
 
 async def generate_whatsapp_reply(phone: str, user_message: str) -> dict:
+    return {"reply": "WA_BACKEND_OK_TEST", "messages": []}  # TEMP DIAGNOSTIC — remove after test
+    # fmt: skip
     """
     Full pipeline:
     1. Load agent config by whatsapp_number (falls back to phone_number)
