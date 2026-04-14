@@ -7,8 +7,8 @@ from urllib.parse import quote
 from datetime import datetime, timedelta
 from fastapi import APIRouter, WebSocket, Request
 from fastapi.responses import Response
-from twilio.twiml.voice_response import VoiceResponse, Connect, Hangup
-from app.services.agent_config import fetch_supabase_agent_config, build_supabase_system_prompt
+from twilio.twiml.voice_response import VoiceResponse, Connect
+from app.services.agent_config import fetch_supabase_agent_config
 
 router = APIRouter()
 
@@ -20,11 +20,7 @@ OPENAI_API_KEY = (
     .replace("\u2029", "")
 )
 
-ROI_PHONE_NUMBER    = os.getenv("TWILIO_PHONE_NUMBER", "")   # Roi's Twilio number
-ROI_WEBHOOK_URL     = os.getenv("ROI_WEBHOOK_URL") or os.getenv("MAKE_WEBHOOK_URL", "")
-
-STUDIO_PHONE_NUMBER = os.getenv("STUDIO_PHONE_NUMBER", "")
-STUDIO_WEBHOOK_URL  = os.getenv("STUDIO_WEBHOOK_URL", "")
+ROI_PHONE_NUMBER    = os.getenv("TWILIO_PHONE_NUMBER", "")   # kept for logging only
 
 current_date = datetime.now().strftime("%Y-%m-%d")
 
@@ -66,7 +62,7 @@ def normalize_israeli_phone(phone: str) -> str:
 
 
 def normalize_phone_key(phone: str) -> str:
-    """Normalize any phone string to E.164 for consistent CLIENTS_CONFIG lookup."""
+    """Normalize any phone string to E.164 for Supabase lookup."""
     if not phone:
         return ""
     return normalize_israeli_phone(phone)
@@ -100,239 +96,10 @@ async def send_lead_to_webhook(webhook_url: str, lead_data: dict) -> bool:
     return False
 
 
-# ── Client configuration ──────────────────────────────────────────────────────
-# Key   = normalized E.164 Twilio "To" phone number
-# Value = client config dict
-#
-# To add a new client: add one entry here. No other code changes required.
-
-_roi_phone_raw    = ROI_PHONE_NUMBER
-_studio_phone_raw = STUDIO_PHONE_NUMBER
-_roi_phone        = normalize_phone_key(_roi_phone_raw)
-_studio_phone     = normalize_phone_key(_studio_phone_raw)
-
-_ROI_CONFIG = {
-    "client_name":    "Roi Insurance",
-    "assistant_name": "מאיה",
-    "business_type":  "insurance agency",
-    "tone":           "professional, calm, trustworthy",
-    "greeting": (
-        "שלום, אני מאיה המזכירה הדיגיטלית של רועי. "
-        "רועי לא פנוי כרגע. באיזה נושא אוכל לסייע?"
-    ),
-    "goal": "collect insurance lead details for Roi to follow up on",
-    "required_fields": ["name", "phone_number", "insurance_type"],
-    "booking_rules": "",
-    "webhook_url": ROI_WEBHOOK_URL,
-    "voice": "shimmer",
-    "extra_notes": (
-        "Focus on trust and clarity. "
-        "If the caller mentions 'תביעה' (insurance claim), respond with empathy: "
-        "'אהמ... אוי, אני מצטערת לשמוע. בוא נראה איך אפשר לעזור', "
-        "then continue gently with the questions. "
-        "Once you have name, phone, and topic, say exactly: "
-        "'תודה רבה. אני מעבירה לרועי את הפרטים עכשיו, והוא יחזור אליך בהקדם.' "
-        "Then call process_agency_lead. "
-        "After process_agency_lead completes, say: "
-        "'שיהיה יום טוב, להתראות!' and immediately call end_call."
-    ),
-}
-
-_STUDIO_CONFIG = {
-    "client_name":    "Maya BPM Dance Studio",
-    "assistant_name": "מאיה",
-    "business_type":  "dance studio",
-    "webhook_url":    STUDIO_WEBHOOK_URL,
-    "voice":          "coral",
-
-    # Full prompt override — bypasses the generic builder entirely
-    "prompt_override": f"""אתה מאיה — העוזרת הדיגיטלית של מאיה BPM, סטודיו להיפ הופ.
-תאריך היום: {current_date}. את מדברת עברית בלבד. את אישה.
-
-האישיות שלך:
-- רכה, חמה, נשית, ביטחון שקט — לא מוקדנית, לא תאגידית
-- מדברת כמו מישהי שאוהבת את מה שהיא עושה ואכפת לה מהלקוחה
-- משפטים קצרים, זורמים, טבעיים — לא נאום, לא מגילה
-- קצב דיבור מהיר וזורם — כמו ישראלית שמדברת בטלפון. לא לעצור בין משפטים, לא להאריך מילים
-- אנושית לחלוטין — מותר להישמע לא מושלמת
-
-המוח השיחתי שלך:
-את לא רק אוספת מידע — את מובילה שיחה.
-בכל רגע את מבינה איפה הלקוחה נמצאת רגשית ומה היא צריכה לשמוע עכשיו.
-לפעמים זה חיבור ("איזה כיף, בת מצווה זה אירוע מרגש בטירוף"), לפעמים זה עניין ("אני בונה ממש הופעה שמרגישה וואו על הבמה"), לפעמים זה שאלה שמעמיקה ("היא יותר עדינה או אוהבת במה?").
-המטרה: להוביל את השיחה קדימה — לכיוון סרטון דוגמה, התאמה, או שמירת מקום.
-
-שפה — מה כן, מה לא:
-- עברית יומיומית בלבד
-- אין: "כיצד אוכל לסייע", "אשמח לעזור", "אנא המתיני", "ברוכה הבאה"
-- כן: "וואו", "כיף", "מעולה", "סבבה", "אוקיי", "נהדר", "איזה יופי"
-
-חוקי ברזל — חובה:
-1. אסור לדבר בשם המתקשרת. NEVER invent responses or speak for the caller.
-2. אסור להמציא שמות — אם לא ידוע, שאלי.
-3. שאלה אחת בכל פעם. עצרי. חכי לתשובה.
-4. אל תמשיכי לפני שקיבלת תשובה.
-5. אל תציפי מידע — תני מידע בקטנות, לפי הצורך.
-
-פתיחה — אמרי את זה בדיוק כשהשיחה מתחברת:
-"היי, הגעתם למאיה BPM. אני העוזרת הדיגיטלית של מאיה, אפשר לדבר איתי חופשי ולשאול כל מה שתרצו. אתם מתעניינים לגבי ריקוד לבת מצווה או סטודיו לריקוד?"
-עצרי. חכי לתשובה.
-
-מבנה שיחה — חובה לעבוד לפי הסדר הזה:
-1. חיבור רגשי — תגיבי בחום למה שנאמר לפני שממשיכים
-2. הבנת צורך — שאלות קצרות, אחת בכל פעם
-3. יצירת עניין — ספרי על הסטודיו/החבילה בצורה שמדליקה
-4. הצעת המשך — הובילי לשלב הבא (ניסיון / תיאום) בצורה רכה
-5. הובלה לפעולה — סגירה חמה, לא לחוצה
-
-אסור:
-- לזרוק את כל המידע בבת אחת
-- לתת מחיר מוקדם מדי — רק אם שואלים ישירות
-- לשאול "יש עוד שאלות?" יותר מפעם אחת בשיחה
-
-תגובה רגשית לפני המשך:
-כשמישהי אומרת "בת מצווה" — תגיבי בחום לפני שממשיכים:
-"וואו, בת מצווה זה אירוע מרגש בטירוף, איזה כיף שחשבתם עלינו"
-כשמישהי אומרת "סטודיו לריקוד" — תגיבי בהתלהבות קצרה:
-"כיף, היפ הופ זה סגנון מדהים, אני בטוחה שהיא תאהב"
-בכל תשובה אחרת — תגיבי קצר לפני שממשיכים:
-"אה, נהדר" / "וואו כיף" / "סבבה, הבנתי" / "איזה יופי"
-זה מה שגורם לשיחה להרגיש חיה.
-
-שאלות מובילות — לא רק איסוף מידע:
-בנוסף לשאלות המידע הרגילות, שאלי לפעמים שאלות שמעמיקות את השיחה:
-- "היא יותר עדינה באופי או אוהבת להיות על הבמה?"
-- "זה לכיוון ריקוד קצר ופשוט או משהו מושקע עם כניסה והופעה?"
-- "היא ראתה כבר ריקודי בת מצווה שאהבה?"
-המטרה: ליצור שיחה אמיתית, לא Q&A טכני.
-
-יצירת רצון לפני מידע:
-לפני שאת מסבירה פרטים על חבילה או שיעורים — צרי תחושת וואו קצרה:
-"אני בונה ממש הופעה שמרגישה מיוחדת על הבמה, לא סתם ריקוד"
-"ילדות שעשו אצלנו זוכרות את זה עוד שנים"
-ואז המשיכי לפרטים. לא להגזים — משפט אחד מספיק.
-
-מילוי שקט — באמצע שיחה בלבד, לא בפתיחה:
-כשצריך רגע (מעבר, חשיבה) — מלאי בצורה טבעית:
-"אממ רגע בודקת..." / "אהמ שנייה אני איתך..." / "רק רגע בודקת לך..."
-לא להגזים — רק כשזה טבעי.
-
-מצב ברירת מחדל:
-עדיף להישמע טבעית מאשר מדויקת.
-שיחה זורמת עדיפה על שיחה "נכונה".
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-אם מדובר בסטודיו לריקוד:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-אספי את המידע הבא, שאלה אחת בכל פעם:
-1. שם הבת
-2. כיתה
-3. ניסיון בריקוד (כן/לא) — אם כן, שאלי מה עשתה
-4. שם ההורה
-5. מאיזה אזור בארץ — שאלי בצורה טבעית: "אגב, מאיזה אזור אתם?"
-6. טלפון — בסוף השיחה: "אגב, יצא לי פה המספר שממנו התקשרת — לחזור אלייך על המספר הזה?" אם כן — השתמשי ב-{{caller_phone}}. אם לא — שאלי מה המועדף.
-
-אחרי שאספת פרטים — הציעי ניסיון:
-"אנחנו מציעות שני שיעורי ניסיון כדי שתוכלי להגיע, להכיר ולראות אם זה מתאים. אפשר לבדוק יחד מתי נוח?"
-- שיעורי ניסיון רק ביום ראשון או רביעי
-- שעה לפי כיתה:
-    גן + כיתה א → 17:00
-    כיתות ב–ד   → 17:45
-    כיתות ה–ו   → 18:40
-    חטיבה / תיכון → 19:40
-- הסטודיו עושה היפ הופ בלבד
-- אחרי שנקבע — אשרי בחום
-
-סיום אחרי הזמנת ניסיון:
-אמרי: "מושלם! קבענו ביום ___ בשעה ___. מחכות לכן!"
-שאלי פעם אחת בלבד: "יש שאלה נוספת שתרצי לדעת?"
-אם לא — אמרי: "תודה רבה! נחזור אליכם, ביי ביי" וקראי process_agency_lead ואז end_call.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-אם מדובר בריקוד בת מצווה:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-אספי שאלה אחת בכל פעם:
-1. שם הבת
-2. שם ההורה
-3. מאיזה אזור בארץ — "אגב, מאיזה אזור אתם?"
-4. הערות / שאלות נוספות
-
-אל תשאלי על תאריך האירוע — אין צורך.
-
-אם שואלים מתי כדאי להתחיל:
-ענה בצורה מרגיעה וגמישה:
-- "בדרך כלל מומלץ להתחיל בערך חודשיים לפני האירוע, זה הכי נוח"
-- אם יש חודש: "חודש זה בסדר גמור, לרוב מסתדרים יפה"
-- אם יש שבועיים: "שבועיים זה קצת צפוף, אבל בואי נבדוק מה אפשר לעשות"
-
-אם שואלים על תלבושות:
-"כמובן, החבילה כוללת גם תלבושת למופע ויש לנו מגוון מידות"
-אסור להגיד שצריך לקנות לבד.
-
-אם שואלים כמה שיעורים צריך:
-"בדרך כלל זה יוצא בערך 4 עד 5 שיעורים, תלוי כמה רוצים להשקיע ואיזה סגנון בוחרים"
-לא להיכנס להסברים מורכבים אלא אם נשאלת לעומק.
-
-סיום בת מצווה:
-שאלי פעם אחת בלבד: "יש שאלה נוספת שתרצי לדעת?"
-אם לא — אמרי: "נהדר! תודה רבה, נחזור אליכם בהקדם, ביי ביי" וקראי process_agency_lead ואז end_call.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-מידע על הסטודיו:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-- כתובת: הירשפלד 30 ראשון לציון
-- הסטודיו עושה היפ הופ בלבד
-
-שיחה חופשית:
-את לא משיבון. אפשר לשאול אותך שאלות ואת עונה בטבעיות.
-אם שואלים שאלה שאין לך תשובה — אמרי שתבדקי ותחזרי.
-
-מידע על השיחה:
-- טלפון המתקשרת (Twilio From): {{caller_phone}}
-- אם לא סיפקה טלפון אחר, השתמשי במספר הזה בתור parent_phone.
-""",
-
-    # Tool parameter schema for this client (used in session_update tools)
-    "tool_parameters": {
-        "type": "object",
-        "properties": {
-            "interest_type":      {"type": "string", "description": "סטודיו לריקוד או ריקוד בת מצווה"},
-            "girl_name":          {"type": "string", "description": "שם הבת"},
-            "school_grade":       {"type": "string", "description": "כיתה"},
-            "dance_experience":   {"type": "string", "description": "יש / אין ניסיון ריקוד"},
-            "experience_details": {"type": "string", "description": "פירוט הניסיון אם יש"},
-            "parent_name":        {"type": "string", "description": "שם ההורה"},
-            "parent_phone":       {"type": "string", "description": "טלפון ההורה"},
-            "preferred_day":      {"type": "string", "description": "יום מועדף לשיעור ניסיון (ראשון / רביעי)"},
-            "assigned_trial_time":{"type": "string", "description": "שעת השיעור שנקבעה לפי הכיתה"},
-            "notes":              {"type": "string", "description": "הערות נוספות"},
-        },
-        "required": ["girl_name", "parent_phone"],
-        "additionalProperties": False,
-    },
-}
-
-CLIENTS_CONFIG: dict[str, dict] = {}
-
-if _roi_phone:
-    CLIENTS_CONFIG[_roi_phone] = _ROI_CONFIG
-else:
-    print("❌ CLIENTS_CONFIG: Roi phone missing — TWILIO_PHONE_NUMBER is not set!")
-
-if _studio_phone:
-    if _studio_phone == _roi_phone:
-        print("❌ CLIENTS_CONFIG: Studio phone equals Roi phone — STUDIO_PHONE_NUMBER may be wrong!")
-    else:
-        CLIENTS_CONFIG[_studio_phone] = _STUDIO_CONFIG
-else:
-    print("❌ CLIENTS_CONFIG: Studio phone missing — STUDIO_PHONE_NUMBER is not set!")
-
 print("=" * 60)
 print("🔧 STARTUP — ROUTING CONFIG")
-print(f"   TWILIO_PHONE_NUMBER  raw='{_roi_phone_raw}'  normalized='{_roi_phone}'  {'✅' if _roi_phone else '❌ MISSING'}")
-print(f"   STUDIO_PHONE_NUMBER  raw='{_studio_phone_raw}'  normalized='{_studio_phone}'  {'✅' if _studio_phone else '❌ MISSING'}")
-print(f"   Numbers equal? {_roi_phone == _studio_phone and bool(_roi_phone)}")
-print(f"   CLIENTS_CONFIG keys ({len(CLIENTS_CONFIG)}): {list(CLIENTS_CONFIG.keys())}")
+print(f"   TWILIO_PHONE_NUMBER: '{ROI_PHONE_NUMBER}'")
+print("   Agent routing: Supabase only (no hardcoded clients)")
 print("=" * 60)
 
 
@@ -503,20 +270,17 @@ async def voice_entry(request: Request):
     print(f"[VOICE] CALL_CONTEXT keys after store: {list(CALL_CONTEXT.keys())}")
     print(f"[VOICE] stored context   = {CALL_CONTEXT[call_sid]}")
 
-    # Guard: reject unknown numbers. Check CLIENTS_CONFIG first (fast), then Supabase.
+    # Guard: reject unknown numbers via Supabase lookup.
     # This prevents the WebSocket from opening for truly unknown numbers.
-    _known_in_hardcoded = bool(CLIENTS_CONFIG.get(norm_to))
-    _known_in_supabase  = False
-    if not _known_in_hardcoded:
-        print(f"[VOICE] '{norm_to}' not in CLIENTS_CONFIG — checking Supabase")
-        try:
-            _sb = await fetch_supabase_agent_config(norm_to)
-            _known_in_supabase = bool(_sb and not _sb.get("fallback_used"))
-            print(f"[VOICE] Supabase pre-check: known={_known_in_supabase}, client='{_sb.get('client_name')}'")
-        except Exception as _e:
-            print(f"[VOICE] Supabase pre-check error: {_e}")
-    if not _known_in_hardcoded and not _known_in_supabase:
-        print(f"[VOICE] ❌ No client config for norm_to='{norm_to}' — returning error TwiML")
+    try:
+        _sb = await fetch_supabase_agent_config(norm_to)
+        _known_in_supabase = bool(_sb and not _sb.get("fallback_used"))
+        print(f"[VOICE] Supabase pre-check: known={_known_in_supabase}, client='{_sb.get('client_name')}'")
+    except Exception as _e:
+        print(f"[VOICE] Supabase pre-check error: {_e}")
+        _known_in_supabase = False
+    if not _known_in_supabase:
+        print(f"[VOICE] ❌ No active agent in Supabase for norm_to='{norm_to}' — returning error TwiML")
         err_response = VoiceResponse()
         err_response.say("מצטערים, אירעה שגיאה. נסו שוב מאוחר יותר.", language="he-IL")
         return Response(content=str(err_response), media_type="application/xml")
@@ -605,42 +369,40 @@ async def websocket_endpoint(twilio_ws: WebSocket):
         to_number    = ""
         print(f"[WS ERROR] Missing CALL_CONTEXT for call_sid='{call_sid}' — routing will fall back")
 
-    # ── Phase 3: client lookup — Supabase first, CLIENTS_CONFIG fallback ────
+    # ── Phase 3: client lookup — Supabase only ────────────────────────────
     print(f"[ROUTING] to_number used for lookup = '{to_number}'")
 
-    _supabase_cfg  = None
-    _used_supabase = False
-    if to_number:
+    if not to_number:
+        print(f"[ROUTING] ❌ No to_number — closing call")
         try:
-            print(f"[DEBUG] Looking up Supabase for: {to_number}")
-            _candidate = await fetch_supabase_agent_config(to_number)
-            print(f"[DEBUG] Supabase result: fallback_used={_candidate.get('fallback_used')}, client_name={_candidate.get('client_name')}, _from_supabase={_candidate.get('_from_supabase')}")
-            if _candidate and not _candidate.get("fallback_used"):
-                _candidate["_from_supabase"] = True   # explicit mark
-                _supabase_cfg  = _candidate
-                _used_supabase = True
-                print(f"[ROUTING] ✅ Supabase match: '{_supabase_cfg.get('client_name')}' — using dashboard config")
-            else:
-                print(f"[ROUTING] Supabase: no match for '{to_number}' — trying CLIENTS_CONFIG")
-                print(f"[DEBUG] Supabase safe-default returned — check SUPABASE_URL/SUPABASE_ANON_KEY env vars and that phone_number='{to_number}' exists in agents_config with is_active=true")
-        except Exception as _e:
-            print(f"[ROUTING] Supabase lookup error: {_e} — falling back to CLIENTS_CONFIG")
+            await twilio_ws.close()
+        except Exception as e:
+            print(f"[ROUTING] WebSocket close error (safe to ignore): {e}")
+        return
 
-    if _used_supabase:
-        client_config = _supabase_cfg
-    else:
-        print(f"[ROUTING] CLIENTS_CONFIG keys = {list(CLIENTS_CONFIG.keys())}")
-        _exact = CLIENTS_CONFIG.get(to_number) if to_number else None
-        if _exact:
-            client_config = _exact
-            print(f"[ROUTING] selected client_name = '{client_config.get('client_name')}' (HARDCODED)")
+    try:
+        print(f"[DEBUG] Looking up Supabase for: {to_number}")
+        _candidate = await fetch_supabase_agent_config(to_number)
+        print(f"[DEBUG] Supabase result: fallback_used={_candidate.get('fallback_used')}, client_name={_candidate.get('client_name')}")
+        if _candidate and not _candidate.get("fallback_used"):
+            _candidate["_from_supabase"] = True
+            client_config = _candidate
+            print(f"[ROUTING] ✅ Supabase match: '{client_config.get('client_name')}' — using dashboard config")
         else:
-            print(f"[ROUTING] ❌ No client config for to_number='{to_number}' — closing call")
+            print(f"[ROUTING] ❌ No active agent in Supabase for '{to_number}' — closing call")
+            print(f"[DEBUG] Check that phone_number='{to_number}' exists in agents_config with is_active=true")
             try:
                 await twilio_ws.close()
             except Exception as e:
                 print(f"[ROUTING] WebSocket close error (safe to ignore): {e}")
             return
+    except Exception as _e:
+        print(f"[ROUTING] ❌ Supabase lookup error: {_e} — closing call")
+        try:
+            await twilio_ws.close()
+        except Exception as e:
+            print(f"[ROUTING] WebSocket close error (safe to ignore): {e}")
+        return
 
     if not client_config:
         print("[WS ERROR] No client config and no default — closing.")
@@ -658,18 +420,14 @@ async def websocket_endpoint(twilio_ws: WebSocket):
             print(f"[WS] close error: {e}")
         return
 
-    if _used_supabase:
-        # prompt_override is pre-built by fetch_supabase_agent_config with {{caller_phone}} placeholder
-        _raw_prompt = client_config.get("prompt_override", "")
-        if not _raw_prompt:
-            print(f"[OPENAI] ⚠️ Supabase prompt empty — falling back to hardcoded")
-            system_prompt = build_system_prompt(client_config, caller_phone)
-        else:
-            system_prompt = _raw_prompt.replace("{{caller_phone}}", caller_phone)
-            print(f"[OPENAI] prompt source = supabase")
+    # prompt_override is pre-built by fetch_supabase_agent_config with {{caller_phone}} placeholder
+    _raw_prompt = client_config.get("prompt_override", "")
+    if _raw_prompt:
+        system_prompt = _raw_prompt.replace("{{caller_phone}}", caller_phone)
+        print(f"[OPENAI] prompt source = supabase")
     else:
+        print(f"[OPENAI] ⚠️ Supabase prompt empty — using generic builder")
         system_prompt = build_system_prompt(client_config, caller_phone)
-        print(f"[OPENAI] prompt source = hardcoded")
     webhook_url   = client_config.get("webhook_url", "")
     # voice_id is already resolved to an OpenAI voice name by fetch_supabase_agent_config
     voice         = client_config.get("voice_id") or client_config.get("voice") or "shimmer"
