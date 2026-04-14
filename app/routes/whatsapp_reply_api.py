@@ -17,7 +17,8 @@ router = APIRouter()
 
 
 class ReplyRequest(BaseModel):
-    phone: str
+    customer_phone: str   # Twilio From — used for conversation history
+    business_phone: str   # Twilio To  — used for agent config lookup
     user_message: str
 
 
@@ -27,22 +28,21 @@ async def whatsapp_reply(req: ReplyRequest):
     Full WhatsApp reply pipeline — backend owns memory and context.
 
     Request:
-        { "phone": "+972...", "user_message": "..." }
+        {
+            "customer_phone": "+972...",   <- Twilio From
+            "business_phone": "+972...",   <- Twilio To
+            "user_message": "..."
+        }
 
     Response:
         {
             "reply": "...",          <- send this to the user
             "messages": [...]        <- full updated history (optional, for debugging)
         }
-
-    Make.com usage:
-        1. Receive inbound WhatsApp message
-        2. POST to this endpoint with phone + user_message
-        3. Send response["reply"] back to the user via WhatsApp
-        Done. No history management, no prompt assembly, no OpenAI in Make.
     """
     result = await generate_whatsapp_reply(
-        phone=req.phone,
+        customer_phone=req.customer_phone,
+        business_phone=req.business_phone,
         user_message=req.user_message,
     )
     return result

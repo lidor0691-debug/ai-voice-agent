@@ -155,9 +155,9 @@ async def _call_openai(messages: list[dict]) -> str:
         raise RuntimeError(f"DIAG_STEP5G_FAIL: {exc}") from exc
 
 
-async def generate_whatsapp_reply(phone: str, user_message: str) -> dict:
+async def generate_whatsapp_reply(customer_phone: str, business_phone: str, user_message: str) -> dict:
     try:
-        return await _generate_whatsapp_reply_inner(phone, user_message)
+        return await _generate_whatsapp_reply_inner(customer_phone, business_phone, user_message)
     except Exception as exc:
         import traceback
         traceback.print_exc()
@@ -167,14 +167,20 @@ async def generate_whatsapp_reply(phone: str, user_message: str) -> dict:
         }
 
 
-async def _generate_whatsapp_reply_inner(phone: str, user_message: str) -> dict:
-    print("INCOMING PHONE RAW:", repr(phone), flush=True)
-    phone = phone.replace("whatsapp:", "").strip()
+async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: str, user_message: str) -> dict:
+    # Normalize both phones — strip "whatsapp:" prefix Twilio may prepend
+    customer_phone = customer_phone.replace("whatsapp:", "").strip()
+    business_phone = business_phone.replace("whatsapp:", "").strip()
+
+    print("DEBUG customer_phone:", repr(customer_phone), flush=True)
+    print("DEBUG business_phone:", repr(business_phone), flush=True)
+
     user_message = _sanitize(user_message)
 
-    # ── 1. Load agent config ──────────────────────────────────────────────────
+    # ── 1. Load agent config via business_phone ───────────────────────────────
     try:
-        agent = await get_whatsapp_agent_config(phone)
+        print("DEBUG agent lookup using business_phone:", repr(business_phone), flush=True)
+        agent = await get_whatsapp_agent_config(business_phone)
     except Exception as exc:
         return {"reply": strict_sanitize(f"DIAG_STEP1_FAIL: {exc}"), "messages": []}
 
@@ -189,9 +195,10 @@ async def _generate_whatsapp_reply_inner(phone: str, user_message: str) -> dict:
     except Exception as exc:
         return {"reply": strict_sanitize(f"DIAG_STEP2_FAIL: {exc}"), "messages": []}
 
-    # ── 3. Load history ───────────────────────────────────────────────────────
+    # ── 3. Load history via customer_phone ────────────────────────────────────
     try:
-        row = await _load_row(phone)
+        print("DEBUG history lookup using customer_phone:", repr(customer_phone), flush=True)
+        row = await _load_row(customer_phone)
         history = _normalize_messages(row.get("messages_json") if row else None)
     except Exception as exc:
         return {"reply": strict_sanitize(f"DIAG_STEP3_FAIL: {exc}"), "messages": []}
@@ -207,9 +214,9 @@ async def _generate_whatsapp_reply_inner(phone: str, user_message: str) -> dict:
     except Exception as exc:
         return {"reply": strict_sanitize(f"DIAG_STEP5_FAIL: {exc}"), "messages": []}
 
-    # ── 6. Persist updated history ────────────────────────────────────────────
+    # ── 6. Persist history via customer_phone ────────────────────────────────
     try:
-        updated_messages = await append_whatsapp_messages(phone, user_message, reply)
+        updated_messages = await append_whatsapp_messages(customer_phone, user_message, reply)
     except Exception as exc:
         updated_messages = history + [
             {"role": "user",      "content": user_message},
