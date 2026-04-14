@@ -81,9 +81,9 @@ async def _load_row(phone: str) -> Optional[dict]:
 async def _upsert_messages(phone: str, messages: list[dict]) -> None:
     """
     Insert or update the row for this phone with the new messages array.
-    Supabase upsert uses phone as the conflict key.
+    on_conflict=phone tells Supabase which column to use for conflict resolution.
     """
-    url = f"{_SUPABASE_URL}/rest/v1/{_TABLE}"
+    url = f"{_SUPABASE_URL}/rest/v1/{_TABLE}?on_conflict=phone"
     headers = {**_headers(), "Prefer": "resolution=merge-duplicates,return=minimal"}
     async with httpx.AsyncClient(timeout=5.0) as client:
         resp = await client.post(
