@@ -30,6 +30,33 @@ def _headers() -> dict:
     }
 
 
+async def update_lead_name(phone: str, name: str) -> None:
+    """
+    Update the name on an existing lead (matched by phone) only if name is currently null.
+    Never raises.
+    """
+    if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY or not phone or not name:
+        return
+    try:
+        headers = {
+            "apikey": _SUPABASE_SERVICE_KEY,
+            "Authorization": f"Bearer {_SUPABASE_SERVICE_KEY}",
+            "Content-Type": "application/json",
+            "Prefer": "return=minimal",
+        }
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.patch(
+                f"{_SUPABASE_URL}/rest/v1/{_TABLE}",
+                params={"phone": f"eq.{phone}", "name": "is.null"},
+                json={"name": name},
+                headers=headers,
+            )
+            resp.raise_for_status()
+        logger.info("[LEAD CAPTURE] Updated lead name for phone=%s name=%s", phone, name)
+    except Exception as exc:
+        logger.error("[LEAD CAPTURE] Failed to update lead name: %s", exc)
+
+
 async def save_lead(data: dict) -> None:
     """
     Insert a row into public.leads.

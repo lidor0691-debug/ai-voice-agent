@@ -22,7 +22,7 @@ from typing import Optional
 import httpx
 
 from app.services.agent_config import get_whatsapp_agent_config
-from app.services.lead_capture import save_lead
+from app.services.lead_capture import save_lead, update_lead_name
 from app.services.whatsapp_history import append_whatsapp_messages, _load_row, _normalize_messages
 
 logger = logging.getLogger(__name__)
@@ -232,6 +232,26 @@ async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: st
             {"role": "user",      "content": user_message},
             {"role": "assistant", "content": reply},
         ]
+
+    # ── 7. Extract name from conversation and update lead if not yet set ────────
+    # Heuristic: if the previous assistant message asked for a name and the
+    # current user message is short (1-4 words), treat it as the caller's name.
+    try:
+        _NAME_TRIGGERS = ("איך קוראים", "מה שמך", "מה השם", "על איזה שם", "שם שלך", "שמך")
+        _last_assistant = next(
+            (m["content"] for m in reversed(history) if m.get("role") == "assistant"),
+            "",
+        )
+        _words = user_message.strip().split()
+        if (
+            any(t in _last_assistant for t in _NAME_TRIGGERS)
+            and 1 <= len(_words) <= 4
+            and not any(ch.isdigit() for ch in user_message)
+        ):
+            await update_lead_name(customer_phone, user_message.strip())
+            print(f"[LEAD] name updated: {user_message.strip()!r} for {customer_phone}", flush=True)
+    except Exception as exc:
+        logger.warning("[LEAD] name extraction failed: %s", exc)
 
     reply = _sanitize_output(reply)
     messages = [
