@@ -9,6 +9,7 @@ from fastapi import APIRouter, WebSocket, Request
 from fastapi.responses import Response
 from twilio.twiml.voice_response import VoiceResponse, Connect
 from app.services.agent_config import fetch_supabase_agent_config
+from app.services.lead_capture import save_lead
 
 router = APIRouter()
 
@@ -606,6 +607,18 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                                 lead_payload = builder(args, caller_phone, client_config)
                                 await send_lead_to_webhook(webhook_url, lead_payload)
                                 lead_sent = True
+
+                            # Always save directly to leads table so dashboard shows the lead
+                            # regardless of lead_delivery_method (webhook/whatsapp/etc.)
+                            await save_lead({
+                                "phone":     caller_phone,
+                                "name":      args.get("name") or args.get("parent_name") or None,
+                                "source":    "voice",
+                                "status":    "new",
+                                "client_id": client_config.get("client_id") or None,
+                                "notes":     args.get("notes") or None,
+                            })
+                            print(f"[LEAD] saved to leads table for client_id={client_config.get('client_id')}")
 
                             # Return function result to OpenAI so the conversation continues.
                             # Without this the model stalls waiting for output and the call drops.
