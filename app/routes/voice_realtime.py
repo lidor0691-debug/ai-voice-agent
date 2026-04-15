@@ -434,7 +434,8 @@ async def websocket_endpoint(twilio_ws: WebSocket):
 
     print(f"[OPENAI] selected client_name = '{client_config.get('client_name')}'")
     print(f"[OPENAI] voice                = '{voice}'")
-    print(f"[OPENAI] prompt first 120     = '{system_prompt[:120].strip()}'")
+    print(f"[OPENAI] prompt length        = {len(system_prompt)} chars")
+    print(f"[OPENAI] prompt first 300     = '{system_prompt[:300].strip()}'")
     print("=" * 60)
 
     openai_url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview"
@@ -496,25 +497,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
         # Small pause so session.update is fully applied before the greeting fires.
         await asyncio.sleep(0.25)
 
-        # For BPM: force the exact opening via per-response instructions.
-        # This wins over any conflicting instruction in the session/system prompt.
-        if client_config.get("client_name") == "Maya BPM":
-            _bpm_opening = (
-                "היי, הגעת לסטודיו BPM, מדברת מאיה. איך אפשר לעזור? "
-                "רק כדי לדייק, את מחפשת סטודיו לריקוד או ריקוד לבת מצווה?"
-            )
-            await openai_ws.send(json.dumps({
-                "type": "response.create",
-                "response": {
-                    "instructions": (
-                        f"Say EXACTLY this sentence and nothing else: \"{_bpm_opening}\" "
-                        "Do not add any words before or after it."
-                    ),
-                },
-            }))
-            print("[BPM] Forced opening via response.create instructions")
-        else:
-            await openai_ws.send(json.dumps({"type": "response.create"}))
+        await openai_ws.send(json.dumps({"type": "response.create"}))
 
         is_ai_speaking         = False
         speech_started_at      = None
