@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { getUserContext } from "@/lib/user-context";
 
 export async function GET(req: NextRequest) {
-  const agentId = req.nextUrl.searchParams.get("agent_id");
   const client = await createSupabaseServerClient();
+  const { data: { user } } = await client.auth.getUser();
+  if (!getUserContext(user)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const agentId = req.nextUrl.searchParams.get("agent_id");
 
   let query = client
     .from("knowledge_items")
@@ -19,6 +23,9 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const client = await createSupabaseServerClient();
+  const { data: { user } } = await client.auth.getUser();
+  if (!getUserContext(user)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   const body = await req.json();
 
   const { data, error } = await client

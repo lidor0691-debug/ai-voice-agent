@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { getUserContext } from "@/lib/user-context";
 import { ClientAsset } from "@/types/database";
 
 export async function PATCH(
@@ -8,6 +9,10 @@ export async function PATCH(
 ) {
   const { client_id, id } = await params;
   const client = await createSupabaseServerClient();
+  const { data: { user } } = await client.auth.getUser();
+  const ctx = getUserContext(user);
+  if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!ctx.isAdmin && ctx.clientId !== client_id) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const body = await req.json() as Partial<ClientAsset>;
 
   const { data, error } = await client
@@ -23,11 +28,15 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  _: NextRequest,
+  _req: NextRequest,
   { params }: { params: Promise<{ client_id: string; id: string }> }
 ) {
   const { client_id, id } = await params;
   const client = await createSupabaseServerClient();
+  const { data: { user } } = await client.auth.getUser();
+  const ctx = getUserContext(user);
+  if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!ctx.isAdmin && ctx.clientId !== client_id) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const { error } = await client
     .from("client_assets")
