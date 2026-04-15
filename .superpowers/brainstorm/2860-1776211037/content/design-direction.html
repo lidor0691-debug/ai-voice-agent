@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Maya AI — כיוון עיצובי</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #0a0a0f;
+    color: #e2e8f0;
+    min-height: 100vh;
+    padding: 40px 32px;
+  }
+  h1 { font-size: 22px; font-weight: 700; color: #fff; margin-bottom: 6px; }
+  .sub { font-size: 14px; color: #64748b; margin-bottom: 36px; }
+
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+
+  .card {
+    border-radius: 20px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s;
+    position: relative;
+    border: 2px solid transparent;
+  }
+  .card:hover { transform: translateY(-4px); }
+  .card.selected { border-color: #a78bfa; box-shadow: 0 0 0 1px #a78bfa40, 0 20px 60px #a78bfa20; }
+
+  .card-preview {
+    height: 340px;
+    position: relative;
+    overflow: hidden;
+  }
+  .card-label {
+    padding: 16px 20px;
+    background: #111827;
+  }
+  .card-label h3 { font-size: 15px; font-weight: 600; color: #f1f5f9; margin-bottom: 4px; }
+  .card-label p { font-size: 12px; color: #64748b; line-height: 1.5; }
+
+  /* ── OPTION A: Glassmorphism ── */
+  .glass-bg {
+    background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
+    width: 100%; height: 100%;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+  }
+  .glass-orb {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(60px);
+    opacity: 0.5;
+  }
+  .glass-orb-1 { width: 200px; height: 200px; background: #7c3aed; top: -40px; right: -40px; }
+  .glass-orb-2 { width: 150px; height: 150px; background: #2563eb; bottom: 20px; left: -30px; }
+  .glass-sidebar {
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 52px;
+    background: rgba(255,255,255,0.04);
+    backdrop-filter: blur(12px);
+    border-right: 1px solid rgba(255,255,255,0.08);
+    display: flex; flex-direction: column; align-items: center;
+    padding: 14px 0; gap: 20px;
+  }
+  .glass-icon { width: 28px; height: 28px; border-radius: 8px; background: rgba(255,255,255,0.06); display: flex; align-items: center; justify-content: center; }
+  .glass-icon.active { background: rgba(124,58,237,0.4); }
+  .glass-icon svg { width: 14px; height: 14px; stroke: #a78bfa; fill: none; stroke-width: 1.8; }
+  .glass-icon.white svg { stroke: rgba(255,255,255,0.3); }
+  .glass-main { position: absolute; left: 52px; right: 0; top: 0; bottom: 0; padding: 14px; }
+  .glass-kpi { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+  .glass-kpi-card {
+    background: rgba(255,255,255,0.05);
+    backdrop-filter: blur(16px);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
+    padding: 10px 12px;
+  }
+  .kpi-val { font-size: 18px; font-weight: 700; color: #fff; }
+  .kpi-lbl { font-size: 9px; color: rgba(255,255,255,0.4); margin-top: 2px; }
+  .glass-panel {
+    background: rgba(255,255,255,0.04);
+    backdrop-filter: blur(16px);
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 10px;
+    padding: 10px 12px;
+    flex: 1;
+  }
+  .glass-panel-title { font-size: 9px; color: rgba(255,255,255,0.3); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.08em; }
+  .glass-bar { height: 4px; background: rgba(255,255,255,0.06); border-radius: 4px; margin-bottom: 6px; overflow: hidden; }
+  .glass-bar-fill { height: 100%; border-radius: 4px; background: linear-gradient(90deg, #7c3aed, #2563eb); }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 8px; font-weight: 600; }
+  .badge-purple { background: rgba(124,58,237,0.2); color: #a78bfa; }
+
+  /* ── OPTION B: Bento/Minimal ── */
+  .bento-bg {
+    background: #0d0d12;
+    width: 100%; height: 100%;
+    display: flex;
+    flex-direction: column;
+    padding: 14px;
+    gap: 8px;
+  }
+  .bento-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+  .bento-logo { display: flex; align-items: center; gap: 6px; }
+  .bento-logo-dot { width: 18px; height: 18px; border-radius: 6px; background: #fff; }
+  .bento-logo-text { font-size: 11px; font-weight: 700; color: #fff; }
+  .bento-topbar { display: flex; gap: 6px; }
+  .bento-chip { padding: 3px 8px; border-radius: 6px; font-size: 8px; background: #1a1a24; color: #64748b; }
+  .bento-grid { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: auto auto auto; gap: 8px; flex: 1; }
+  .bento-cell {
+    background: #13131d;
+    border-radius: 12px;
+    padding: 10px 12px;
+    display: flex; flex-direction: column; justify-content: space-between;
+    border: 1px solid #1e1e2e;
+  }
+  .bento-cell.span2 { grid-column: span 2; }
+  .bento-cell.accent { background: #fff; }
+  .bento-cell.accent .bval { color: #0d0d12; }
+  .bento-cell.accent .blbl { color: #64748b; }
+  .bval { font-size: 24px; font-weight: 800; color: #fff; letter-spacing: -1px; }
+  .blbl { font-size: 9px; color: #3a3a50; margin-top: 2px; }
+  .bento-line { height: 1px; background: #1e1e2e; margin: 4px 0; }
+  .bento-row { display: flex; justify-content: space-between; align-items: center; }
+  .bento-dot { width: 5px; height: 5px; border-radius: 50%; background: #22c55e; }
+  .bento-tag { font-size: 8px; color: #3a3a50; }
+
+  /* ── OPTION C: Neural/Ambient ── */
+  .neural-bg {
+    background: #060610;
+    width: 100%; height: 100%;
+    position: relative;
+    overflow: hidden;
+  }
+  .neural-grid {
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(99,102,241,0.06) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(99,102,241,0.06) 1px, transparent 1px);
+    background-size: 28px 28px;
+  }
+  .neural-glow {
+    position: absolute;
+    width: 300px; height: 300px;
+    background: radial-gradient(circle, rgba(99,102,241,0.15) 0%, transparent 70%);
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+  }
+  .neural-content { position: relative; z-index: 1; padding: 14px; height: 100%; display: flex; flex-direction: column; gap: 8px; }
+  .neural-header { display: flex; align-items: center; justify-content: space-between; }
+  .neural-logo { font-size: 13px; font-weight: 700; letter-spacing: -0.3px; color: #fff; }
+  .neural-logo span { color: #6366f1; }
+  .neural-status { display: flex; align-items: center; gap: 4px; font-size: 8px; color: #6366f1; }
+  .neural-pulse { width: 5px; height: 5px; border-radius: 50%; background: #6366f1; animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+  .neural-kpi { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .nkpi {
+    background: rgba(99,102,241,0.06);
+    border: 1px solid rgba(99,102,241,0.15);
+    border-radius: 8px;
+    padding: 8px;
+    text-align: center;
+  }
+  .nval { font-size: 16px; font-weight: 700; color: #fff; }
+  .nlbl { font-size: 7px; color: rgba(255,255,255,0.3); margin-top: 2px; }
+  .neural-wave {
+    background: rgba(99,102,241,0.05);
+    border: 1px solid rgba(99,102,241,0.12);
+    border-radius: 10px;
+    padding: 10px 12px;
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+  }
+  .wave-title { font-size: 8px; color: rgba(255,255,255,0.3); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 8px; }
+  .wave-bars { display: flex; align-items: flex-end; gap: 3px; height: 50px; }
+  .wave-bar { flex: 1; border-radius: 2px 2px 0 0; background: rgba(99,102,241,0.25); transition: height 0.3s; }
+  .wave-bar.hi { background: #6366f1; }
+  .neural-agents { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .nagent {
+    background: rgba(99,102,241,0.05);
+    border: 1px solid rgba(99,102,241,0.1);
+    border-radius: 8px;
+    padding: 7px 10px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .nagent-dot { width: 6px; height: 6px; border-radius: 50%; background: #22c55e; flex-shrink: 0; }
+  .nagent-name { font-size: 9px; color: rgba(255,255,255,0.6); }
+
+  .sel-badge {
+    position: absolute;
+    top: 12px; left: 12px;
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    background: #a78bfa;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    z-index: 10;
+  }
+  .card.selected .sel-badge { display: flex; }
+
+  .footer { margin-top: 28px; text-align: center; font-size: 12px; color: #374151; }
+</style>
+</head>
+<body>
+
+<h1>איזה כיוון עיצובי מדבר אליך?</h1>
+<p class="sub">שלושה גישות שונות — כולן ברמה גבוהה. לחץ על אחת כדי לבחור.</p>
+
+<div class="grid">
+
+  <!-- A: Glassmorphism -->
+  <div class="card" data-choice="glass" onclick="pick(this)">
+    <span class="sel-badge">✓</span>
+    <div class="card-preview">
+      <div class="glass-bg">
+        <div class="glass-orb glass-orb-1"></div>
+        <div class="glass-orb glass-orb-2"></div>
+        <div class="glass-sidebar">
+          <div class="glass-icon active">
+            <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+          </div>
+          <div class="glass-icon white">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2"/></svg>
+          </div>
+          <div class="glass-icon white">
+            <svg viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 12.5a19.79 19.79 0 01-3.07-8.63A2 2 0 012 1.84h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
+          </div>
+          <div class="glass-icon white">
+            <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
+          </div>
+        </div>
+        <div class="glass-main">
+          <div class="glass-kpi">
+            <div class="glass-kpi-card">
+              <div class="kpi-val">12</div>
+              <div class="kpi-lbl">AGENTS</div>
+            </div>
+            <div class="glass-kpi-card">
+              <div class="kpi-val" style="color:#a78bfa">847</div>
+              <div class="kpi-lbl">CALLS</div>
+            </div>
+          </div>
+          <div class="glass-panel">
+            <div class="glass-panel-title">ביצועי שיחות</div>
+            <div class="glass-bar"><div class="glass-bar-fill" style="width:78%"></div></div>
+            <div class="glass-bar"><div class="glass-bar-fill" style="width:55%"></div></div>
+            <div class="glass-bar"><div class="glass-bar-fill" style="width:90%"></div></div>
+            <div style="margin-top:8px; display:flex; gap:6px;">
+              <span class="badge badge-purple">LIVE ●</span>
+              <span style="font-size:8px;color:rgba(255,255,255,0.25)">3 agents active</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-label">
+      <h3>A — Glassmorphism</h3>
+      <p>זכוכית, שכבות עומק, גרדיאנטים. תחושה של עתיד קרוב — כמו Apple Vision Pro.</p>
+    </div>
+  </div>
+
+  <!-- B: Bento Minimal -->
+  <div class="card" data-choice="bento" onclick="pick(this)">
+    <span class="sel-badge">✓</span>
+    <div class="card-preview">
+      <div class="bento-bg">
+        <div class="bento-header">
+          <div class="bento-logo">
+            <div class="bento-logo-dot"></div>
+            <span class="bento-logo-text">Maya AI</span>
+          </div>
+          <div class="bento-topbar">
+            <div class="bento-chip">Calls ↑24%</div>
+            <div class="bento-chip">● Live</div>
+          </div>
+        </div>
+        <div class="bento-grid">
+          <div class="bento-cell accent">
+            <div>
+              <div class="bval">12</div>
+              <div class="blbl">Agents</div>
+            </div>
+            <div style="font-size:18px">🤖</div>
+          </div>
+          <div class="bento-cell">
+            <div class="bval">847</div>
+            <div class="blbl">Total Calls</div>
+            <div class="bento-row" style="margin-top:6px">
+              <div class="bento-dot"></div>
+              <div class="bento-tag">+12 today</div>
+            </div>
+          </div>
+          <div class="bento-cell span2" style="padding:10px 12px">
+            <div class="bento-row">
+              <span style="font-size:9px;color:#3a3a50">Maya Sales</span>
+              <span class="bento-dot"></span>
+            </div>
+            <div class="bento-line"></div>
+            <div class="bento-row">
+              <span style="font-size:9px;color:#3a3a50">Maya Support</span>
+              <span class="bento-dot"></span>
+            </div>
+            <div class="bento-line"></div>
+            <div class="bento-row">
+              <span style="font-size:9px;color:#3a3a50">Maya Booking</span>
+              <div class="bento-dot" style="background:#64748b"></div>
+            </div>
+          </div>
+          <div class="bento-cell span2" style="background:#7c3aed20;border-color:#7c3aed40;">
+            <div style="font-size:8px;color:#a78bfa;margin-bottom:6px">QUICK ACTION</div>
+            <div style="font-size:11px;color:#fff">+ צור Agent חדש</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-label">
+      <h3>B — Bento Minimal</h3>
+      <p>גריד של כרטיסיות מודולריות, לבן על שחור. ניקיון מוחלט — כמו Linear או Vercel.</p>
+    </div>
+  </div>
+
+  <!-- C: Neural/Ambient -->
+  <div class="card" data-choice="neural" onclick="pick(this)">
+    <span class="sel-badge">✓</span>
+    <div class="card-preview">
+      <div class="neural-bg">
+        <div class="neural-grid"></div>
+        <div class="neural-glow"></div>
+        <div class="neural-content">
+          <div class="neural-header">
+            <div class="neural-logo">Maya<span>AI</span></div>
+            <div class="neural-status">
+              <div class="neural-pulse"></div>
+              SYSTEM ONLINE
+            </div>
+          </div>
+          <div class="neural-kpi">
+            <div class="nkpi"><div class="nval">12</div><div class="nlbl">Agents</div></div>
+            <div class="nkpi"><div class="nval" style="color:#6366f1">847</div><div class="nlbl">Calls</div></div>
+            <div class="nkpi"><div class="nval">94%</div><div class="nlbl">Uptime</div></div>
+            <div class="nkpi"><div class="nval">2.1s</div><div class="nlbl">Avg</div></div>
+          </div>
+          <div class="neural-wave">
+            <div class="wave-title">Voice Activity — 24h</div>
+            <div class="wave-bars">
+              <div class="wave-bar" style="height:20%"></div>
+              <div class="wave-bar" style="height:45%"></div>
+              <div class="wave-bar" style="height:30%"></div>
+              <div class="wave-bar hi" style="height:80%"></div>
+              <div class="wave-bar hi" style="height:95%"></div>
+              <div class="wave-bar hi" style="height:70%"></div>
+              <div class="wave-bar" style="height:55%"></div>
+              <div class="wave-bar" style="height:40%"></div>
+              <div class="wave-bar hi" style="height:65%"></div>
+              <div class="wave-bar" style="height:35%"></div>
+              <div class="wave-bar" style="height:50%"></div>
+              <div class="wave-bar hi" style="height:75%"></div>
+            </div>
+          </div>
+          <div class="neural-agents">
+            <div class="nagent"><div class="nagent-dot"></div><div class="nagent-name">Maya Sales</div></div>
+            <div class="nagent"><div class="nagent-dot"></div><div class="nagent-name">Maya Support</div></div>
+            <div class="nagent"><div class="nagent-dot" style="background:#f59e0b"></div><div class="nagent-name">Maya Book</div></div>
+            <div class="nagent"><div class="nagent-dot" style="background:#64748b"></div><div class="nagent-name">Maya Dev</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-label">
+      <h3>C — Neural / Ambient</h3>
+      <p>גריד אינדיגו, נורה פולסרת, גרפי אמפליטודה. תחושה של Mission Control / AI-native.</p>
+    </div>
+  </div>
+
+</div>
+
+<div class="footer">לחץ על כיוון כדי לבחור → אפשר גם לשלב אלמנטים מכמה</div>
+
+<script>
+function pick(el) {
+  document.querySelectorAll('.card').forEach(c => c.classList.remove('selected'));
+  el.classList.add('selected');
+  // record choice
+  const ev = { type: 'click', choice: el.dataset.choice, text: el.querySelector('h3').textContent, timestamp: Date.now() };
+  fetch('/event', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(ev) }).catch(()=>{});
+}
+</script>
+
+</body>
+</html>

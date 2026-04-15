@@ -1,0 +1,6 @@
+{
+  "version": 3,
+  "sources": [],
+  "sections": [
+    {"offset": {"line": 4, "column": 0}, "map": {"version":3,"sources":["file:///C:/Users/lidor/maya-ai/dashboard/app/admin/layout.tsx"],"sourcesContent":["export default function AdminLayout({ children }: { children: React.ReactNode }) {\n  return (\n    <div className=\"min-h-screen bg-surface-0 text-white\">\n      <div className=\"border-b border-border px-8 py-4 flex items-center gap-3\">\n        <span className=\"text-brand-400 text-xs font-mono bg-brand-600/20 px-2 py-0.5 rounded\">\n          ADMIN\n        </span>\n        <span className=\"text-white font-semibold text-sm\">Maya AI — Admin Panel</span>\n      </div>\n      <div className=\"p-8\">{children}</div>\n    </div>\n  );\n}\n"],"names":[],"mappings":";;;;;;AAAe,SAAS,YAAY,EAAE,QAAQ,EAAiC;IAC7E,qBACE,8OAAC;QAAI,WAAU;;0BACb,8OAAC;gBAAI,WAAU;;kCACb,8OAAC;wBAAK,WAAU;kCAAuE;;;;;;kCAGvF,8OAAC;wBAAK,WAAU;kCAAmC;;;;;;;;;;;;0BAErD,8OAAC;gBAAI,WAAU;0BAAO;;;;;;;;;;;;AAG5B"}}]
+}

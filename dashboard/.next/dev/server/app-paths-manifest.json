@@ -1,0 +1,14 @@
+{
+  "/admin/page": "app/admin/page.js",
+  "/api/agents/[id]/route": "app/api/agents/[id]/route.js",
+  "/api/test-agent/route": "app/api/test-agent/route.js",
+  "/dashboard/agents/[id]/page": "app/dashboard/agents/[id]/page.js",
+  "/dashboard/agents/page": "app/dashboard/agents/page.js",
+  "/dashboard/calls/page": "app/dashboard/calls/page.js",
+  "/dashboard/knowledge/page": "app/dashboard/knowledge/page.js",
+  "/dashboard/leads/page": "app/dashboard/leads/page.js",
+  "/dashboard/page": "app/dashboard/page.js",
+  "/dashboard/settings/page": "app/dashboard/settings/page.js",
+  "/login/page": "app/login/page.js",
+  "/page": "app/page.js"
+}

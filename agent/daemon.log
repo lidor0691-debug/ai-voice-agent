@@ -1,0 +1,36 @@
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "C:\Users\lidor\maya-ai\agent\daemon.py", line 14, in <module>
+    from agent.config import APPROVAL_TIMEOUT_SECONDS, MAX_TASK_RETRIES
+  File "C:\Users\lidor\maya-ai\agent\config.py", line 6, in <module>
+    OWNER_PHONE: str = os.environ["OWNER_PHONE"]
+                       ~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "<frozen os>", line 709, in __getitem__
+KeyError: 'OWNER_PHONE'
+2026-04-14 19:41:46,710 INFO agent.daemon — Maya Dev Agent daemon starting...
+2026-04-14 19:41:46,909 INFO twilio.http_client — -- BEGIN Twilio API Request --
+2026-04-14 19:41:46,909 INFO twilio.http_client — POST Request: https://api.twilio.com/2010-04-01/Accounts/AC61a956dc820852f94401ec759724a970/Messages.json
+2026-04-14 19:41:46,909 INFO twilio.http_client — Headers:
+2026-04-14 19:41:46,910 INFO twilio.http_client — Content-Type : application/x-www-form-urlencoded
+2026-04-14 19:41:46,910 INFO twilio.http_client — User-Agent : twilio-python/9.3.0 (Windows AMD64) Python/3.14.2
+2026-04-14 19:41:46,910 INFO twilio.http_client — X-Twilio-Client : python-9.3.0
+2026-04-14 19:41:46,910 INFO twilio.http_client — Accept-Charset : utf-8
+2026-04-14 19:41:46,910 INFO twilio.http_client — Accept : application/json
+2026-04-14 19:41:46,910 INFO twilio.http_client — -- END Twilio API Request --
+2026-04-14 19:41:47,522 INFO twilio.http_client — Response Status Code: 400
+2026-04-14 19:41:47,522 INFO twilio.http_client — Response Headers: {'Content-Type': 'application/json', 'Content-Length': '158', 'Connection': 'keep-alive', 'Date': 'Tue, 14 Apr 2026 16:41:47 GMT', 'X-Twilio-Error-Code': '63007', 'Twilio-Concurrent-Requests': '1', 'Twilio-Request-Id': 'RQe906cf727936ca91c0c2af40fe5c4495', 'Twilio-Request-Duration': '0.080', 'X-Home-Region': 'us1', 'X-API-Domain': 'api.twilio.com', 'Strict-Transport-Security': 'max-age=31536000', 'X-Cache': 'Error from cloudfront', 'Via': '1.1 d4e2a230c602065d2e7043c30b343ff6.cloudfront.net (CloudFront)', 'X-Amz-Cf-Pop': 'TLV50-C1', 'X-Amz-Cf-Id': 'OIGLZTy6J1sBsKxWLOZXgI0jSkLRqjR3poFWjiZ48lDrsPtOkBh_pw==', 'X-Powered-By': 'AT-5000', 'X-Shenanigans': 'none', 'Vary': 'Origin'}
+2026-04-14 19:41:47,522 ERROR agent.whatsapp — Failed to send WhatsApp: HTTP 400 error: Unable to create record: Twilio could not find a Channel with the specified From address
+2026-04-14 19:46:55,862 INFO agent.daemon — Maya Dev Agent daemon starting...
+2026-04-14 19:46:56,029 INFO twilio.http_client — -- BEGIN Twilio API Request --
+2026-04-14 19:46:56,029 INFO twilio.http_client — POST Request: https://api.twilio.com/2010-04-01/Accounts/AC61a956dc820852f94401ec759724a970/Messages.json
+2026-04-14 19:46:56,029 INFO twilio.http_client — Headers:
+2026-04-14 19:46:56,029 INFO twilio.http_client — Content-Type : application/x-www-form-urlencoded
+2026-04-14 19:46:56,029 INFO twilio.http_client — User-Agent : twilio-python/9.3.0 (Windows AMD64) Python/3.14.2
+2026-04-14 19:46:56,029 INFO twilio.http_client — X-Twilio-Client : python-9.3.0
+2026-04-14 19:46:56,029 INFO twilio.http_client — Accept-Charset : utf-8
+2026-04-14 19:46:56,029 INFO twilio.http_client — Accept : application/json
+2026-04-14 19:46:56,029 INFO twilio.http_client — -- END Twilio API Request --
+2026-04-14 19:46:57,531 INFO twilio.http_client — Response Status Code: 201
+2026-04-14 19:46:57,531 INFO twilio.http_client — Response Headers: {'Content-Type': 'application/json;charset=utf-8', 'Content-Length': '831', 'Connection': 'keep-alive', 'Date': 'Tue, 14 Apr 2026 16:46:57 GMT', 'Twilio-Concurrent-Requests': '1', 'Twilio-Request-Id': 'RQ942d0645f5a86c9de79eaa8684d56758', 'Twilio-Request-Duration': '0.139', 'X-Home-Region': 'us1', 'X-API-Domain': 'api.twilio.com', 'Strict-Transport-Security': 'max-age=31536000', 'X-Cache': 'Miss from cloudfront', 'Via': '1.1 00ea1e24e0d1a38e8abfc94f7cd21846.cloudfront.net (CloudFront)', 'X-Amz-Cf-Pop': 'TLV50-C1', 'X-Amz-Cf-Id': 'ojNUKl3l4TT2yvRTeMFLmSsns-YVZLG09JNFvnUIS6tVzbWZE0qFZg==', 'X-Powered-By': 'AT-5000', 'X-Shenanigans': 'none', 'Vary': 'Origin'}
+2026-04-14 19:46:57,531 INFO agent.whatsapp — WhatsApp sent sid=SM942d0645f5a86c9de79eaa8684d56758

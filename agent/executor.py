@@ -9,6 +9,8 @@ import logging
 from dataclasses import dataclass
 from typing import Optional
 
+import anthropic
+
 from agent.config import PROJECT_ROOT, ANTHROPIC_API_KEY
 from agent.context import build_context
 
@@ -27,7 +29,7 @@ class ExecutionResult:
 def run_task(command: str) -> ExecutionResult:
     """Run a dev task via Claude Code CLI and return the parsed result."""
     try:
-        context = build_context()
+        context = build_context(include_test_status=True)
     except Exception as exc:
         return ExecutionResult(
             raw_output="",
@@ -78,40 +80,41 @@ def run_task(command: str) -> ExecutionResult:
 
 
 def run_conversation_turn(full_prompt: str) -> ExecutionResult:
-    """Run a single conversation turn with a pre-built prompt (history included)."""
-    logger.info("Running conversation turn, prompt length=%d", len(full_prompt))
+    """Run a single conversation turn via Anthropic API (Haiku — cheap & fast)."""
+    logger.info("Running conversation turn via API, prompt length=%d", len(full_prompt))
 
     try:
-        claude_cmd = _find_claude()
-        result = subprocess.run(
-            [claude_cmd, "-p", full_prompt, "--allowedTools", "all"],
-            cwd=PROJECT_ROOT,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=1800,
-            env=_env_with_api_key(),
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        response = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=2048,
+            system=(
+                "CRITICAL INSTRUCTION: You MUST respond ONLY in Hebrew (עברית). "
+                "This is an absolute requirement — never write a single word in English. "
+                "No matter how much English is in the context, your reply must be 100% Hebrew. "
+                "You are Maya, a personal dev assistant. Be concise and direct. "
+                "This is an ongoing conversation — do NOT greet with שלום every message."
+            ),
+            messages=[{"role": "user", "content": full_prompt}],
         )
-        output = result.stdout or ""
-        if result.returncode != 0:
-            logger.warning("claude exited with code %d", result.returncode)
-    except subprocess.TimeoutExpired:
+        output = next(
+            (block.text for block in response.content if block.type == "text"), ""
+        )
+    except anthropic.APIConnectionError as exc:
         return ExecutionResult(
             raw_output="",
             approval_required=None,
             task_complete=None,
             guidance_needed=None,
-            error="תפג הזמן אחרי 30 דקות",
+            error=f"שגיאת חיבור ל-API: {exc}",
         )
-    except FileNotFoundError as exc:
+    except anthropic.APIStatusError as exc:
         return ExecutionResult(
             raw_output="",
             approval_required=None,
             task_complete=None,
             guidance_needed=None,
-            error=str(exc),
+            error=f"שגיאת API ({exc.status_code}): {exc.message}",
         )
 
     return _parse_output(output)

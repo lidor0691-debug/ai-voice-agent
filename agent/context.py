@@ -33,7 +33,7 @@ def _pytest_status() -> str:
         return "(unavailable)"
 
 
-def build_context(history: str = "") -> str:
+def build_context(history: str = "", include_test_status: bool = False) -> str:
     try:
         branch = get_current_branch()
     except RuntimeError:
@@ -45,7 +45,11 @@ def build_context(history: str = "") -> str:
         commits = []
 
     commits_str = "\n".join(f"  {c['hash']} {c['message']}" for c in commits) or "  (none)"
-    test_status = _pytest_status()
+
+    test_section = ""
+    if include_test_status:
+        test_status = _pytest_status()
+        test_section = f"\nTest status (last run):\n{test_status}\n"
 
     history_section = ""
     if history:
@@ -66,10 +70,7 @@ Working branch: {AGENT_BRANCH}
 
 Recent commits:
 {commits_str}
-
-Test status (last run):
-{test_status}
-
+{test_section}
 === IMPORTANT ===
 IGNORE all memory files and previous session context. Base your answers ONLY on the actual current state of the codebase. Read files directly to answer questions.
 

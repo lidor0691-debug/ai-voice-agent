@@ -1,0 +1,1061 @@
+module.exports = [
+"[externals]/next/dist/compiled/next-server/app-page-turbo.runtime.dev.js [external] (next/dist/compiled/next-server/app-page-turbo.runtime.dev.js, cjs)", ((__turbopack_context__, module, exports) => {
+
+const mod = __turbopack_context__.x("next/dist/compiled/next-server/app-page-turbo.runtime.dev.js", () => require("next/dist/compiled/next-server/app-page-turbo.runtime.dev.js"));
+
+module.exports = mod;
+}),
+"[project]/lib/i18n.ts [app-ssr] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "translations",
+    ()=>translations
+]);
+const translations = {
+    he: {
+        // Nav
+        nav_dashboard: "דשבורד",
+        nav_agents: "נציגות",
+        nav_calls: "יומן שיחות",
+        nav_leads: "לידים",
+        nav_knowledge: "בסיס ידע",
+        nav_settings: "הגדרות",
+        workspace: "My Workspace",
+        lang_he: "עב",
+        lang_en: "EN",
+        // Header
+        search_placeholder: "חיפוש...",
+        status_active: "פעיל",
+        // Dashboard page
+        page_dashboard_title: "דשבורד",
+        page_dashboard_subtitle: "Maya AI Agent Platform",
+        kpi_total_agents: "סה״כ נציגות",
+        kpi_active_agents: "נציגות פעילות",
+        kpi_recent_calls: "שיחות אחרונות",
+        kpi_knowledge_items: "פריטי ידע",
+        your_agents: "הנציגות שלך",
+        view_all: "הצג הכל",
+        no_agents_yet: "אין נציגות עדיין",
+        no_calls_yet: "אין שיחות עדיין",
+        // Agents page
+        page_agents_title: "נציגות",
+        new_agent_btn: "נציגה חדשה",
+        no_agents_title: "אין נציגות עדיין",
+        no_agents_desc: "צור את נציגת ה-AI הראשונה שלך להתחלה",
+        create_agent_btn: "צור נציגה",
+        failed_load_agents: "טעינת נציגות נכשלה:",
+        // Agent card
+        agent_active: "פעיל",
+        agent_inactive: "לא פעיל",
+        not_configured: "לא מוגדר",
+        no_number: "אין מספר",
+        // Calls page
+        page_calls_title: "יומן שיחות",
+        page_calls_subtitle: "שיחות אחרונות מכל הנציגות",
+        failed_load_calls: "טעינת שיחות נכשלה:",
+        kpi_total_calls: "סה״כ שיחות",
+        kpi_completed: "הושלמו",
+        kpi_missed: "לא נענו",
+        no_calls_title: "אין שיחות עדיין",
+        no_calls_desc: "שיחות יופיעו כאן לאחר שהנציגות שלך יתחילו לקבל אותן",
+        col_date: "תאריך",
+        col_caller: "מתקשר",
+        col_agent: "נציגה",
+        col_duration: "משך",
+        col_status: "סטטוס",
+        status_completed: "הושלם",
+        status_missed: "לא נענה",
+        status_failed: "נכשל",
+        status_unknown: "לא ידוע",
+        unknown_caller: "לא ידוע",
+        // Settings page
+        page_settings_title: "הגדרות",
+        page_settings_subtitle: "הגדרות פלטפורמה",
+        save_changes: "שמור שינויים",
+        saved: "נשמר!",
+        section_platform: "פלטפורמה",
+        workspace_name_label: "שם הסביבה",
+        workspace_name_default: "My Workspace",
+        default_language_label: "שפת ברירת מחדל",
+        lang_english: "אנגלית",
+        lang_hebrew: "עברית",
+        lang_spanish: "ספרדית",
+        section_integrations: "אינטגרציות",
+        supabase_url_label: "Supabase URL",
+        supabase_url_hint: "הוגדר דרך NEXT_PUBLIC_SUPABASE_URL ב-.env.local",
+        supabase_configured: "(מוגדר דרך משתנה סביבה)",
+        backend_url_label: "כתובת Backend",
+        backend_url_hint: "בשימוש עבור תכונת בדיקת הנציגה",
+        section_schema: "סכמת מסד נתונים",
+        schema_desc: "הרץ את מיגרציית הסכמה ב-Supabase SQL editor ליצירת הטבלאות הנדרשות.",
+        schema_file: "קובץ סכמה: dashboard/supabase/schema.sql",
+        open_supabase: "פתח Supabase Dashboard",
+        section_about: "אודות",
+        // Knowledge
+        page_knowledge_title: "בסיס ידע",
+        knowledge_item_singular: "פריט",
+        knowledge_item_plural: "פריטים",
+        all_agents_option: "כל הנציגות",
+        add_item_btn: "הוסף פריט",
+        edit_item_title: "ערוך פריט",
+        new_item_title: "פריט ידע חדש",
+        field_agent: "נציגה *",
+        field_category: "קטגוריה",
+        category_placeholder: "למשל: מחירים, שאלות נפוצות, שעות",
+        field_title: "כותרת *",
+        title_placeholder: "כותרת תיאורית קצרה",
+        field_content: "תוכן *",
+        content_placeholder: "תוכן הידע שהנציגה תשתמש בו...",
+        field_priority: "עדיפות (1-10)",
+        field_active: "פעיל",
+        saving: "שומר...",
+        save: "שמור",
+        cancel: "ביטול",
+        no_knowledge_title: "אין פריטי ידע",
+        no_knowledge_desc: "הוסף פריטי ידע ללמד את הנציגות מה לומר",
+        add_first_item_btn: "הוסף פריט ראשון",
+        col_title: "כותרת",
+        col_priority: "עדיפות",
+        status_active_badge: "פעיל",
+        status_inactive_badge: "לא פעיל",
+        required_fields_error: "נציגה, כותרת ותוכן נדרשים.",
+        delete_knowledge_confirm: "למחוק פריט ידע זה?",
+        // Test agent
+        test_agent_title: "בדיקת נציגה",
+        no_agents_select: "אין נציגות",
+        start_btn: "התחל",
+        reset_btn: "אפס",
+        create_agent_first: "צור נציגה קודם",
+        test_agent_prompt: "לחץ \"התחל\" להתחלה או הקלד הודעה",
+        type_message_placeholder: "הקלד הודעה...",
+        thinking: "חושב...",
+        backend_error: "⚠️ לא ניתן להגיע לשרת. וודא שה-FastAPI פועל.",
+        connection_error: "⚠️ שגיאת חיבור. הפעל את שרת FastAPI ב-localhost:8000.",
+        // Leads
+        page_leads_title: "לידים",
+        leads_total: "סה״כ לידים",
+        leads_today: "היום",
+        leads_new: "חדשים",
+        leads_contacted: "בטיפול",
+        source_label: "מקור:",
+        voice_label: "Voice",
+        whatsapp_label: "WhatsApp",
+        // Agent form steps
+        step_business: "פרטי העסק",
+        step_voice: "איך מאיה מדברת",
+        step_calls: "מה קורה בשיחות",
+        step_leads: "קבלת פניות",
+        step_whatsapp: "וואטסאפ",
+        step_activation: "הפעלה",
+        // Agent form fields
+        af_name_required: "יש להזין שם לנציגה",
+        af_phone_required: "יש להזין מספר טלפון",
+        af_phone_invalid: "פורמט לא תקין — לדוגמה: +972533470757",
+        af_load_error: "לא ניתן לשמור — נתוני הנציגה לא נטענו. רענן את הדף ונסה שנית.",
+        af_save_failed: "שמירה נכשלה",
+        af_unknown_error: "שגיאה לא ידועה",
+        af_edit_title: "עריכת נציגה",
+        af_new_title: "הגדרת נציגה חדשה",
+        af_edit_subtitle: "עדכן את הגדרות הנציגה",
+        af_new_subtitle: "כמה שלבים פשוטים — ומאיה מוכנה לענות לשיחות",
+        af_cancel: "ביטול",
+        af_saved_redirect: "נשמר — מעביר לרשימה…",
+        af_prev: "הקודם",
+        af_next: "הבא",
+        af_save: "שמור שינויים",
+        af_activate: "הפעל את הנציגה",
+        af_saving: "שומר…",
+        af_saved: "נשמר!",
+        af_s1_title: "פרטי העסק שלך",
+        af_s1_subtitle: "המידע הבסיסי שמאיה צריכה כדי לייצג אותך נכון",
+        af_business_name_label: "שם העסק",
+        af_business_name_hint: "איך הלקוחות מכירים אתכם?",
+        af_business_name_placeholder: "למשל: סטודיו BPM",
+        af_agent_name_label: "שם הנציגה",
+        af_agent_name_hint: "איך מאיה תציג את עצמה בשיחה?",
+        af_agent_name_placeholder: "למשל: מאיה",
+        af_phone_label: "מספר הטלפון של הנציגה",
+        af_phone_hint: "המספר שהלקוחות מתקשרים אליו — הנציגה תענה עליו אוטומטית",
+        af_phone_placeholder: "+972533470757",
+        af_call_language_label: "שפת השיחות",
+        af_call_language_hint: "באיזו שפה מאיה תדבר עם הלקוחות?",
+        af_lang_he: "עברית",
+        af_lang_en: "אנגלית",
+        af_lang_es: "ספרדית",
+        af_lang_fr: "צרפתית",
+        af_lang_de: "גרמנית",
+        af_s2_title: "איך מאיה נשמעת",
+        af_s2_subtitle: "בחר את הקול והקצב שהכי מתאים לעסק שלך",
+        af_tone_label: "סגנון הדיבור",
+        af_tone_hint: "איזה אווירה תרצה שתהיה בשיחות?",
+        af_tone_friendly: "ידידותי ונעים",
+        af_tone_professional: "מקצועי ורציני",
+        af_tone_formal: "רשמי",
+        af_tone_casual: "קז׳ואל ומשוחרר",
+        af_tone_empathetic: "אמפתי ומבין",
+        af_voice_label: "קול הנציגה",
+        af_voice_hint: "בחר קול שמתאים לאופי העסק שלך — ניתן לשנות בכל עת",
+        af_voice_shimmer: "שימר — נשי, חמים ונעים",
+        af_voice_coral: "קורל — נשי, מקצועי",
+        af_voice_sage: "סייג׳ — נשי, רגוע",
+        af_voice_alloy: "אלוי — ניטרלי",
+        af_voice_echo: "אקו — גברי",
+        af_voice_verse: "ורס — גברי, מקצועי",
+        af_speed_label: "קצב הדיבור",
+        af_speed_hint: "כמה מהר מאיה תדבר — רוב הלקוחות מעדיפים קצב רגיל",
+        af_speed_slow: "איטי",
+        af_speed_normal: "רגיל",
+        af_speed_fast: "מהיר",
+        af_s3_title: "מה קורה בשיחות",
+        af_s3_subtitle: "הגדר מה מאיה אומרת ואיך היא מתנהגת עם לקוחות",
+        af_first_message_label: "מה מאיה אומרת כשהיא עונה לשיחה?",
+        af_first_message_hint: "המשפט הראשון שהלקוח שומע — כתוב אותו בדיוק כפי שתרצה שייאמר",
+        af_first_message_placeholder: "היי! כאן מאיה מסטודיו BPM. איך אפשר לעזור?",
+        af_system_prompt_label: "זהות העסק והוראות הליבה",
+        af_system_prompt_hint: "תאר מי מאיה, מה העסק עושה, ואיך היא צריכה להתנהג בכל ערוץ.",
+        af_transfer_label: "העברה לאדם אמיתי",
+        af_transfer_hint: "אם לקוח מבקש לדבר עם אדם — לאן להעביר אותו?",
+        af_transfer_number_label: "מספר טלפון להעברה",
+        af_transfer_number_hint: "אופציונלי — אם לא מוגדר, מאיה תמשיך את השיחה בעצמה",
+        af_s4_title: "איך תקבל פניות?",
+        af_s4_subtitle: "אחרי כל שיחה, מאיה תשלח לך את פרטי הלקוח — לאן תרצה לקבל אותם?",
+        af_lead_method_label: "דרך קבלת הפניות",
+        af_lead_method_hint: "בחר את הדרך הנוחה לך ביותר לקבל פרטי לקוחות",
+        af_lead_wa: "וואטסאפ — קבל הודעה ישירה לטלפון",
+        af_lead_email: "אימייל — קבל מייל עם הפרטים",
+        af_lead_webhook: "מערכת חיצונית — שלח ישירה למערכת שלי",
+        af_lead_wa_number_label: "מספר הוואטסאפ שלך",
+        af_lead_email_label: "כתובת האימייל שלך",
+        af_lead_webhook_label: "כתובת המערכת שלך",
+        af_lead_wa_placeholder: "+972543033010",
+        af_lead_email_placeholder: "leads@yourcompany.com",
+        af_lead_webhook_placeholder: "https://your-app.com/webhooks/lead",
+        af_s5_title: "ערוץ וואטסאפ",
+        af_s5_subtitle: "מאיה יכולה לשלוח הודעת וואטסאפ לאחר כל שיחה — כדי להמשיך את השיחה שם",
+        af_wa_enable_label: "הפעל ערוץ וואטסאפ",
+        af_wa_enable_hint: "מאפשר למאיה לשלוח ולקבל הודעות דרך וואטסאפ",
+        af_wa_number_label: "מספר הוואטסאפ של העסק",
+        af_wa_number_hint: "המספר שממנו מאיה תשלח הודעות — חייב להיות מחובר ל-WhatsApp Business",
+        af_wa_followup_label: "שליחת הודעת מעקב אחרי שיחה",
+        af_wa_followup_hint: "מיד בסיום השיחה — מאיה תשלח הודעה לוואטסאפ של הלקוח",
+        af_wa_template_what_label: "מה לשלוח אחרי השיחה?",
+        af_wa_template_what_hint: "מאיה תשתמש במידע שנאסף בשיחה כדי להתאים את ההודעה",
+        af_wa_template_summary: "סיכום השיחה — מה דיברנו ומה הצעד הבא",
+        af_wa_template_confirm: "אישור פגישה — תאריך, שעה, פרטים",
+        af_wa_template_followup: "הודעת המשך — מה לצפות עכשיו",
+        af_wa_template_custom: "הודעה מותאמת אישית",
+        af_wa_template_label: "תבנית ההודעה",
+        af_wa_template_hint: "כתוב את ההודעה שתישלח — ניתן להשתמש ב-{{name}} ו-{{phone}} לפרטי הלקוח",
+        af_wa_template_placeholder: "היי {{name}}! כאן מאיה 😊 תודה שדיברנו. אחזור אליך בקרוב עם פרטים נוספים.",
+        af_wa_behavior_title: "התנהגות בוואטסאפ",
+        af_wa_behavior_subtitle: "הגדרות ספציפיות לערוץ הוואטסאפ",
+        af_wa_goal_label: "מטרת השיחה בוואטסאפ",
+        af_wa_goal_hint: "במשפט אחד — מה מאיה צריכה להשיג בשיחת הוואטסאפ?",
+        af_wa_goal_placeholder: "לאסוף פרטי לקוח ולקבוע פגישת ייעוץ ראשונית",
+        af_wa_required_label: "פרטים לאיסוף מהלקוח",
+        af_wa_required_hint: "כתוב פרט אחד בכל שורה — מאיה תוודא שאוספת את כולם",
+        af_wa_required_placeholder: "שם מלא\nמספר טלפון\nגיל הילד\nתחום עניין",
+        af_wa_rules_label: "כללי התנהגות",
+        af_wa_rules_hint: "כתוב כלל אחד בכל שורה — מאיה תפעל לפיהם לאורך כל השיחה",
+        af_wa_rules_placeholder: "שאל רק שאלה אחת בכל הודעה\nאל תבטיח מחירים\nסיים תמיד עם הצעד הבא הברור",
+        af_wa_hours_label: "שעות פעילות",
+        af_wa_hours_hint: "באילו ימים ושעות הנציגה זמינה לענות — אופציונלי",
+        af_system_prompt_placeholder: "אתה מאיה, נציגת שירות של סטודיו BPM. המטרה שלך היא לברך לקוחות, לספר להם על השיעורים, ולקבל את הפרטים שלהם.\n\nשאלי תמיד:\n- מה השם המלא שלהם\n- מספר הטלפון\n- איזה סוג שיעור מעניין אותם\n\nבסוף השיחה — סכמי את הפרטים ושאלי אם הם רוצים שניצור איתם קשר.",
+        af_wa_disabled_hint: "כאשר תפעיל את ערוץ הוואטסאפ, מאיה תוכל לשלוח הודעת מעקב לאחר כל שיחה ולהמשיך את השיחה דרך וואטסאפ — כאילו היא אותה נציגה.",
+        af_s6_title: "סיכום ההגדרות",
+        af_s6_subtitle: "בדוק שהכל נכון לפני ההפעלה",
+        af_configured: "מוגדר ✓",
+        af_not_configured: "לא הוגדר",
+        af_activation_title: "הפעלת הנציגה",
+        af_active_hint: "הנציגה תענה לשיחות מיד לאחר השמירה",
+        af_inactive_hint: "הנציגה לא תענה לשיחות עד שתפעיל אותה",
+        // Agent tabs
+        tab_settings: "הגדרות נציגה",
+        tab_assets: "נכסי לקוח",
+        archive_agent_btn: "העבר לארכיון",
+        archive_confirm: "בטוח שרוצה לארכב את הנציגה? ניתן לשחזר מפאנל האדמין.",
+        // Client assets
+        ca_agents_only: "נכסי לקוח זמינים רק עבור נציגות קיימות.",
+        ca_title: "נכסים לשליחה בוואטסאפ",
+        ca_subtitle: "הגדר מה לשלוח אחרי כל טריגר — הודעות, קישורים, קבצים ומדיה",
+        ca_add_btn: "+ הוסף נכס",
+        ca_new_title: "נכס חדש",
+        ca_name_label: "שם הנכס *",
+        ca_name_placeholder: "לדוגמה: אישור ניסיון",
+        ca_type_label: "סוג",
+        ca_type_text: "טקסט",
+        ca_type_link: "קישור",
+        ca_type_pdf: "PDF",
+        ca_type_image: "תמונה",
+        ca_type_video: "וידאו",
+        ca_trigger_label: "מפתח טריגר *",
+        ca_trigger_placeholder: "-- בחר טריגר --",
+        ca_trigger_hint: "lowercase, underscore-separated — e.g. trial_booked",
+        ca_content_label: "תוכן ההודעה *",
+        ca_url_label: "כתובת URL *",
+        ca_active_label: "פעיל",
+        ca_saving: "שומר...",
+        ca_save_btn: "שמור נכס",
+        ca_cancel: "ביטול",
+        ca_loading: "טוען נכסים...",
+        ca_empty_title: "עדיין אין נכסים מוגדרים.",
+        ca_empty_desc: "הוסף נכס כדי להתחיל לשלוח הודעות אוטומטיות בוואטסאפ.",
+        ca_add_first_btn: "+ הוסף נכס ראשון",
+        ca_delete_btn: "מחק",
+        ca_delete_confirm: (name)=>`למחוק את "${name}"?`,
+        ca_name_required: "יש להזין שם לנכס",
+        ca_trigger_required: "יש לבחור מפתח טריגר",
+        ca_content_required: "יש להזין תוכן או URL",
+        ca_save_failed: "שמירה נכשלה",
+        ca_unknown_error: "שגיאה לא ידועה",
+        ca_custom_trigger: "אחר (הזן ידנית)",
+        ca_back: "חזור",
+        ca_content_placeholder: "היי {{name}}! האימון הראשון שלך אושר."
+    },
+    en: {
+        // Nav
+        nav_dashboard: "Dashboard",
+        nav_agents: "Agents",
+        nav_calls: "Call Logs",
+        nav_leads: "Leads",
+        nav_knowledge: "Knowledge",
+        nav_settings: "Settings",
+        workspace: "My Workspace",
+        lang_he: "עב",
+        lang_en: "EN",
+        // Header
+        search_placeholder: "Search...",
+        status_active: "Active",
+        // Dashboard page
+        page_dashboard_title: "Dashboard",
+        page_dashboard_subtitle: "Maya AI Agent Platform",
+        kpi_total_agents: "Total Agents",
+        kpi_active_agents: "Active Agents",
+        kpi_recent_calls: "Recent Calls",
+        kpi_knowledge_items: "Knowledge Items",
+        your_agents: "Your Agents",
+        view_all: "View all",
+        no_agents_yet: "No agents yet",
+        no_calls_yet: "No calls yet",
+        // Agents page
+        page_agents_title: "Agents",
+        new_agent_btn: "New Agent",
+        no_agents_title: "No agents yet",
+        no_agents_desc: "Create your first AI voice agent to get started",
+        create_agent_btn: "Create Agent",
+        failed_load_agents: "Failed to load agents:",
+        // Agent card
+        agent_active: "Active",
+        agent_inactive: "Inactive",
+        not_configured: "Not configured",
+        no_number: "No number",
+        // Calls page
+        page_calls_title: "Call Logs",
+        page_calls_subtitle: "Recent calls across all agents",
+        failed_load_calls: "Failed to load calls:",
+        kpi_total_calls: "Total Calls",
+        kpi_completed: "Completed",
+        kpi_missed: "Missed",
+        no_calls_title: "No calls yet",
+        no_calls_desc: "Calls will appear here once your agents start receiving them",
+        col_date: "Date",
+        col_caller: "Caller",
+        col_agent: "Agent",
+        col_duration: "Duration",
+        col_status: "Status",
+        status_completed: "Completed",
+        status_missed: "Missed",
+        status_failed: "Failed",
+        status_unknown: "Unknown",
+        unknown_caller: "Unknown",
+        // Settings page
+        page_settings_title: "Settings",
+        page_settings_subtitle: "Platform configuration",
+        save_changes: "Save Changes",
+        saved: "Saved!",
+        section_platform: "Platform",
+        workspace_name_label: "Workspace Name",
+        workspace_name_default: "My Workspace",
+        default_language_label: "Default Language",
+        lang_english: "English",
+        lang_hebrew: "Hebrew",
+        lang_spanish: "Spanish",
+        section_integrations: "Integrations",
+        supabase_url_label: "Supabase URL",
+        supabase_url_hint: "Set via NEXT_PUBLIC_SUPABASE_URL in .env.local",
+        supabase_configured: "(configured via environment variable)",
+        backend_url_label: "FastAPI Backend URL",
+        backend_url_hint: "Used for the Test Agent feature",
+        section_schema: "Database Schema",
+        schema_desc: "Run the schema migration in your Supabase SQL editor to create the required tables.",
+        schema_file: "Schema file: dashboard/supabase/schema.sql",
+        open_supabase: "Open Supabase Dashboard",
+        section_about: "About",
+        // Knowledge
+        page_knowledge_title: "Knowledge Base",
+        knowledge_item_singular: "item",
+        knowledge_item_plural: "items",
+        all_agents_option: "All agents",
+        add_item_btn: "Add Item",
+        edit_item_title: "Edit Item",
+        new_item_title: "New Knowledge Item",
+        field_agent: "Agent *",
+        field_category: "Category",
+        category_placeholder: "e.g. Pricing, FAQ, Hours",
+        field_title: "Title *",
+        title_placeholder: "Short descriptive title",
+        field_content: "Content *",
+        content_placeholder: "The knowledge content the agent will use…",
+        field_priority: "Priority (1–10)",
+        field_active: "Active",
+        saving: "Saving…",
+        save: "Save",
+        cancel: "Cancel",
+        no_knowledge_title: "No knowledge items",
+        no_knowledge_desc: "Add knowledge items to teach your agents what to say",
+        add_first_item_btn: "Add First Item",
+        col_title: "Title",
+        col_priority: "Priority",
+        status_active_badge: "Active",
+        status_inactive_badge: "Inactive",
+        required_fields_error: "Agent, title, and content are required.",
+        delete_knowledge_confirm: "Delete this knowledge item?",
+        // Test agent
+        test_agent_title: "Test Agent",
+        no_agents_select: "No agents",
+        start_btn: "Start",
+        reset_btn: "Reset",
+        create_agent_first: "Create an agent first",
+        test_agent_prompt: "Press \"Start\" to begin or type a message",
+        type_message_placeholder: "Type a message…",
+        thinking: "Thinking…",
+        backend_error: "⚠️ Could not reach the backend. Make sure your FastAPI server is running.",
+        connection_error: "⚠️ Connection error. Start your FastAPI server at localhost:8000.",
+        // Leads
+        page_leads_title: "Leads",
+        leads_total: "Total Leads",
+        leads_today: "Today",
+        leads_new: "New",
+        leads_contacted: "In Progress",
+        source_label: "Source:",
+        voice_label: "Voice",
+        whatsapp_label: "WhatsApp",
+        // Agent form steps
+        step_business: "Business Details",
+        step_voice: "How Maya Speaks",
+        step_calls: "What Happens in Calls",
+        step_leads: "Receiving Leads",
+        step_whatsapp: "WhatsApp",
+        step_activation: "Activation",
+        // Agent form fields
+        af_name_required: "Agent name is required",
+        af_phone_required: "Phone number is required",
+        af_phone_invalid: "Invalid format — e.g. +972533470757",
+        af_load_error: "Cannot save — agent data not loaded. Refresh and try again.",
+        af_save_failed: "Save failed",
+        af_unknown_error: "Unknown error",
+        af_edit_title: "Edit Agent",
+        af_new_title: "Set Up New Agent",
+        af_edit_subtitle: "Update agent settings",
+        af_new_subtitle: "A few simple steps — Maya is ready to answer calls",
+        af_cancel: "Cancel",
+        af_saved_redirect: "Saved — redirecting to list…",
+        af_prev: "Previous",
+        af_next: "Next",
+        af_save: "Save Changes",
+        af_activate: "Activate Agent",
+        af_saving: "Saving…",
+        af_saved: "Saved!",
+        af_s1_title: "Your Business Details",
+        af_s1_subtitle: "The basic info Maya needs to represent you properly",
+        af_business_name_label: "Business Name",
+        af_business_name_hint: "How do customers know you?",
+        af_business_name_placeholder: "e.g.: BPM Studio",
+        af_agent_name_label: "Agent Name",
+        af_agent_name_hint: "How will Maya present herself in calls?",
+        af_agent_name_placeholder: "e.g.: Maya",
+        af_phone_label: "Agent Phone Number",
+        af_phone_hint: "The number customers call — agent answers automatically",
+        af_phone_placeholder: "+972533470757",
+        af_call_language_label: "Call Language",
+        af_call_language_hint: "What language will Maya speak with customers?",
+        af_lang_he: "Hebrew",
+        af_lang_en: "English",
+        af_lang_es: "Spanish",
+        af_lang_fr: "French",
+        af_lang_de: "German",
+        af_s2_title: "How Maya Sounds",
+        af_s2_subtitle: "Choose the voice and pace that best fits your business",
+        af_tone_label: "Speaking Tone",
+        af_tone_hint: "What atmosphere do you want in calls?",
+        af_tone_friendly: "Friendly and Pleasant",
+        af_tone_professional: "Professional and Serious",
+        af_tone_formal: "Formal",
+        af_tone_casual: "Casual and Relaxed",
+        af_tone_empathetic: "Empathetic and Understanding",
+        af_voice_label: "Agent Voice",
+        af_voice_hint: "Choose a voice that fits your business — can change anytime",
+        af_voice_shimmer: "Shimmer — female, warm, pleasant",
+        af_voice_coral: "Coral — female, professional",
+        af_voice_sage: "Sage — female, calm",
+        af_voice_alloy: "Alloy — neutral",
+        af_voice_echo: "Echo — male",
+        af_voice_verse: "Verse — male, professional",
+        af_speed_label: "Speaking Rate",
+        af_speed_hint: "How fast Maya speaks — most customers prefer normal pace",
+        af_speed_slow: "Slow",
+        af_speed_normal: "Normal",
+        af_speed_fast: "Fast",
+        af_s3_title: "What Happens in Calls",
+        af_s3_subtitle: "Define what Maya says and how she behaves with customers",
+        af_first_message_label: "What does Maya say when answering?",
+        af_first_message_hint: "The first sentence the customer hears — write it exactly as you want it said",
+        af_first_message_placeholder: "Hey! This is Maya from BPM Studio. How can I help?",
+        af_system_prompt_label: "Business Identity and Core Instructions",
+        af_system_prompt_hint: "Describe who Maya is, what the business does, and how she should behave in each channel.",
+        af_transfer_label: "Transfer to Human",
+        af_transfer_hint: "If a customer wants to speak with a human — where to transfer?",
+        af_transfer_number_label: "Transfer Phone Number",
+        af_transfer_number_hint: "Optional — if not set, Maya continues the call herself",
+        af_s4_title: "How Will You Receive Leads?",
+        af_s4_subtitle: "After each call, Maya will send you the customer's details — where should she send them?",
+        af_lead_method_label: "Lead Delivery Method",
+        af_lead_method_hint: "Choose the most convenient way to receive lead details",
+        af_lead_wa: "WhatsApp — get a direct message to your phone",
+        af_lead_email: "Email — get an email with the details",
+        af_lead_webhook: "External system — send directly to my system",
+        af_lead_wa_number_label: "Your WhatsApp Number",
+        af_lead_email_label: "Your Email Address",
+        af_lead_webhook_label: "Your System Address",
+        af_lead_wa_placeholder: "+972543033010",
+        af_lead_email_placeholder: "leads@yourcompany.com",
+        af_lead_webhook_placeholder: "https://your-app.com/webhooks/lead",
+        af_s5_title: "WhatsApp Channel",
+        af_s5_subtitle: "Maya can send a WhatsApp message after each call — to continue the conversation there",
+        af_wa_enable_label: "Enable WhatsApp Channel",
+        af_wa_enable_hint: "Enables Maya to send and receive messages via WhatsApp",
+        af_wa_number_label: "Business WhatsApp Number",
+        af_wa_number_hint: "The number Maya sends from — must be connected to WhatsApp Business",
+        af_wa_followup_label: "Send Follow-up Message After Call",
+        af_wa_followup_hint: "Immediately after the call — Maya sends a message to the customer's WhatsApp",
+        af_wa_template_what_label: "What to send after the call?",
+        af_wa_template_what_hint: "Maya uses info collected in the call to personalize the message",
+        af_wa_template_summary: "Call summary — what we discussed and next step",
+        af_wa_template_confirm: "Meeting confirmation — date, time, details",
+        af_wa_template_followup: "Follow-up message — what to expect now",
+        af_wa_template_custom: "Custom message",
+        af_wa_template_label: "Message Template",
+        af_wa_template_hint: "Write the message to send — use {{name}} and {{phone}} for customer details",
+        af_wa_template_placeholder: "Hi {{name}}! This is Maya 😊 Thanks for chatting. I'll get back to you soon with more details.",
+        af_wa_behavior_title: "WhatsApp Behavior",
+        af_wa_behavior_subtitle: "WhatsApp-specific settings — added on top of the agent's core identity",
+        af_wa_goal_label: "WhatsApp Conversation Goal",
+        af_wa_goal_hint: "In one sentence — what should Maya achieve in a WhatsApp conversation?",
+        af_wa_goal_placeholder: "Collect customer details and schedule an initial consultation",
+        af_wa_required_label: "Details to Collect from Customer",
+        af_wa_required_hint: "Write one detail per line — Maya ensures collecting all of them",
+        af_wa_required_placeholder: "Full name\nPhone number\nChild's age\nArea of interest",
+        af_wa_rules_label: "Behavior Rules",
+        af_wa_rules_hint: "Write one rule per line — Maya follows them throughout the conversation",
+        af_wa_rules_placeholder: "Ask only one question per message\nDon't promise prices\nAlways end with a clear next step",
+        af_wa_hours_label: "Business Hours",
+        af_wa_hours_hint: "Which days/hours is the agent available to answer — optional",
+        af_system_prompt_placeholder: "You are Maya, a service agent for BPM Studio. Your goal is to greet customers, tell them about the classes, and collect their details.\n\nAlways ask:\n- Their full name\n- Phone number\n- What type of class they're interested in\n\nAt the end of the call — summarize the details and ask if they'd like us to follow up.",
+        af_wa_disabled_hint: "When you enable the WhatsApp channel, Maya will be able to send a follow-up message after each call and continue the conversation via WhatsApp — as if she's the same agent.",
+        af_s6_title: "Settings Summary",
+        af_s6_subtitle: "Check everything is correct before activation",
+        af_configured: "Configured ✓",
+        af_not_configured: "Not configured",
+        af_activation_title: "Agent Activation",
+        af_active_hint: "The agent will answer calls immediately after saving",
+        af_inactive_hint: "The agent won't answer calls until you activate it",
+        // Agent tabs
+        tab_settings: "Agent Settings",
+        tab_assets: "Client Assets",
+        archive_agent_btn: "Archive Agent",
+        archive_confirm: "Archive this agent? It can be restored from the admin panel.",
+        // Client assets
+        ca_agents_only: "Client assets are only available for existing agents.",
+        ca_title: "Assets to Send via WhatsApp",
+        ca_subtitle: "Define what to send after each trigger — messages, links, files and media",
+        ca_add_btn: "+ Add Asset",
+        ca_new_title: "New Asset",
+        ca_name_label: "Asset Name *",
+        ca_name_placeholder: "e.g.: Trial Confirmation",
+        ca_type_label: "Type",
+        ca_type_text: "Text",
+        ca_type_link: "Link",
+        ca_type_pdf: "PDF",
+        ca_type_image: "Image",
+        ca_type_video: "Video",
+        ca_trigger_label: "Trigger Key *",
+        ca_trigger_placeholder: "-- Choose Trigger --",
+        ca_trigger_hint: "lowercase, underscore-separated — e.g. trial_booked",
+        ca_content_label: "Message Content *",
+        ca_url_label: "URL *",
+        ca_active_label: "Active",
+        ca_saving: "Saving…",
+        ca_save_btn: "Save Asset",
+        ca_cancel: "Cancel",
+        ca_loading: "Loading assets…",
+        ca_empty_title: "No assets defined yet.",
+        ca_empty_desc: "Add an asset to start sending automatic WhatsApp messages.",
+        ca_add_first_btn: "+ Add First Asset",
+        ca_delete_btn: "Delete",
+        ca_delete_confirm: (name)=>`Delete "${name}"?`,
+        ca_name_required: "Asset name is required",
+        ca_trigger_required: "Trigger key is required",
+        ca_content_required: "Content or URL is required",
+        ca_save_failed: "Save failed",
+        ca_unknown_error: "Unknown error",
+        ca_custom_trigger: "Other (enter manually)",
+        ca_back: "Back",
+        ca_content_placeholder: "Hi {{name}}! Your first session has been confirmed."
+    }
+};
+}),
+"[project]/context/language-context.tsx [app-ssr] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "LanguageProvider",
+    ()=>LanguageProvider,
+    "useLanguage",
+    ()=>useLanguage
+]);
+var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/node_modules/next/dist/server/route-modules/app-page/vendored/ssr/react-jsx-dev-runtime.js [app-ssr] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/node_modules/next/dist/server/route-modules/app-page/vendored/ssr/react.js [app-ssr] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$lib$2f$i18n$2e$ts__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/lib/i18n.ts [app-ssr] (ecmascript)");
+"use client";
+;
+;
+;
+const LanguageContext = /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["createContext"])({
+    lang: "he",
+    setLang: ()=>{},
+    t: __TURBOPACK__imported__module__$5b$project$5d2f$lib$2f$i18n$2e$ts__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["translations"].he
+});
+function LanguageProvider({ children }) {
+    const [lang, setLang] = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["useState"])("he");
+    return /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])(LanguageContext.Provider, {
+        value: {
+            lang,
+            setLang,
+            t: __TURBOPACK__imported__module__$5b$project$5d2f$lib$2f$i18n$2e$ts__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["translations"][lang]
+        },
+        children: children
+    }, void 0, false, {
+        fileName: "[project]/context/language-context.tsx",
+        lineNumber: 21,
+        columnNumber: 5
+    }, this);
+}
+function useLanguage() {
+    return (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["useContext"])(LanguageContext);
+}
+}),
+"[externals]/next/dist/server/app-render/action-async-storage.external.js [external] (next/dist/server/app-render/action-async-storage.external.js, cjs)", ((__turbopack_context__, module, exports) => {
+
+const mod = __turbopack_context__.x("next/dist/server/app-render/action-async-storage.external.js", () => require("next/dist/server/app-render/action-async-storage.external.js"));
+
+module.exports = mod;
+}),
+"[externals]/next/dist/server/app-render/work-unit-async-storage.external.js [external] (next/dist/server/app-render/work-unit-async-storage.external.js, cjs)", ((__turbopack_context__, module, exports) => {
+
+const mod = __turbopack_context__.x("next/dist/server/app-render/work-unit-async-storage.external.js", () => require("next/dist/server/app-render/work-unit-async-storage.external.js"));
+
+module.exports = mod;
+}),
+"[externals]/next/dist/server/app-render/work-async-storage.external.js [external] (next/dist/server/app-render/work-async-storage.external.js, cjs)", ((__turbopack_context__, module, exports) => {
+
+const mod = __turbopack_context__.x("next/dist/server/app-render/work-async-storage.external.js", () => require("next/dist/server/app-render/work-async-storage.external.js"));
+
+module.exports = mod;
+}),
+"[project]/lib/utils.ts [app-ssr] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "addSeconds",
+    ()=>addSeconds,
+    "cn",
+    ()=>cn,
+    "computeStats",
+    ()=>computeStats,
+    "formatDate",
+    ()=>formatDate,
+    "formatTime",
+    ()=>formatTime,
+    "leadsPerDay",
+    ()=>leadsPerDay,
+    "maskPhone",
+    ()=>maskPhone
+]);
+var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$clsx$2f$dist$2f$clsx$2e$mjs__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/node_modules/clsx/dist/clsx.mjs [app-ssr] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$tailwind$2d$merge$2f$dist$2f$bundle$2d$mjs$2e$mjs__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/node_modules/tailwind-merge/dist/bundle-mjs.mjs [app-ssr] (ecmascript)");
+;
+;
+function cn(...inputs) {
+    return (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$tailwind$2d$merge$2f$dist$2f$bundle$2d$mjs$2e$mjs__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["twMerge"])((0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$clsx$2f$dist$2f$clsx$2e$mjs__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["clsx"])(inputs));
+}
+function maskPhone(phone) {
+    if (!phone || phone.length < 4) return phone ?? "";
+    return phone.slice(0, -4).replace(/\d/g, "*") + phone.slice(-4);
+}
+function formatDate(iso) {
+    try {
+        return new Date(iso).toLocaleDateString("he-IL", {
+            day: "2-digit",
+            month: "short",
+            year: "numeric",
+            hour: "2-digit",
+            minute: "2-digit"
+        });
+    } catch  {
+        return iso;
+    }
+}
+function formatTime(iso) {
+    try {
+        return new Date(iso).toLocaleTimeString("he-IL", {
+            hour: "2-digit",
+            minute: "2-digit"
+        });
+    } catch  {
+        return iso;
+    }
+}
+function addSeconds(iso, seconds) {
+    return new Date(new Date(iso).getTime() + seconds * 1000).toISOString();
+}
+function computeStats(leads) {
+    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    return {
+        total: leads.length,
+        testRides: leads.filter((l)=>l.intents.includes("נסיעת מבחן")).length,
+        appointments: leads.filter((l)=>l.calendar_booked).length,
+        newLeads: leads.filter((l)=>l.status === "ליד חדש" || l.status === "new").length,
+        thisWeek: leads.filter((l)=>new Date(l.created_at) >= weekAgo).length
+    };
+}
+function leadsPerDay(leads) {
+    const map = {};
+    leads.forEach((l)=>{
+        const day = l.created_at.slice(0, 10);
+        map[day] = (map[day] ?? 0) + 1;
+    });
+    return Object.entries(map).sort(([a], [b])=>a.localeCompare(b)).slice(-7).map(([label, count])=>({
+            label,
+            count
+        }));
+}
+}),
+"[project]/components/layout/sidebar.tsx [app-ssr] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "Sidebar",
+    ()=>Sidebar
+]);
+var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/node_modules/next/dist/server/route-modules/app-page/vendored/ssr/react-jsx-dev-runtime.js [app-ssr] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$client$2f$app$2d$dir$2f$link$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/node_modules/next/dist/client/app-dir/link.js [app-ssr] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$navigation$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/node_modules/next/navigation.js [app-ssr] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$layout$2d$dashboard$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__$3c$export__default__as__LayoutDashboard$3e$__ = __turbopack_context__.i("[project]/node_modules/lucide-react/dist/esm/icons/layout-dashboard.js [app-ssr] (ecmascript) <export default as LayoutDashboard>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$bot$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__$3c$export__default__as__Bot$3e$__ = __turbopack_context__.i("[project]/node_modules/lucide-react/dist/esm/icons/bot.js [app-ssr] (ecmascript) <export default as Bot>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$phone$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__$3c$export__default__as__Phone$3e$__ = __turbopack_context__.i("[project]/node_modules/lucide-react/dist/esm/icons/phone.js [app-ssr] (ecmascript) <export default as Phone>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$book$2d$open$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__$3c$export__default__as__BookOpen$3e$__ = __turbopack_context__.i("[project]/node_modules/lucide-react/dist/esm/icons/book-open.js [app-ssr] (ecmascript) <export default as BookOpen>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$settings$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__$3c$export__default__as__Settings$3e$__ = __turbopack_context__.i("[project]/node_modules/lucide-react/dist/esm/icons/settings.js [app-ssr] (ecmascript) <export default as Settings>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$zap$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__$3c$export__default__as__Zap$3e$__ = __turbopack_context__.i("[project]/node_modules/lucide-react/dist/esm/icons/zap.js [app-ssr] (ecmascript) <export default as Zap>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$users$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__$3c$export__default__as__Users$3e$__ = __turbopack_context__.i("[project]/node_modules/lucide-react/dist/esm/icons/users.js [app-ssr] (ecmascript) <export default as Users>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$shield$2d$check$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__$3c$export__default__as__ShieldCheck$3e$__ = __turbopack_context__.i("[project]/node_modules/lucide-react/dist/esm/icons/shield-check.js [app-ssr] (ecmascript) <export default as ShieldCheck>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$lib$2f$utils$2e$ts__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/lib/utils.ts [app-ssr] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$context$2f$language$2d$context$2e$tsx__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/context/language-context.tsx [app-ssr] (ecmascript)");
+"use client";
+;
+;
+;
+;
+;
+;
+function Sidebar({ isAdmin = false }) {
+    const pathname = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$navigation$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["usePathname"])();
+    const { t } = (0, __TURBOPACK__imported__module__$5b$project$5d2f$context$2f$language$2d$context$2e$tsx__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["useLanguage"])();
+    const NAV_ITEMS = [
+        {
+            href: "/dashboard",
+            label: t.nav_dashboard,
+            icon: __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$layout$2d$dashboard$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__$3c$export__default__as__LayoutDashboard$3e$__["LayoutDashboard"]
+        },
+        {
+            href: "/dashboard/agents",
+            label: t.nav_agents,
+            icon: __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$bot$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__$3c$export__default__as__Bot$3e$__["Bot"]
+        },
+        {
+            href: "/dashboard/calls",
+            label: t.nav_calls,
+            icon: __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$phone$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__$3c$export__default__as__Phone$3e$__["Phone"]
+        },
+        {
+            href: "/dashboard/leads",
+            label: t.nav_leads,
+            icon: __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$users$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__$3c$export__default__as__Users$3e$__["Users"]
+        },
+        {
+            href: "/dashboard/knowledge",
+            label: t.nav_knowledge,
+            icon: __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$book$2d$open$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__$3c$export__default__as__BookOpen$3e$__["BookOpen"]
+        },
+        {
+            href: "/dashboard/settings",
+            label: t.nav_settings,
+            icon: __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$settings$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__$3c$export__default__as__Settings$3e$__["Settings"]
+        }
+    ];
+    return /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("aside", {
+        className: "w-56 min-h-screen bg-surface-1 border-e border-border flex flex-col flex-shrink-0",
+        children: [
+            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                className: "h-14 flex items-center gap-3 px-4 border-b border-border",
+                children: [
+                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                        className: "w-7 h-7 rounded-lg bg-gradient-to-br from-brand-500 to-indigo-500 flex items-center justify-center flex-shrink-0 shadow-glow-sm",
+                        children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$zap$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__$3c$export__default__as__Zap$3e$__["Zap"], {
+                            className: "w-3.5 h-3.5 text-white"
+                        }, void 0, false, {
+                            fileName: "[project]/components/layout/sidebar.tsx",
+                            lineNumber: 30,
+                            columnNumber: 11
+                        }, this)
+                    }, void 0, false, {
+                        fileName: "[project]/components/layout/sidebar.tsx",
+                        lineNumber: 29,
+                        columnNumber: 9
+                    }, this),
+                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                        children: [
+                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
+                                className: "text-white font-bold text-sm leading-none tracking-tight",
+                                children: [
+                                    "Maya",
+                                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
+                                        className: "text-brand-400",
+                                        children: "AI"
+                                    }, void 0, false, {
+                                        fileName: "[project]/components/layout/sidebar.tsx",
+                                        lineNumber: 34,
+                                        columnNumber: 17
+                                    }, this)
+                                ]
+                            }, void 0, true, {
+                                fileName: "[project]/components/layout/sidebar.tsx",
+                                lineNumber: 33,
+                                columnNumber: 11
+                            }, this),
+                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
+                                className: "text-gray-600 text-[10px] mt-0.5",
+                                children: "Agent Platform"
+                            }, void 0, false, {
+                                fileName: "[project]/components/layout/sidebar.tsx",
+                                lineNumber: 36,
+                                columnNumber: 11
+                            }, this)
+                        ]
+                    }, void 0, true, {
+                        fileName: "[project]/components/layout/sidebar.tsx",
+                        lineNumber: 32,
+                        columnNumber: 9
+                    }, this)
+                ]
+            }, void 0, true, {
+                fileName: "[project]/components/layout/sidebar.tsx",
+                lineNumber: 28,
+                columnNumber: 7
+            }, this),
+            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("nav", {
+                className: "flex-1 px-2 py-3 space-y-0.5",
+                children: NAV_ITEMS.map(({ href, label, icon: Icon })=>{
+                    const active = href === "/dashboard" ? pathname === "/dashboard" : pathname.startsWith(href);
+                    return /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$client$2f$app$2d$dir$2f$link$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["default"], {
+                        href: href,
+                        className: (0, __TURBOPACK__imported__module__$5b$project$5d2f$lib$2f$utils$2e$ts__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["cn"])("relative flex items-center gap-2.5 px-3 py-2 rounded-xl text-[13px] font-medium transition-all", active ? "bg-brand-500/10 text-white border border-brand-500/20" : "text-gray-500 hover:text-gray-200 hover:bg-surface-3"),
+                        children: [
+                            active && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
+                                className: "absolute end-0 top-1/2 -translate-y-1/2 w-0.5 h-4 rounded-full bg-gradient-to-b from-brand-500 to-indigo-500"
+                            }, void 0, false, {
+                                fileName: "[project]/components/layout/sidebar.tsx",
+                                lineNumber: 60,
+                                columnNumber: 17
+                            }, this),
+                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])(Icon, {
+                                className: "w-4 h-4 flex-shrink-0"
+                            }, void 0, false, {
+                                fileName: "[project]/components/layout/sidebar.tsx",
+                                lineNumber: 62,
+                                columnNumber: 15
+                            }, this),
+                            label
+                        ]
+                    }, href, true, {
+                        fileName: "[project]/components/layout/sidebar.tsx",
+                        lineNumber: 49,
+                        columnNumber: 13
+                    }, this);
+                })
+            }, void 0, false, {
+                fileName: "[project]/components/layout/sidebar.tsx",
+                lineNumber: 41,
+                columnNumber: 7
+            }, this),
+            isAdmin && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                className: "px-2 pb-2",
+                children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$client$2f$app$2d$dir$2f$link$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["default"], {
+                    href: "/admin",
+                    className: (0, __TURBOPACK__imported__module__$5b$project$5d2f$lib$2f$utils$2e$ts__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["cn"])("relative flex items-center gap-2.5 px-3 py-2 rounded-xl text-[13px] font-medium transition-all", pathname.startsWith("/admin") ? "bg-brand-500/10 text-white border border-brand-500/20" : "text-gray-500 hover:text-gray-200 hover:bg-surface-3"),
+                    children: [
+                        pathname.startsWith("/admin") && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
+                            className: "absolute end-0 top-1/2 -translate-y-1/2 w-0.5 h-4 rounded-full bg-gradient-to-b from-brand-500 to-indigo-500"
+                        }, void 0, false, {
+                            fileName: "[project]/components/layout/sidebar.tsx",
+                            lineNumber: 82,
+                            columnNumber: 15
+                        }, this),
+                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$lucide$2d$react$2f$dist$2f$esm$2f$icons$2f$shield$2d$check$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__$3c$export__default__as__ShieldCheck$3e$__["ShieldCheck"], {
+                            className: "w-4 h-4 flex-shrink-0"
+                        }, void 0, false, {
+                            fileName: "[project]/components/layout/sidebar.tsx",
+                            lineNumber: 84,
+                            columnNumber: 13
+                        }, this),
+                        "Admin"
+                    ]
+                }, void 0, true, {
+                    fileName: "[project]/components/layout/sidebar.tsx",
+                    lineNumber: 72,
+                    columnNumber: 11
+                }, this)
+            }, void 0, false, {
+                fileName: "[project]/components/layout/sidebar.tsx",
+                lineNumber: 71,
+                columnNumber: 9
+            }, this),
+            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                className: "px-3 py-3 border-t border-border",
+                children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                    className: "flex items-center gap-2.5 px-2 py-1.5 rounded-xl bg-surface-2 border border-border",
+                    children: [
+                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                            className: "w-6 h-6 rounded-lg bg-gradient-to-br from-brand-500 to-indigo-500 flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0",
+                            children: "M"
+                        }, void 0, false, {
+                            fileName: "[project]/components/layout/sidebar.tsx",
+                            lineNumber: 93,
+                            columnNumber: 11
+                        }, this),
+                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                            className: "overflow-hidden flex-1",
+                            children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
+                                className: "text-gray-300 text-xs font-medium truncate",
+                                children: t.workspace
+                            }, void 0, false, {
+                                fileName: "[project]/components/layout/sidebar.tsx",
+                                lineNumber: 97,
+                                columnNumber: 13
+                            }, this)
+                        }, void 0, false, {
+                            fileName: "[project]/components/layout/sidebar.tsx",
+                            lineNumber: 96,
+                            columnNumber: 11
+                        }, this),
+                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                            className: "w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0",
+                            style: {
+                                boxShadow: '0 0 6px #10b981'
+                            }
+                        }, void 0, false, {
+                            fileName: "[project]/components/layout/sidebar.tsx",
+                            lineNumber: 99,
+                            columnNumber: 11
+                        }, this)
+                    ]
+                }, void 0, true, {
+                    fileName: "[project]/components/layout/sidebar.tsx",
+                    lineNumber: 92,
+                    columnNumber: 9
+                }, this)
+            }, void 0, false, {
+                fileName: "[project]/components/layout/sidebar.tsx",
+                lineNumber: 91,
+                columnNumber: 7
+            }, this)
+        ]
+    }, void 0, true, {
+        fileName: "[project]/components/layout/sidebar.tsx",
+        lineNumber: 26,
+        columnNumber: 5
+    }, this);
+}
+}),
+"[project]/components/layout/dashboard-shell.tsx [app-ssr] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "DashboardShell",
+    ()=>DashboardShell
+]);
+var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/node_modules/next/dist/server/route-modules/app-page/vendored/ssr/react-jsx-dev-runtime.js [app-ssr] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$context$2f$language$2d$context$2e$tsx__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/context/language-context.tsx [app-ssr] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$components$2f$layout$2f$sidebar$2e$tsx__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/components/layout/sidebar.tsx [app-ssr] (ecmascript)");
+"use client";
+;
+;
+;
+function ShellInner({ children, isAdmin }) {
+    const { lang } = (0, __TURBOPACK__imported__module__$5b$project$5d2f$context$2f$language$2d$context$2e$tsx__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["useLanguage"])();
+    return /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+        dir: lang === "he" ? "rtl" : "ltr",
+        className: "flex h-screen overflow-hidden bg-surface-0",
+        children: [
+            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$components$2f$layout$2f$sidebar$2e$tsx__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["Sidebar"], {
+                isAdmin: isAdmin
+            }, void 0, false, {
+                fileName: "[project]/components/layout/dashboard-shell.tsx",
+                lineNumber: 13,
+                columnNumber: 7
+            }, this),
+            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                className: "flex-1 flex flex-col min-w-0 overflow-hidden",
+                children: children
+            }, void 0, false, {
+                fileName: "[project]/components/layout/dashboard-shell.tsx",
+                lineNumber: 14,
+                columnNumber: 7
+            }, this)
+        ]
+    }, void 0, true, {
+        fileName: "[project]/components/layout/dashboard-shell.tsx",
+        lineNumber: 9,
+        columnNumber: 5
+    }, this);
+}
+function DashboardShell({ children, isAdmin }) {
+    return /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$context$2f$language$2d$context$2e$tsx__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["LanguageProvider"], {
+        children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])(ShellInner, {
+            isAdmin: isAdmin,
+            children: children
+        }, void 0, false, {
+            fileName: "[project]/components/layout/dashboard-shell.tsx",
+            lineNumber: 24,
+            columnNumber: 7
+        }, this)
+    }, void 0, false, {
+        fileName: "[project]/components/layout/dashboard-shell.tsx",
+        lineNumber: 23,
+        columnNumber: 5
+    }, this);
+}
+}),
+];
+
+//# sourceMappingURL=%5Broot-of-the-server%5D__92fafd22._.js.map

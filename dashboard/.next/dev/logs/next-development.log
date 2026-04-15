@@ -1,0 +1,787 @@
+[00:00:00.654] Server  WARN    ⚠ The "middleware" file convention is deprecated. Please use "proxy" instead. Learn more: https://nextjs.org/docs/messages/middleware-to-proxy
+[00:00:00.756] Server  LOG     ✓ Ready in 508ms
+[00:00:02.259] Browser INFO    %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[00:00:34.058] Browser INFO    %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[00:01:58.967] Browser INFO    %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[00:05:12.512] Browser INFO    %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[00:08:27.114] Browser INFO    %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[00:08:44.384] Browser INFO    %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[00:08:54.889] Browser INFO    %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[00:09:11.413] Browser INFO    %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[00:16:54.230] Server  LOG     ✓ Compiled in 599ms
+[00:17:33.286] Server  LOG     [AgentsPage] user: "lidor0691@gmail.com" "clientId:" "642d2881-9e7d-47cb-8cae-2d6b58a062de"
+[00:19:49.763] Server  LOG     ✓ Compiled in 62ms
+[00:20:01.813] Server  LOG     ✓ Compiled in 40ms
+[00:20:21.284] Server  LOG     ✓ Compiled in 33ms
+[00:20:42.853] Browser INFO    %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[00:40:34.072] Server  LOG     ✓ Compiled in 18ms
+[00:40:52.535] Server  LOG     ✓ Compiled in 31ms
+[00:41:05.134] Server  LOG     ✓ Compiled in 35ms
+[00:41:15.479] Server  LOG     ✓ Compiled in 30ms
+[00:41:21.809] Server  LOG     ✓ Compiled in 27ms
+[00:41:50.504] Server  LOG     ✓ Compiled in 41ms
+[00:51:45.927] Browser INFO    %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[00:52:53.217] Browser INFO    %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[00:53:36.423] Server  LOG     ✓ Compiled in 46ms
+[00:53:43.239] Server  LOG     ✓ Compiled in 29ms
+[00:53:53.058] Server  LOG     ✓ Compiled in 26ms
+[00:53:58.922] Server  LOG     ✓ Compiled in 25ms
+[00:54:03.699] Server  LOG     ✓ Compiled in 21ms
+[00:54:11.456] Server  LOG     ✓ Compiled in 180ms
+[00:54:12.145] Browser INFO    %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[00:56:56.551] Browser INFO    %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[01:19:26.646] Server  LOG     ✓ Compiled in 31ms
+[01:19:33.086] Server  LOG     ✓ Compiled in 26ms
+[01:19:33.284] Browser ERROR   ./components/agents/agent-page-tabs.tsx:69:1
+Parsing ecmascript source code failed
+  67 |     </div>
+  68 |   );
+> 69 | }
+     | ^
+  70 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+
+Import trace:
+  Server Component:
+    ./components/agents/agent-page-tabs.tsx
+    ./app/dashboard/agents/[id]/page.tsx
+[01:20:09.109] Server  LOG     ✓ Compiled in 7ms
+[01:20:09.278] Browser ERROR   ./components/agents/agent-page-tabs.tsx:69:1
+Parsing ecmascript source code failed
+  67 |     </div>
+  68 |   );
+> 69 | }
+     | ^
+  70 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+
+Import trace:
+  Server Component:
+    ./components/agents/agent-page-tabs.tsx
+    ./app/dashboard/agents/[id]/page.tsx
+[01:20:13.920] Server  LOG     ✓ Compiled in 5ms
+[01:20:14.278] Browser ERROR   ./components/agents/agent-page-tabs.tsx:69:1
+Parsing ecmascript source code failed
+  67 |     </div>
+  68 |   );
+> 69 | }
+     | ^
+  70 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+
+Import trace:
+  Server Component:
+    ./components/agents/agent-page-tabs.tsx
+    ./app/dashboard/agents/[id]/page.tsx
+[01:24:08.189] Server  LOG     ✓ Compiled in 36ms
+[01:24:27.109] Server  LOG     ✓ Compiled in 40ms
+[01:26:25.424] Server  LOG     ✓ Compiled in 25ms
+[01:26:32.117] Server  LOG     ✓ Compiled in 24ms
+[01:26:43.040] Server  LOG     ✓ Compiled in 39ms
+[01:41:36.558] Server  LOG     ✓ Compiled in 25ms
+[01:41:43.278] Browser ERROR   ./app/dashboard/agents/page.tsx:30:1
+Parsing ecmascript source code failed
+  28 |
+  29 |   );
+> 30 | }
+     | ^
+  31 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:41:52.851] Server  LOG     ✓ Compiled in 22ms
+[01:42:06.651] Server  LOG     ✓ Compiled in 34ms
+[01:42:18.762] Server  LOG     ✓ Compiled in 24ms
+[01:42:30.763] Server  LOG     ✓ Compiled in 24ms
+[01:43:30.606] Server  LOG     ✓ Compiled in 30ms
+[01:47:00.421] Server  LOG     ✓ Compiled in 711ms
+[01:47:22.246] Server  LOG     ✓ Compiled in 33ms
+[01:50:24.839] Server  LOG     ✓ Compiled in 41ms
+[01:50:49.752] Server  LOG     ✓ Compiled in 69ms
+[01:52:32.390] Server  LOG     ✓ Compiled in 54ms
+[01:52:35.515] Server  LOG     ✓ Compiled in 45ms
+[01:52:37.766] Server  LOG     ✓ Compiled in 46ms
+[01:53:34.157] Server  LOG     ✓ Compiled in 45ms
+[01:53:36.274] Server  LOG     ✓ Compiled in 39ms
+[01:54:00.574] Server  LOG     ✓ Compiled in 48ms
+[01:54:43.256] Server  LOG     ✓ Compiled in 46ms
+[01:55:04.611] Server  LOG     ✓ Compiled in 38ms
+[01:57:48.261] Server  LOG       Reload env: .env.local
+[01:58:05.042] Server  LOG     ✓ Compiled in 34ms
+[01:58:05.294] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:05.294] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:08.278] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:08.278] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:08.278] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:08.278] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:08.278] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:08.278] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:08.278] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:08.278] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:08.278] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:08.278] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:08.278] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:08.278] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:08.278] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:08.278] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:08.278] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:08.278] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:08.278] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:08.278] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:08.278] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:08.278] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:08.278] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:11.294] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:11.294] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:11.294] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:11.294] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:11.294] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:11.294] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:14.283] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:14.283] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:14.283] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:14.283] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:14.283] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:14.283] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:14.283] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:14.283] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:14.283] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:14.283] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:14.283] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:14.283] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:14.283] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:14.283] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:14.283] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:14.283] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:14.283] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:14.283] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:14.283] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:14.283] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:14.283] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:14.283] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:14.283] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:17.279] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:17.279] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:17.279] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:17.279] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:17.279] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:17.279] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:17.279] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:17.279] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:17.279] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:17.279] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:17.279] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:17.279] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:17.279] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:17.279] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:17.279] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:17.279] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:17.279] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:17.279] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:17.279] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:17.279] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:17.279] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:17.279] Browser ERROR   ./app/admin/page.tsx:124:1
+Parsing ecmascript source code failed
+  122 |     </div>
+  123 |   );
+> 124 | }
+      | ^
+  125 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+[01:58:18.957] Server  LOG     ✓ Compiled in 28ms
+[01:58:43.990] Server  LOG     ✓ Compiled in 29ms
+[02:00:15.037] Browser INFO    %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[02:07:46.704] Server  LOG     ✓ Compiled in 71ms
+[02:08:05.062] Server  LOG     ✓ Compiled in 38ms
+[02:08:12.327] Server  LOG     ✓ Compiled in 46ms
+[02:10:05.716] Server  LOG     ✓ Compiled in 42ms
+[02:20:43.743] Server  LOG     ✓ Compiled in 49ms
+[02:24:04.296] Server  LOG     ✓ Compiled in 39ms

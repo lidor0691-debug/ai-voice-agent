@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Maya AI — Alt Design</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+*{margin:0;padding:0;box-sizing:border-box;}
+:root{
+  --bg:#03030a;
+  --s1:#080814;
+  --s2:#0e0e1c;
+  --s3:#13132a;
+  --border:rgba(255,255,255,0.055);
+  --accent:#00d4ff;
+  --accent2:#7c3aed;
+  --green:#00e5a0;
+  --amber:#ffb340;
+  --red:#ff4d6d;
+  --text:#f0f4ff;
+  --muted:#6b7da8;
+  --dim:#2a3050;
+}
+body{
+  font-family:'Inter',sans-serif;
+  background:var(--bg);
+  color:var(--text);
+  min-height:100vh;
+  display:flex;flex-direction:column;align-items:center;
+  padding:32px 20px 48px;
+}
+.page-header{width:100%;max-width:1200px;display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;}
+.page-title{font-size:15px;font-weight:500;color:var(--muted);}
+.page-title span{color:var(--text);font-weight:700;}
+
+/* ─── FRAME ─── */
+.frame{
+  width:100%;max-width:1200px;
+  border-radius:20px;
+  overflow:hidden;
+  border:1px solid var(--border);
+  box-shadow:0 50px 100px rgba(0,0,0,0.7),0 0 180px rgba(0,212,255,0.04);
+  background:var(--s1);
+  display:flex;flex-direction:column;
+}
+
+/* ─── TOP NAV ─── */
+.topnav{
+  height:52px;
+  background:var(--s1);
+  border-bottom:1px solid var(--border);
+  display:flex;align-items:center;
+  padding:0 20px;
+  gap:0;
+  position:relative;
+  flex-shrink:0;
+}
+/* subtle aurora line */
+.topnav::after{
+  content:'';
+  position:absolute;bottom:0;left:0;right:0;height:1px;
+  background:linear-gradient(90deg,transparent 0%,rgba(0,212,255,0.3) 40%,rgba(124,58,237,0.3) 70%,transparent 100%);
+}
+
+.brand{display:flex;align-items:center;gap:8px;padding-left:8px;border-left:1px solid var(--border);}
+.brand-mark{
+  width:26px;height:26px;border-radius:8px;
+  background:var(--bg);
+  border:1px solid rgba(0,212,255,0.3);
+  display:flex;align-items:center;justify-content:center;
+  position:relative;
+}
+.brand-mark::before{
+  content:'';position:absolute;inset:-1px;border-radius:8px;
+  background:linear-gradient(135deg,rgba(0,212,255,0.4),rgba(124,58,237,0.4));
+  z-index:-1;
+}
+.brand-mark svg{width:13px;height:13px;stroke:var(--accent);fill:none;stroke-width:2;}
+.brand-text{font-size:13px;font-weight:800;letter-spacing:-0.5px;}
+.brand-text em{font-style:normal;color:var(--accent);}
+
+.nav-tabs{display:flex;gap:0;margin-right:24px;}
+.tab{
+  padding:0 16px;height:52px;
+  display:flex;align-items:center;gap:7px;
+  font-size:11.5px;font-weight:500;color:var(--muted);
+  cursor:pointer;border-bottom:2px solid transparent;
+  transition:all 0.15s;position:relative;
+}
+.tab:hover{color:var(--text);}
+.tab.active{color:var(--text);border-color:var(--accent);}
+.tab svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:1.8;}
+.tab-badge{
+  background:rgba(0,212,255,0.15);color:var(--accent);
+  font-size:9px;font-weight:700;
+  padding:1px 5px;border-radius:3px;
+}
+
+.nav-end{margin-right:auto;display:flex;align-items:center;gap:10px;}
+.live-pill{
+  display:flex;align-items:center;gap:5px;
+  border:1px solid rgba(0,229,160,0.25);
+  border-radius:20px;padding:3px 10px;
+  font-size:9.5px;font-weight:700;color:var(--green);
+  background:rgba(0,229,160,0.07);
+}
+.pulse{width:5px;height:5px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green);animation:p 1.5s infinite;}
+@keyframes p{0%,100%{opacity:1}50%{opacity:0.3}}
+.user-btn{
+  display:flex;align-items:center;gap:7px;
+  background:var(--s2);border:1px solid var(--border);
+  border-radius:8px;padding:4px 10px 4px 6px;cursor:pointer;
+}
+.uavatar{
+  width:22px;height:22px;border-radius:6px;
+  background:linear-gradient(135deg,var(--accent2),var(--accent));
+  display:flex;align-items:center;justify-content:center;
+  font-size:9px;font-weight:800;
+}
+.uname{font-size:10.5px;font-weight:500;}
+.new-btn{
+  display:flex;align-items:center;gap:5px;
+  background:transparent;
+  border:1px solid rgba(0,212,255,0.3);
+  border-radius:7px;padding:5px 11px;
+  font-size:10.5px;font-weight:600;color:var(--accent);
+  cursor:pointer;
+  transition:all 0.15s;
+}
+.new-btn:hover{background:rgba(0,212,255,0.08);}
+.new-btn svg{width:11px;height:11px;stroke:currentColor;fill:none;}
+
+/* ─── BODY ─── */
+.body{display:flex;flex:1;min-height:0;}
+
+/* ─── SLIM SIDEBAR ─── */
+.slim-sidebar{
+  width:52px;flex-shrink:0;
+  background:var(--s1);
+  border-left:1px solid var(--border);
+  display:flex;flex-direction:column;align-items:center;
+  padding:14px 0;gap:6px;
+}
+.s-icon{
+  width:34px;height:34px;border-radius:10px;
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;color:var(--muted);transition:all 0.15s;
+  position:relative;
+}
+.s-icon:hover{background:var(--s3);color:var(--text);}
+.s-icon.active{background:rgba(0,212,255,0.1);color:var(--accent);}
+.s-icon.active::before{
+  content:'';position:absolute;right:0;top:50%;transform:translateY(-50%);
+  width:2px;height:14px;border-radius:2px;background:var(--accent);
+}
+.s-icon svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.8;}
+.s-divider{width:24px;height:1px;background:var(--border);margin:4px 0;}
+
+/* ─── MAIN CONTENT ─── */
+.main{flex:1;background:var(--bg);display:flex;flex-direction:column;padding:18px;gap:14px;min-height:0;}
+
+/* ─── COMMAND BAR ─── */
+.cmdbar{
+  display:flex;align-items:center;gap:10px;
+}
+.cmdbar-search{
+  flex:1;
+  display:flex;align-items:center;gap:8px;
+  background:var(--s1);border:1px solid var(--border);
+  border-radius:10px;padding:8px 14px;
+  font-size:11.5px;color:var(--muted);
+  cursor:text;
+  transition:border-color 0.15s;
+}
+.cmdbar-search:hover{border-color:rgba(255,255,255,0.12);}
+.cmdbar-search svg{width:13px;height:13px;stroke:var(--muted);fill:none;flex-shrink:0;}
+.cmd-hint{
+  margin-right:auto;
+  background:var(--s2);border:1px solid var(--border);
+  border-radius:5px;padding:2px 6px;
+  font-size:9px;color:var(--dim);
+}
+.filter-btns{display:flex;gap:6px;}
+.filt{
+  padding:6px 12px;border-radius:8px;
+  font-size:10.5px;font-weight:500;
+  border:1px solid var(--border);
+  background:var(--s1);color:var(--muted);cursor:pointer;
+  transition:all 0.15s;
+}
+.filt.on{background:rgba(0,212,255,0.1);border-color:rgba(0,212,255,0.3);color:var(--accent);}
+.date-btn{
+  display:flex;align-items:center;gap:6px;
+  padding:6px 12px;border-radius:8px;
+  font-size:10.5px;border:1px solid var(--border);
+  background:var(--s1);color:var(--muted);cursor:pointer;
+}
+.date-btn svg{width:11px;height:11px;stroke:currentColor;fill:none;}
+
+/* ─── BENTO GRID ─── */
+.bento{
+  display:grid;
+  grid-template-columns:repeat(12,1fr);
+  grid-template-rows:auto auto auto;
+  gap:10px;
+  flex:1;
+}
+
+/* Cell base */
+.cell{
+  background:var(--s1);
+  border:1px solid var(--border);
+  border-radius:14px;
+  padding:16px;
+  display:flex;flex-direction:column;
+  position:relative;overflow:hidden;
+  transition:border-color 0.2s;
+}
+.cell:hover{border-color:rgba(255,255,255,0.1);}
+.cell.glow-cyan::before{content:'';position:absolute;top:-40px;right:-40px;width:120px;height:120px;background:radial-gradient(circle,rgba(0,212,255,0.12),transparent 70%);pointer-events:none;}
+.cell.glow-purple::before{content:'';position:absolute;top:-40px;right:-40px;width:120px;height:120px;background:radial-gradient(circle,rgba(124,58,237,0.12),transparent 70%);pointer-events:none;}
+.cell.glow-green::before{content:'';position:absolute;top:-40px;right:-40px;width:120px;height:120px;background:radial-gradient(circle,rgba(0,229,160,0.1),transparent 70%);pointer-events:none;}
+
+/* Spans */
+.c-3{grid-column:span 3;}
+.c-4{grid-column:span 4;}
+.c-5{grid-column:span 5;}
+.c-6{grid-column:span 6;}
+.c-7{grid-column:span 7;}
+.c-8{grid-column:span 8;}
+.c-12{grid-column:span 12;}
+
+.cell-label{font-size:9.5px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px;}
+.cell-val{font-size:28px;font-weight:900;letter-spacing:-1.5px;line-height:1;}
+.cell-sub{font-size:10px;color:var(--muted);margin-top:5px;display:flex;align-items:center;gap:5px;}
+.delta{font-size:9px;font-weight:700;padding:2px 5px;border-radius:3px;}
+.d-up{color:var(--green);background:rgba(0,229,160,0.1);}
+.d-dn{color:var(--amber);background:rgba(255,179,64,0.1);}
+
+/* Sparkline */
+.spark{display:flex;align-items:flex-end;gap:2px;height:36px;margin-top:auto;padding-top:10px;}
+.spk{flex:1;border-radius:2px 2px 0 0;background:rgba(0,212,255,0.15);}
+.spk.h{background:var(--accent);}
+.spk.p{background:var(--accent);box-shadow:0 -3px 8px rgba(0,212,255,0.4);}
+
+/* Chart */
+.chart-wrap{flex:1;display:flex;align-items:flex-end;gap:2.5px;margin-top:10px;}
+.bar{flex:1;border-radius:3px 3px 0 0;background:rgba(124,58,237,0.15);}
+.bar.h{background:rgba(124,58,237,0.45);}
+.bar.p{background:var(--accent2);box-shadow:0 -4px 12px rgba(124,58,237,0.4);}
+.chart-footer{display:flex;justify-content:space-between;font-size:8px;color:var(--dim);margin-top:5px;}
+
+/* Agent cards */
+.agent-grid{display:flex;flex-direction:column;gap:7px;flex:1;margin-top:4px;}
+.ag{
+  display:flex;align-items:center;gap:9px;
+  padding:8px 10px;border-radius:10px;
+  background:rgba(255,255,255,0.02);border:1px solid var(--border);
+  cursor:pointer;transition:all 0.15s;
+}
+.ag:hover{background:rgba(255,255,255,0.04);border-color:rgba(255,255,255,0.1);}
+.ag-av{
+  width:26px;height:26px;border-radius:8px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:10px;font-weight:800;flex-shrink:0;
+}
+.ag-info{flex:1;min-width:0;}
+.ag-name{font-size:11px;font-weight:600;}
+.ag-meta{font-size:9px;color:var(--muted);}
+.ag-bar-wrap{width:60px;height:4px;background:rgba(255,255,255,0.06);border-radius:2px;overflow:hidden;}
+.ag-bar{height:100%;border-radius:2px;}
+.sd{width:6px;height:6px;border-radius:50%;flex-shrink:0;}
+.sd.live{background:var(--green);box-shadow:0 0 6px var(--green);}
+.sd.off{background:var(--dim);}
+.sd.warn{background:var(--amber);}
+
+/* Call log */
+.log{display:flex;flex-direction:column;gap:4px;flex:1;margin-top:4px;}
+.log-row{
+  display:flex;align-items:center;gap:8px;
+  padding:6px 8px;border-radius:8px;
+  font-size:10px;
+  border-right:2px solid transparent;
+  background:rgba(255,255,255,0.015);
+}
+.log-row.ok{border-color:var(--green);}
+.log-row.miss{border-color:var(--amber);}
+.log-row.fail{border-color:var(--red);}
+.log-t{width:32px;color:var(--dim);font-size:9px;flex-shrink:0;}
+.log-ag{flex:1;color:var(--muted);}
+.log-d{color:var(--dim);font-size:9px;flex-shrink:0;}
+.log-s{font-size:8.5px;font-weight:700;padding:1px 5px;border-radius:3px;flex-shrink:0;}
+.s-ok{color:var(--green);background:rgba(0,229,160,0.1);}
+.s-miss{color:var(--amber);background:rgba(255,179,64,0.1);}
+.s-fail{color:var(--red);background:rgba(255,77,109,0.1);}
+
+/* Test chat */
+.chat-box{display:flex;flex-direction:column;flex:1;min-height:0;}
+.chat-msgs{flex:1;display:flex;flex-direction:column;gap:8px;overflow:hidden;padding-bottom:4px;}
+.m{display:flex;gap:6px;max-width:88%;}
+.m.ai{align-self:flex-start;}
+.m.usr{align-self:flex-end;flex-direction:row-reverse;}
+.mbubble{padding:7px 10px;border-radius:10px;font-size:10px;line-height:1.5;}
+.m.ai .mbubble{background:rgba(0,212,255,0.08);border:1px solid rgba(0,212,255,0.15);color:var(--text);border-bottom-right-radius:3px;}
+.m.usr .mbubble{background:linear-gradient(135deg,rgba(0,212,255,0.7),rgba(124,58,237,0.6));color:#fff;border-bottom-left-radius:3px;}
+.mav{width:20px;height:20px;border-radius:6px;background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:800;flex-shrink:0;}
+.chat-in{
+  display:flex;align-items:center;gap:6px;margin-top:10px;
+  background:var(--s2);border:1px solid var(--border);border-radius:9px;padding:6px 8px;
+}
+.chat-in input{flex:1;background:none;border:none;outline:none;font-size:10.5px;color:var(--text);font-family:inherit;}
+.chat-in input::placeholder{color:var(--dim);}
+.snd{
+  width:26px;height:26px;border-radius:7px;flex-shrink:0;cursor:pointer;
+  background:linear-gradient(135deg,var(--accent),var(--accent2));
+  display:flex;align-items:center;justify-content:center;
+  box-shadow:0 3px 8px rgba(0,212,255,0.25);
+}
+.snd svg{width:12px;height:12px;stroke:#fff;fill:none;}
+
+/* Caption */
+.caption{width:100%;max-width:1200px;margin-top:20px;display:flex;gap:12px;justify-content:center;}
+.cap-item{
+  display:flex;align-items:center;gap:8px;
+  background:var(--s1);border:1px solid var(--border);
+  border-radius:10px;padding:10px 18px;
+  font-size:11px;color:var(--muted);cursor:pointer;
+  transition:all 0.2s;
+}
+.cap-item:hover{color:var(--text);border-color:rgba(0,212,255,0.3);}
+.cap-dot{width:7px;height:7px;border-radius:50%;}
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <div class="page-title">Maya AI — <span>Bento Command Center</span></div>
+  <div style="font-size:12px;color:var(--dim);">כיוון שני — Cyan × Dark</div>
+</div>
+
+<div class="frame">
+
+  <!-- TOP NAV -->
+  <div class="topnav">
+    <div class="brand">
+      <div class="brand-mark">
+        <svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+      </div>
+      <span class="brand-text">Maya<em>AI</em></span>
+    </div>
+
+    <div class="nav-tabs">
+      <div class="tab active">
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        Overview
+      </div>
+      <div class="tab">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+        Agents
+        <span class="tab-badge">12</span>
+      </div>
+      <div class="tab">
+        <svg viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 12.5"/></svg>
+        Calls
+      </div>
+      <div class="tab">
+        <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+        Leads
+      </div>
+    </div>
+
+    <div class="nav-end">
+      <div class="live-pill"><div class="pulse"></div>3 LIVE</div>
+      <div class="date-btn">
+        <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        אפריל 2026
+      </div>
+      <div class="new-btn">
+        <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Agent חדש
+      </div>
+      <div class="user-btn">
+        <div class="uavatar">L</div>
+        <span class="uname">לידור</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- BODY -->
+  <div class="body">
+    <div class="main">
+
+      <!-- Command bar -->
+      <div class="cmdbar">
+        <div class="cmdbar-search">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          חפש agent, שיחה, ליד...
+          <span class="cmd-hint">⌘K</span>
+        </div>
+        <div class="filter-btns">
+          <div class="filt on">הכל</div>
+          <div class="filt">היום</div>
+          <div class="filt">שבוע</div>
+          <div class="filt">חודש</div>
+        </div>
+      </div>
+
+      <!-- BENTO -->
+      <div class="bento">
+
+        <!-- KPI 1 — Agents -->
+        <div class="cell c-3 glow-cyan">
+          <div class="cell-label">Agents פעילים</div>
+          <div class="cell-val" style="color:var(--accent)">12</div>
+          <div class="cell-sub">
+            <span class="delta d-up">↑ 3 חדשים</span>
+            <span style="color:var(--dim)">מהחודש שעבר</span>
+          </div>
+          <div class="spark">
+            <div class="spk" style="height:30%"></div>
+            <div class="spk" style="height:45%"></div>
+            <div class="spk" style="height:35%"></div>
+            <div class="spk h" style="height:70%"></div>
+            <div class="spk h" style="height:80%"></div>
+            <div class="spk p" style="height:100%"></div>
+          </div>
+        </div>
+
+        <!-- KPI 2 — Calls -->
+        <div class="cell c-3 glow-purple">
+          <div class="cell-label">שיחות החודש</div>
+          <div class="cell-val" style="color:#a78bfa">847</div>
+          <div class="cell-sub">
+            <span class="delta d-up">↑ 24%</span>
+            <span style="color:var(--dim)">לעומת מרץ</span>
+          </div>
+          <div class="spark">
+            <div class="spk" style="height:20%;background:rgba(124,58,237,0.15)"></div>
+            <div class="spk h" style="height:55%;background:rgba(124,58,237,0.4)"></div>
+            <div class="spk h" style="height:70%;background:rgba(124,58,237,0.4)"></div>
+            <div class="spk p" style="height:90%;background:#7c3aed;box-shadow:0 -3px 8px rgba(124,58,237,0.4)"></div>
+            <div class="spk h" style="height:75%;background:rgba(124,58,237,0.4)"></div>
+            <div class="spk h" style="height:100%;background:#7c3aed;box-shadow:0 -3px 8px rgba(124,58,237,0.4)"></div>
+          </div>
+        </div>
+
+        <!-- KPI 3 — Leads -->
+        <div class="cell c-3 glow-green">
+          <div class="cell-label">לידים חדשים</div>
+          <div class="cell-val" style="color:var(--green)">284</div>
+          <div class="cell-sub">
+            <span class="delta d-up">↑ 18%</span>
+          </div>
+          <div class="spark">
+            <div class="spk" style="height:40%;background:rgba(0,229,160,0.15)"></div>
+            <div class="spk h" style="height:60%;background:rgba(0,229,160,0.4)"></div>
+            <div class="spk" style="height:50%;background:rgba(0,229,160,0.15)"></div>
+            <div class="spk h" style="height:85%;background:rgba(0,229,160,0.5)"></div>
+            <div class="spk p" style="height:100%;background:var(--green);box-shadow:0 -3px 8px rgba(0,229,160,0.4)"></div>
+            <div class="spk h" style="height:80%;background:rgba(0,229,160,0.5)"></div>
+          </div>
+        </div>
+
+        <!-- KPI 4 — Avg Duration -->
+        <div class="cell c-3">
+          <div class="cell-label">זמן שיחה ממוצע</div>
+          <div class="cell-val" style="color:var(--amber)">2:18</div>
+          <div class="cell-sub">
+            <span class="delta d-dn">↓ 8s</span>
+            <span style="color:var(--dim)">מהיר יותר</span>
+          </div>
+          <div class="spark">
+            <div class="spk p" style="height:100%;background:var(--amber);box-shadow:0 -3px 8px rgba(255,179,64,0.4)"></div>
+            <div class="spk h" style="height:85%;background:rgba(255,179,64,0.4)"></div>
+            <div class="spk h" style="height:70%;background:rgba(255,179,64,0.4)"></div>
+            <div class="spk h" style="height:75%;background:rgba(255,179,64,0.4)"></div>
+            <div class="spk" style="height:60%;background:rgba(255,179,64,0.15)"></div>
+            <div class="spk" style="height:55%;background:rgba(255,179,64,0.15)"></div>
+          </div>
+        </div>
+
+        <!-- Chart — full width -->
+        <div class="cell c-8" style="min-height:160px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+            <div>
+              <div class="cell-label" style="margin-bottom:2px;">פעילות קולית — 7 ימים אחרונים</div>
+            </div>
+            <div style="display:flex;gap:12px;font-size:9px;color:var(--muted);align-items:center;">
+              <span style="display:flex;align-items:center;gap:4px;"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#7c3aed;"></span>שיחות</span>
+              <span style="display:flex;align-items:center;gap:4px;"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--accent);"></span>לידים</span>
+            </div>
+          </div>
+          <div class="chart-wrap">
+            <div class="bar" style="height:30%"></div>
+            <div class="bar h" style="height:55%"></div>
+            <div class="bar h" style="height:65%"></div>
+            <div class="bar p" style="height:90%"></div>
+            <div class="bar h" style="height:72%"></div>
+            <div class="bar p" style="height:95%"></div>
+            <div class="bar h" style="height:80%"></div>
+            <div class="bar p" style="height:100%"></div>
+            <div class="bar h" style="height:78%"></div>
+            <div class="bar h" style="height:60%"></div>
+            <div class="bar" style="height:45%"></div>
+            <div class="bar" style="height:38%"></div>
+            <div class="bar h" style="height:68%"></div>
+            <div class="bar p" style="height:88%"></div>
+          </div>
+          <div class="chart-footer">
+            <span>9 אפר׳</span><span>10</span><span>11</span><span>12</span><span>13</span><span>14</span><span>15</span>
+          </div>
+        </div>
+
+        <!-- Agents -->
+        <div class="cell c-4" style="min-height:160px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;">
+            <div class="cell-label" style="margin-bottom:0">Agents</div>
+            <span style="font-size:9px;color:var(--accent);cursor:pointer;">נהל →</span>
+          </div>
+          <div class="agent-grid">
+            <div class="ag">
+              <div class="ag-av" style="background:linear-gradient(135deg,#8b5cf6,#6366f1)">M</div>
+              <div class="ag-info"><div class="ag-name">Maya Sales</div><div class="ag-meta">342 שיחות</div></div>
+              <div class="ag-bar-wrap"><div class="ag-bar" style="width:80%;background:linear-gradient(90deg,#8b5cf6,var(--accent))"></div></div>
+              <div class="sd live"></div>
+            </div>
+            <div class="ag">
+              <div class="ag-av" style="background:linear-gradient(135deg,#00d4ff,#0ea5e9)">S</div>
+              <div class="ag-info"><div class="ag-name">Maya Support</div><div class="ag-meta">198 שיחות</div></div>
+              <div class="ag-bar-wrap"><div class="ag-bar" style="width:50%;background:linear-gradient(90deg,var(--accent),#0ea5e9)"></div></div>
+              <div class="sd live"></div>
+            </div>
+            <div class="ag">
+              <div class="ag-av" style="background:linear-gradient(135deg,#00e5a0,#14b8a6)">B</div>
+              <div class="ag-info"><div class="ag-name">Maya Booking</div><div class="ag-meta">87 שיחות</div></div>
+              <div class="ag-bar-wrap"><div class="ag-bar" style="width:25%;background:var(--amber)"></div></div>
+              <div class="sd warn"></div>
+            </div>
+            <div class="ag" style="opacity:0.45">
+              <div class="ag-av" style="background:var(--s3)">R</div>
+              <div class="ag-info"><div class="ag-name">Maya Retention</div><div class="ag-meta">כבוי</div></div>
+              <div class="ag-bar-wrap"><div class="ag-bar" style="width:0%"></div></div>
+              <div class="sd off"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Test Chat -->
+        <div class="cell c-5" style="min-height:200px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+            <div class="cell-label" style="margin-bottom:0">בדוק Agent</div>
+            <div style="display:flex;align-items:center;gap:5px;background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:3px 8px;font-size:9.5px;color:var(--muted);cursor:pointer;">
+              Maya Sales ▾
+            </div>
+          </div>
+          <div class="chat-box">
+            <div class="chat-msgs">
+              <div class="m ai">
+                <div class="mav">M</div>
+                <div class="mbubble">שלום! אני Maya Sales 👋 איך אוכל לעזור?</div>
+              </div>
+              <div class="m usr">
+                <div class="mbubble">מה המחיר של הפלאן הבסיסי?</div>
+              </div>
+              <div class="m ai">
+                <div class="mav">M</div>
+                <div class="mbubble">הפלאן הבסיסי הוא ₪299/חודש — כולל 500 שיחות ו-3 agents.</div>
+              </div>
+            </div>
+            <div class="chat-in">
+              <input placeholder="כתוב הודעה...">
+              <div class="snd"><svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Recent Calls -->
+        <div class="cell c-7">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+            <div class="cell-label" style="margin-bottom:0">שיחות אחרונות</div>
+            <span style="font-size:9px;color:var(--accent);cursor:pointer;">כל השיחות →</span>
+          </div>
+          <div class="log">
+            <div class="log-row ok"><span class="log-t">14:32</span><span class="log-ag">Maya Sales · +972-52-1234567</span><span class="log-d">3:21</span><span class="log-s s-ok">הושלם</span></div>
+            <div class="log-row miss"><span class="log-t">14:18</span><span class="log-ag">Maya Support · +972-54-9876543</span><span class="log-d">—</span><span class="log-s s-miss">הוחמץ</span></div>
+            <div class="log-row ok"><span class="log-t">13:55</span><span class="log-ag">Maya Booking · +972-50-1111222</span><span class="log-d">1:44</span><span class="log-s s-ok">הושלם</span></div>
+            <div class="log-row fail"><span class="log-t">13:40</span><span class="log-ag">Maya Sales · +972-58-3334444</span><span class="log-d">0:05</span><span class="log-s s-fail">נכשל</span></div>
+            <div class="log-row ok"><span class="log-t">13:22</span><span class="log-ag">Maya Dev · +972-52-5556666</span><span class="log-d">4:10</span><span class="log-s s-ok">הושלם</span></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Slim sidebar -->
+    <div class="slim-sidebar">
+      <div class="s-icon active">
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+      </div>
+      <div class="s-icon">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+      </div>
+      <div class="s-icon">
+        <svg viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 12.5a19.79 19.79 0 01-3.07-8.63A2 2 0 012 1.84h3"/></svg>
+      </div>
+      <div class="s-icon">
+        <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+      </div>
+      <div class="s-divider"></div>
+      <div class="s-icon">
+        <svg viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/></svg>
+      </div>
+      <div class="s-icon">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93l-1.41 1.41M6.34 17.66l-1.41 1.41M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M12 2v2M12 20v2"/></svg>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Options -->
+<div class="caption">
+  <div class="cap-item" onclick="vote('prefer-a')">
+    <div class="cap-dot" style="background:#8b5cf6"></div>
+    עדפתי את הראשון (סגול)
+  </div>
+  <div class="cap-item" onclick="vote('prefer-b')">
+    <div class="cap-dot" style="background:#00d4ff"></div>
+    עדפתי את זה (ציאן)
+  </div>
+  <div class="cap-item" onclick="vote('merge')">
+    <div class="cap-dot" style="background:linear-gradient(90deg,#8b5cf6,#00d4ff)"></div>
+    שלב אלמנטים משניהם
+  </div>
+  <div class="cap-item" onclick="vote('diff')">
+    <div class="cap-dot" style="background:var(--dim)"></div>
+    רוצה כיוון שונה
+  </div>
+</div>
+
+<script>
+function vote(v){
+  document.querySelectorAll('.cap-item').forEach(el=>el.style.borderColor='');
+  const el=event.currentTarget;el.style.borderColor='rgba(0,212,255,0.5)';
+  fetch('/event',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'click',choice:v,text:v,timestamp:Date.now()})}).catch(()=>{});
+}
+</script>
+</body>
+</html>
