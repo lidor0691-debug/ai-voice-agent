@@ -35,19 +35,49 @@
 
 @layer components {
   .card {
-    @apply bg-surface-2 border border-border rounded-xl;
+    @apply bg-surface-1 border border-border rounded-[14px];
   }
 
   .input-base {
-    @apply w-full bg-surface-3 border border-border rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500
-    focus:outline-none focus:ring-1 focus:ring-brand-600 focus:border-brand-600 transition-colors;
+    @apply w-full bg-surface-2 border border-border rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600
+    focus:outline-none focus:ring-1 focus:ring-brand-500 focus:border-brand-500 transition-colors;
   }
 
   .btn-primary {
-    @apply bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors;
+    @apply bg-gradient-to-br from-brand-500 to-indigo-500 hover:from-brand-400 hover:to-indigo-400
+    text-white text-sm font-semibold px-4 py-2 rounded-lg transition-all shadow-glow-sm;
   }
 
   .btn-ghost {
-    @apply bg-transparent hover:bg-surface-3 text-gray-400 hover:text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors border border-border;
+    @apply bg-transparent hover:bg-surface-3 text-gray-400 hover:text-white
+    text-sm font-medium px-4 py-2 rounded-lg transition-colors border border-border;
+  }
+
+  /* Animated live dot */
+  .live-dot {
+    @apply w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse2;
+    box-shadow: 0 0 6px #10b981;
+  }
+
+  /* Radial glow overlay for KPI cards */
+  .kpi-glow-violet::before {
+    content: '';
+    position: absolute; inset: 0; border-radius: 14px; pointer-events: none;
+    background: radial-gradient(ellipse at top right, rgba(139,92,246,0.12) 0%, transparent 60%);
+  }
+  .kpi-glow-green::before {
+    content: '';
+    position: absolute; inset: 0; border-radius: 14px; pointer-events: none;
+    background: radial-gradient(ellipse at top right, rgba(16,185,129,0.08) 0%, transparent 60%);
+  }
+  .kpi-glow-blue::before {
+    content: '';
+    position: absolute; inset: 0; border-radius: 14px; pointer-events: none;
+    background: radial-gradient(ellipse at top right, rgba(59,130,246,0.08) 0%, transparent 60%);
+  }
+  .kpi-glow-amber::before {
+    content: '';
+    position: absolute; inset: 0; border-radius: 14px; pointer-events: none;
+    background: radial-gradient(ellipse at top right, rgba(245,158,11,0.08) 0%, transparent 60%);
   }
 }
