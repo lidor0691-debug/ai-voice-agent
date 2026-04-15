@@ -143,7 +143,7 @@ def _build_studio_payload(args: dict, caller_phone: str, client_config: dict) ->
     payload = {
         "timestamp":             datetime.now().isoformat(),
         "source":                "voice_realtime",
-        "client":                "Maya BPM Dance Studio",
+        "client":                "Maya BPM",
         "service_type":          "studio",
         "girl_name":             args.get("girl_name", ""),
         "school_grade":          args.get("school_grade", ""),
@@ -169,7 +169,7 @@ def _build_studio_payload(args: dict, caller_phone: str, client_config: dict) ->
 # Maps client_name → payload builder function
 _PAYLOAD_BUILDERS = {
     "Roi Insurance":        _build_roi_payload,
-    "Maya BPM Dance Studio": _build_studio_payload,
+    "Maya BPM": _build_studio_payload,
 }
 
 
@@ -496,7 +496,25 @@ async def websocket_endpoint(twilio_ws: WebSocket):
         # Small pause so session.update is fully applied before the greeting fires.
         await asyncio.sleep(0.25)
 
-        await openai_ws.send(json.dumps({"type": "response.create"}))
+        # For BPM: force the exact opening via per-response instructions.
+        # This wins over any conflicting instruction in the session/system prompt.
+        if client_config.get("client_name") == "Maya BPM":
+            _bpm_opening = (
+                "היי, הגעת לסטודיו BPM, מדברת מאיה. איך אפשר לעזור? "
+                "רק כדי לדייק, את מחפשת סטודיו לריקוד או ריקוד לבת מצווה?"
+            )
+            await openai_ws.send(json.dumps({
+                "type": "response.create",
+                "response": {
+                    "instructions": (
+                        f"Say EXACTLY this sentence and nothing else: \"{_bpm_opening}\" "
+                        "Do not add any words before or after it."
+                    ),
+                },
+            }))
+            print("[BPM] Forced opening via response.create instructions")
+        else:
+            await openai_ws.send(json.dumps({"type": "response.create"}))
 
         is_ai_speaking         = False
         speech_started_at      = None
@@ -597,6 +615,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                         print(f"🛠️ Function call: {func_name} | client: {client_config.get('client_name')} | args: {args}")
 
                         if func_name == "process_agency_lead":
+                            func_call_id = event.get("call_id", "")
                             builder = _PAYLOAD_BUILDERS.get(client_config.get("client_name"))
                             if builder is None:
                                 print(f"[ERROR] No payload builder for '{client_config.get('client_name')}' — skipping lead")
@@ -604,6 +623,20 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                                 lead_payload = builder(args, caller_phone, client_config)
                                 await send_lead_to_webhook(webhook_url, lead_payload)
                                 lead_sent = True
+
+                            # Return function result to OpenAI so the conversation continues.
+                            # Without this the model stalls waiting for output and the call drops.
+                            if func_call_id:
+                                await openai_ws.send(json.dumps({
+                                    "type": "conversation.item.create",
+                                    "item": {
+                                        "type":    "function_call_output",
+                                        "call_id": func_call_id,
+                                        "output":  json.dumps({"status": "success"}),
+                                    },
+                                }))
+                                await openai_ws.send(json.dumps({"type": "response.create"}))
+                                print(f"[LEAD] function_call_output sent → response.create fired (call_id={func_call_id})")
 
                         if func_name == "end_call":
                             print(f"👋 end_call triggered for '{client_config.get('client_name')}' — disconnecting")
@@ -631,7 +664,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
         # `mark` is a documented Media Streams message; it has no audio effect when
         # nothing is queued, and Twilio's mark-response is ignored by receive_from_twilio.
         _studio_keepalive_task = None
-        if client_config.get("client_name") == "Maya BPM Dance Studio":
+        if client_config.get("client_name") == "Maya BPM":
             async def _studio_keepalive():
                 try:
                     while True:
