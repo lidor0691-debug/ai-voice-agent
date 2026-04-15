@@ -207,9 +207,10 @@ async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: st
     # First message from this phone — save as a new lead (independent of history loading)
     if row is None:
         await save_lead({
-            "phone": customer_phone,
-            "source": "whatsapp",
-            "status": "new",
+            "phone":     customer_phone,
+            "source":    "whatsapp",
+            "status":    "new",
+            "client_id": agent.get("client_id") or None,
         })
 
     # ── 4+5. Call OpenAI ──────────────────────────────────────────────────────

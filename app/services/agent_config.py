@@ -349,6 +349,7 @@ async def get_whatsapp_agent_config(raw_to: str) -> Optional[dict]:
     rules           = row.get("whatsapp_rules")
 
     return {
+        "client_id":                row.get("client_id") or None,
         "system_prompt":            row.get("system_prompt") or None,
         "tone":                     row.get("tone") or None,
         "schedule":                 row.get("schedule") or None,
