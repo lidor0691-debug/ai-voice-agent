@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { supabase } from "@/lib/supabase";
+import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { AgentConfig } from "@/types/database";
 import { AgentPageTabs } from "@/components/agents/agent-page-tabs";
 
@@ -11,8 +11,9 @@ interface Props {
 
 export default async function EditAgentPage({ params }: Props) {
   const { id } = await params;
+  const client = await createSupabaseServerClient();
 
-  const { data, error } = await supabase
+  const { data, error } = await client
     .from("agents_config")
     .select("*")
     .eq("id", id)

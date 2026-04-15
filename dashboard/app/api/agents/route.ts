@@ -1,10 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { getUserContext } from "@/lib/user-context";
 
 export async function GET() {
-  const { data, error } = await supabase
+  const client = await createSupabaseServerClient();
+  const { data: { user } } = await client.auth.getUser();
+  const ctx = getUserContext(user);
+  if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const { data, error } = await client
     .from("agents_config")
     .select("*")
+    .eq("is_active", true)
     .order("created_at", { ascending: false });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -12,15 +19,19 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  const client = await createSupabaseServerClient();
+  const { data: { user } } = await client.auth.getUser();
+  const ctx = getUserContext(user);
+  if (!ctx || !ctx.isAdmin) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
   const body = await req.json();
 
-  // 1. Create a clients row for this new agent
   const clientName: string =
     (body.business_name as string | undefined) ||
     (body.agent_name as string | undefined) ||
     "Unknown";
 
-  const { data: clientData, error: clientError } = await supabase
+  const { data: clientData, error: clientError } = await client
     .from("clients")
     .insert({ name: clientName })
     .select()
@@ -30,8 +41,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: clientError.message }, { status: 400 });
   }
 
-  // 2. Create the agent with client_id set
-  const { data, error } = await supabase
+  const { data, error } = await client
     .from("agents_config")
     .insert({ ...body, client_id: clientData.id })
     .select()

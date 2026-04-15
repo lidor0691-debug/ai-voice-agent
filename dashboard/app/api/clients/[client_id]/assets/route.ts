@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { ClientAsset } from "@/types/database";
 
 export async function GET(
@@ -7,8 +7,9 @@ export async function GET(
   { params }: { params: Promise<{ client_id: string }> }
 ) {
   const { client_id } = await params;
+  const client = await createSupabaseServerClient();
 
-  const { data, error } = await supabase
+  const { data, error } = await client
     .from("client_assets")
     .select("*")
     .eq("client_id", client_id)
@@ -24,9 +25,10 @@ export async function POST(
   { params }: { params: Promise<{ client_id: string }> }
 ) {
   const { client_id } = await params;
+  const client = await createSupabaseServerClient();
   const body = await req.json() as Omit<ClientAsset, "id" | "client_id" | "created_at">;
 
-  const { data, error } = await supabase
+  const { data, error } = await client
     .from("client_assets")
     .insert({ ...body, client_id })
     .select()

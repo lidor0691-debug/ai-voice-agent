@@ -1,7 +1,6 @@
 export const dynamic = "force-dynamic";
 
 import { createSupabaseServerClient } from "@/lib/supabase-server";
-import { supabase } from "@/lib/supabase";
 import { getUserContext } from "@/lib/user-context";
 import { LeadsClientPage } from "./LeadsClientPage";
 import { computeLeadsStats } from "@/lib/leads-stats";
@@ -13,15 +12,15 @@ const EMPTY: LeadsApiResponse = {
 };
 
 export default async function LeadsPage() {
-  const authClient = await createSupabaseServerClient();
-  const { data: { user } } = await authClient.auth.getUser();
+  const client = await createSupabaseServerClient();
+  const { data: { user } } = await client.auth.getUser();
   const ctx = getUserContext(user);
 
   if (!ctx) return <LeadsClientPage data={EMPTY} />;
 
   let data: LeadsApiResponse = EMPTY;
   try {
-    const query = supabase
+    const query = client
       .from("leads")
       .select("*")
       .order("created_at", { ascending: false })

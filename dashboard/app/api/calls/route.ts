@@ -1,11 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { getUserContext } from "@/lib/user-context";
 
 export async function GET(req: NextRequest) {
+  const client = await createSupabaseServerClient();
+  const { data: { user } } = await client.auth.getUser();
+  const ctx = getUserContext(user);
+  if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   const agentId = req.nextUrl.searchParams.get("agent_id");
   const limit = parseInt(req.nextUrl.searchParams.get("limit") ?? "50");
 
-  let query = supabase
+  let query = client
     .from("call_logs")
     .select("*, agents_config(agent_name)")
     .order("created_at", { ascending: false })
@@ -19,9 +25,10 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const client = await createSupabaseServerClient();
   const body = await req.json();
 
-  const { data, error } = await supabase
+  const { data, error } = await client
     .from("call_logs")
     .insert(body)
     .select()

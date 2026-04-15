@@ -3,36 +3,37 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  LayoutDashboard,
-  Bot,
-  Phone,
-  BookOpen,
-  Settings,
-  Zap,
+  LayoutDashboard, Bot, Phone, BookOpen,
+  Settings, Zap, Users, ShieldCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useLanguage } from "@/context/language-context";
 
-const NAV_ITEMS = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/dashboard/agents", label: "Agents", icon: Bot },
-  { href: "/dashboard/calls", label: "Call Logs", icon: Phone },
-  { href: "/dashboard/knowledge", label: "Knowledge", icon: BookOpen },
-  { href: "/dashboard/settings", label: "Settings", icon: Settings },
-];
-
-export function Sidebar() {
+export function Sidebar({ isAdmin = false }: { isAdmin?: boolean }) {
   const pathname = usePathname();
+  const { t } = useLanguage();
+
+  const NAV_ITEMS = [
+    { href: "/dashboard",           label: t.nav_dashboard, icon: LayoutDashboard },
+    { href: "/dashboard/agents",    label: t.nav_agents,    icon: Bot },
+    { href: "/dashboard/calls",     label: t.nav_calls,     icon: Phone },
+    { href: "/dashboard/leads",     label: t.nav_leads,     icon: Users },
+    { href: "/dashboard/knowledge", label: t.nav_knowledge, icon: BookOpen },
+    { href: "/dashboard/settings",  label: t.nav_settings,  icon: Settings },
+  ];
 
   return (
-    <aside className="w-56 min-h-screen bg-surface-1 border-r border-border flex flex-col flex-shrink-0">
+    <aside className="w-56 min-h-screen bg-surface-1 border-e border-border flex flex-col flex-shrink-0">
       {/* Brand */}
       <div className="h-14 flex items-center gap-3 px-4 border-b border-border">
-        <div className="w-7 h-7 rounded-lg bg-brand-600 flex items-center justify-center flex-shrink-0">
+        <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-brand-500 to-indigo-500 flex items-center justify-center flex-shrink-0 shadow-glow-sm">
           <Zap className="w-3.5 h-3.5 text-white" />
         </div>
         <div>
-          <p className="text-white font-semibold text-sm leading-none">Maya AI</p>
-          <p className="text-gray-500 text-[11px] mt-0.5">Agent Platform</p>
+          <p className="text-white font-bold text-sm leading-none tracking-tight">
+            Maya<span className="text-brand-400">AI</span>
+          </p>
+          <p className="text-gray-600 text-[10px] mt-0.5">Agent Platform</p>
         </div>
       </div>
 
@@ -49,12 +50,15 @@ export function Sidebar() {
               key={href}
               href={href}
               className={cn(
-                "flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+                "relative flex items-center gap-2.5 px-3 py-2 rounded-xl text-[13px] font-medium transition-all",
                 active
-                  ? "bg-brand-600/15 text-brand-400 border border-brand-600/20"
+                  ? "bg-brand-500/10 text-white border border-brand-500/20"
                   : "text-gray-500 hover:text-gray-200 hover:bg-surface-3"
               )}
             >
+              {active && (
+                <span className="absolute end-0 top-1/2 -translate-y-1/2 w-0.5 h-4 rounded-full bg-gradient-to-b from-brand-500 to-indigo-500" />
+              )}
               <Icon className="w-4 h-4 flex-shrink-0" />
               {label}
             </Link>
@@ -62,15 +66,37 @@ export function Sidebar() {
         })}
       </nav>
 
+      {/* Admin link */}
+      {isAdmin && (
+        <div className="px-2 pb-2">
+          <Link
+            href="/admin"
+            className={cn(
+              "relative flex items-center gap-2.5 px-3 py-2 rounded-xl text-[13px] font-medium transition-all",
+              pathname.startsWith("/admin")
+                ? "bg-brand-500/10 text-white border border-brand-500/20"
+                : "text-gray-500 hover:text-gray-200 hover:bg-surface-3"
+            )}
+          >
+            {pathname.startsWith("/admin") && (
+              <span className="absolute end-0 top-1/2 -translate-y-1/2 w-0.5 h-4 rounded-full bg-gradient-to-b from-brand-500 to-indigo-500" />
+            )}
+            <ShieldCheck className="w-4 h-4 flex-shrink-0" />
+            Admin
+          </Link>
+        </div>
+      )}
+
       {/* Footer */}
       <div className="px-3 py-3 border-t border-border">
-        <div className="flex items-center gap-2.5 px-2 py-1.5">
-          <div className="w-6 h-6 rounded-full bg-brand-600 flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0">
+        <div className="flex items-center gap-2.5 px-2 py-1.5 rounded-xl bg-surface-2 border border-border">
+          <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-brand-500 to-indigo-500 flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0">
             M
           </div>
-          <div className="overflow-hidden">
-            <p className="text-gray-300 text-xs font-medium truncate">My Workspace</p>
+          <div className="overflow-hidden flex-1">
+            <p className="text-gray-300 text-xs font-medium truncate">{t.workspace}</p>
           </div>
+          <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0" style={{boxShadow:'0 0 6px #10b981'}} />
         </div>
       </div>
     </aside>

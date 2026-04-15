@@ -21,7 +21,8 @@ import httpx
 logger = logging.getLogger(__name__)
 
 SUPABASE_URL = os.environ["SUPABASE_URL"]           # https://xxxx.supabase.co
-SUPABASE_ANON_KEY = os.environ["SUPABASE_ANON_KEY"]  # anon / service-role key
+SUPABASE_ANON_KEY = os.environ["SUPABASE_ANON_KEY"]  # anon key (kept for reference)
+SUPABASE_SERVICE_KEY = os.environ["SUPABASE_SERVICE_KEY"]  # service role — bypasses RLS
 
 
 # ──────────────────────────────────────────────────────
@@ -66,8 +67,8 @@ class AgentConfig:
 
 def _supabase_headers() -> dict:
     return {
-        "apikey": SUPABASE_ANON_KEY,
-        "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
+        "apikey": SUPABASE_SERVICE_KEY,
+        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
         "Content-Type": "application/json",
     }
 

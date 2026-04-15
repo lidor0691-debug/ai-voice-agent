@@ -261,6 +261,8 @@ export const translations = {
     // Agent tabs
     tab_settings: "הגדרות נציגה",
     tab_assets: "נכסי לקוח",
+    archive_agent_btn: "העבר לארכיון",
+    archive_confirm: "בטוח שרוצה לארכב את הנציגה? ניתן לשחזר מפאנל האדמין.",
     // Client assets
     ca_agents_only: "נכסי לקוח זמינים רק עבור נציגות קיימות.",
     ca_title: "נכסים לשליחה בוואטסאפ",
@@ -559,6 +561,8 @@ export const translations = {
     // Agent tabs
     tab_settings: "Agent Settings",
     tab_assets: "Client Assets",
+    archive_agent_btn: "Archive Agent",
+    archive_confirm: "Archive this agent? It can be restored from the admin panel.",
     // Client assets
     ca_agents_only: "Client assets are only available for existing agents.",
     ca_title: "Assets to Send via WhatsApp",

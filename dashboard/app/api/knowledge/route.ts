@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { createSupabaseServerClient } from "@/lib/supabase-server";
 
 export async function GET(req: NextRequest) {
   const agentId = req.nextUrl.searchParams.get("agent_id");
+  const client = await createSupabaseServerClient();
 
-  let query = supabase
+  let query = client
     .from("knowledge_items")
     .select("*")
     .order("priority", { ascending: false });
@@ -17,9 +18,10 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const client = await createSupabaseServerClient();
   const body = await req.json();
 
-  const { data, error } = await supabase
+  const { data, error } = await client
     .from("knowledge_items")
     .insert(body)
     .select()

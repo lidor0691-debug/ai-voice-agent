@@ -22,6 +22,7 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 const COLUMNS = ["שם", "טלפון", "מקור", "שירות", "סטטוס", "תאריך"];
+const PAGE_SIZE = 50;
 
 interface Props {
   leads: SupabaseLead[];
@@ -31,7 +32,6 @@ export function SupabaseLeadsTable({ leads }: Props) {
   const [query, setQuery] = useState("");
   const [selectedLead, setSelectedLead] = useState<SupabaseLead | null>(null);
   const [page, setPage] = useState(0);
-  const PAGE_SIZE = 50;
 
   const filtered = leads.filter((l) => {
     if (!query) return true;

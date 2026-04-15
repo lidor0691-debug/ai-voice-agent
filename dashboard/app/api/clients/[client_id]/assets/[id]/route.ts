@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { ClientAsset } from "@/types/database";
 
 export async function PATCH(
@@ -7,9 +7,10 @@ export async function PATCH(
   { params }: { params: Promise<{ client_id: string; id: string }> }
 ) {
   const { client_id, id } = await params;
+  const client = await createSupabaseServerClient();
   const body = await req.json() as Partial<ClientAsset>;
 
-  const { data, error } = await supabase
+  const { data, error } = await client
     .from("client_assets")
     .update(body)
     .eq("id", id)
@@ -26,8 +27,9 @@ export async function DELETE(
   { params }: { params: Promise<{ client_id: string; id: string }> }
 ) {
   const { client_id, id } = await params;
+  const client = await createSupabaseServerClient();
 
-  const { error } = await supabase
+  const { error } = await client
     .from("client_assets")
     .delete()
     .eq("id", id)

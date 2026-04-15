@@ -1,45 +1,62 @@
-import { Bell, Search } from "lucide-react";
+"use client";
 
-interface HeaderProps {
+import { Search } from "lucide-react";
+import { useLanguage } from "@/context/language-context";
+
+interface Props {
   title: string;
   subtitle?: string;
+  action?: React.ReactNode;
 }
 
-export function Header({ title, subtitle }: HeaderProps) {
+export function Header({ title, subtitle, action }: Props) {
+  const { lang, setLang, t } = useLanguage();
+
   return (
-    <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 flex-shrink-0">
+    <div className="h-14 border-b border-border flex items-center justify-between px-6 flex-shrink-0 bg-surface-1">
+      {/* Page info */}
       <div>
-        <h1 className="text-slate-900 font-semibold text-lg leading-none">
-          {title}
-        </h1>
-        {subtitle && (
-          <p className="text-slate-500 text-sm mt-0.5">{subtitle}</p>
-        )}
+        <h1 className="text-white font-semibold text-sm tracking-tight">{title}</h1>
+        {subtitle && <p className="text-gray-600 text-[11px] mt-0.5">{subtitle}</p>}
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2.5">
         {/* Search */}
-        <div className="relative hidden md:block">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+        <div className="relative">
+          <Search className="absolute top-1/2 -translate-y-1/2 start-3 w-3.5 h-3.5 text-gray-600" />
           <input
-            type="text"
-            placeholder="חיפוש..."
-            className="pl-9 pr-4 py-2 text-sm bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent w-56"
+            placeholder={t.search_placeholder}
+            className="bg-surface-2 border border-border rounded-lg ps-9 pe-3 py-1.5 text-xs text-white placeholder-gray-600
+              focus:outline-none focus:ring-1 focus:ring-brand-500 focus:border-brand-500 w-44 transition-colors"
           />
         </div>
 
-        {/* Notifications */}
-        <button className="relative p-2 rounded-lg hover:bg-slate-100 transition-colors">
-          <Bell className="w-5 h-5 text-slate-500" />
-          <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-brand-500 rounded-full" />
-        </button>
+        {/* Live chip */}
+        <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+          <span className="live-dot" />
+          {t.status_active}
+        </span>
 
-        {/* Live indicator */}
-        <div className="flex items-center gap-2 px-3 py-1.5 bg-green-50 border border-green-200 rounded-full">
-          <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-          <span className="text-green-700 text-xs font-medium">פעיל</span>
+        {/* Language toggle */}
+        <div className="flex items-center gap-0.5 bg-surface-2 border border-border rounded-lg p-0.5">
+          {(["he", "en"] as const).map((l) => (
+            <button
+              key={l}
+              onClick={() => setLang(l)}
+              className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
+                lang === l
+                  ? "bg-gradient-to-br from-brand-500 to-indigo-500 text-white shadow-glow-sm"
+                  : "text-gray-500 hover:text-gray-300"
+              }`}
+            >
+              {l === "he" ? t.lang_he : t.lang_en}
+            </button>
+          ))}
         </div>
+
+        {/* Optional page CTA */}
+        {action}
       </div>
-    </header>
+    </div>
   );
 }

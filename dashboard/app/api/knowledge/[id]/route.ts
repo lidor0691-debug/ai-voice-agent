@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { KnowledgeItem } from "@/types/database";
 
 export async function PATCH(
@@ -7,9 +7,10 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+  const client = await createSupabaseServerClient();
   const body = (await req.json()) as Partial<KnowledgeItem>;
 
-  const { data, error } = await supabase
+  const { data, error } = await client
     .from("knowledge_items")
     .update(body)
     .eq("id", id)
@@ -25,7 +26,9 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const { error } = await supabase
+  const client = await createSupabaseServerClient();
+
+  const { error } = await client
     .from("knowledge_items")
     .delete()
     .eq("id", id);

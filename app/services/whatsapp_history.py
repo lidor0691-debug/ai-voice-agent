@@ -26,14 +26,14 @@ import httpx
 logger = logging.getLogger(__name__)
 
 _SUPABASE_URL      = os.getenv("SUPABASE_URL", "")
-_SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "")
+_SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
 _TABLE             = "whatsapp_conversations"
 
 
 def _headers() -> dict:
     return {
-        "apikey":        _SUPABASE_ANON_KEY,
-        "Authorization": f"Bearer {_SUPABASE_ANON_KEY}",
+        "apikey":        _SUPABASE_SERVICE_KEY,
+        "Authorization": f"Bearer {_SUPABASE_SERVICE_KEY}",
         "Content-Type":  "application/json",
         "Prefer":        "return=representation",
     }
