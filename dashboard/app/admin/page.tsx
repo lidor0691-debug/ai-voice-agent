@@ -31,31 +31,33 @@ export default async function AdminPage() {
   });
 
   return (
-    <div className="space-y-6 max-w-4xl">
-      <div>
-        <h2 className="text-white font-semibold text-lg">Clients</h2>
-        <p className="text-gray-500 text-sm mt-0.5">{clients.length} total</p>
+    <div className="min-h-screen bg-surface-0">
+      <div className="h-14 border-b border-border flex items-center px-6 bg-surface-1">
+        <h1 className="text-white font-semibold text-sm">Admin Panel</h1>
+        <span className="ms-2 text-gray-600 text-[11px]">{clients.length} clients</span>
       </div>
 
-      <div className="bg-surface-2 border border-border rounded-xl overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="p-6 space-y-5 max-w-4xl">
+
+      <div className="card overflow-hidden">
+        <table className="w-full">
           <thead>
             <tr className="border-b border-border">
-              <th className="text-left text-gray-400 font-medium px-5 py-3">Client</th>
-              <th className="text-left text-gray-400 font-medium px-5 py-3">ID</th>
-              <th className="text-right text-gray-400 font-medium px-5 py-3">Agents</th>
-              <th className="text-right text-gray-400 font-medium px-5 py-3">Leads</th>
-              <th className="text-right text-gray-400 font-medium px-5 py-3">Last Lead</th>
+              <th className="text-left text-[11px] text-gray-600 font-medium px-5 py-3">Client</th>
+              <th className="text-left text-[11px] text-gray-600 font-medium px-5 py-3">ID</th>
+              <th className="text-right text-[11px] text-gray-600 font-medium px-5 py-3">Agents</th>
+              <th className="text-right text-[11px] text-gray-600 font-medium px-5 py-3">Leads</th>
+              <th className="text-right text-[11px] text-gray-600 font-medium px-5 py-3">Last Lead</th>
             </tr>
           </thead>
           <tbody>
             {stats.map((c) => (
-              <tr key={c.id} className="border-b border-border/50 last:border-0">
-                <td className="px-5 py-3 text-white font-medium">{c.name}</td>
-                <td className="px-5 py-3 text-gray-500 font-mono text-xs">{c.id}</td>
-                <td className="px-5 py-3 text-right text-gray-300">{c.agentCount}</td>
-                <td className="px-5 py-3 text-right text-gray-300">{c.leadCount}</td>
-                <td className="px-5 py-3 text-right text-gray-500 text-xs">
+              <tr key={c.id} className="border-b border-border last:border-0 hover:bg-surface-2 transition-colors">
+                <td className="px-5 py-3.5 text-white font-medium text-[13px]">{c.name}</td>
+                <td className="px-5 py-3.5 text-gray-500 font-mono text-[11px]">{c.id}</td>
+                <td className="px-5 py-3.5 text-right text-gray-400 text-[13px]">{c.agentCount}</td>
+                <td className="px-5 py-3.5 text-right text-gray-400 text-[13px]">{c.leadCount}</td>
+                <td className="px-5 py-3.5 text-right text-gray-600 text-[11px]">
                   {c.lastLead ? new Date(c.lastLead).toLocaleDateString("he-IL") : "—"}
                 </td>
               </tr>
@@ -73,24 +75,24 @@ export default async function AdminPage() {
 
       {archivedAgents.length > 0 && (
         <div>
-          <h2 className="text-white font-semibold text-lg mb-3">Archived Agents</h2>
-          <div className="bg-surface-2 border border-border rounded-xl overflow-hidden">
-            <table className="w-full text-sm">
+          <h2 className="text-[11px] text-gray-600 uppercase tracking-wider font-semibold mb-3">Archived Agents</h2>
+          <div className="card overflow-hidden">
+            <table className="w-full">
               <thead>
                 <tr className="border-b border-border">
-                  <th className="text-left text-gray-400 font-medium px-5 py-3">Agent</th>
-                  <th className="text-left text-gray-400 font-medium px-5 py-3">Phone</th>
-                  <th className="text-left text-gray-400 font-medium px-5 py-3">Client ID</th>
+                  <th className="text-left text-[11px] text-gray-600 font-medium px-5 py-3">Agent</th>
+                  <th className="text-left text-[11px] text-gray-600 font-medium px-5 py-3">Phone</th>
+                  <th className="text-left text-[11px] text-gray-600 font-medium px-5 py-3">Client ID</th>
                   <th className="px-5 py-3" />
                 </tr>
               </thead>
               <tbody>
                 {archivedAgents.map((a) => (
-                  <tr key={a.id} className="border-b border-border/50 last:border-0">
-                    <td className="px-5 py-3 text-gray-400">{a.agent_name}</td>
-                    <td className="px-5 py-3 text-gray-500 font-mono text-xs">{a.phone_number ?? "—"}</td>
-                    <td className="px-5 py-3 text-gray-500 font-mono text-xs">{a.client_id ?? "—"}</td>
-                    <td className="px-5 py-3 text-right">
+                  <tr key={a.id} className="border-b border-border last:border-0 hover:bg-surface-2 transition-colors">
+                    <td className="px-5 py-3.5 text-gray-400 text-[13px]">{a.agent_name}</td>
+                    <td className="px-5 py-3.5 text-gray-500 font-mono text-[11px]">{a.phone_number ?? "—"}</td>
+                    <td className="px-5 py-3.5 text-gray-500 font-mono text-[11px]">{a.client_id ?? "—"}</td>
+                    <td className="px-5 py-3.5 text-right">
                       <RestoreAgentButton agentId={a.id} />
                     </td>
                   </tr>
@@ -101,12 +103,12 @@ export default async function AdminPage() {
         </div>
       )}
 
-      <div className="bg-surface-2 border border-border rounded-xl p-5 space-y-3">
+      <div className="card p-5 space-y-3">
         <h3 className="text-white font-medium text-sm">Reset demo data</h3>
-        <p className="text-gray-500 text-xs">
+        <p className="text-gray-600 text-[11px]">
           Run in Supabase SQL Editor. Copy the client ID from the table above.
         </p>
-        <pre className="bg-surface-3 rounded-lg p-4 text-xs text-gray-400 font-mono whitespace-pre overflow-x-auto">{
+        <pre className="bg-surface-2 rounded-xl p-4 text-[11px] text-gray-500 font-mono whitespace-pre overflow-x-auto">{
 `-- Delete leads for a client
 DELETE FROM leads WHERE client_id = '<CLIENT_ID>';
 
@@ -116,6 +118,8 @@ WHERE agent_id IN (
   SELECT id FROM agents_config WHERE client_id = '<CLIENT_ID>'
 );`
         }</pre>
+      </div>
+
       </div>
     </div>
   );

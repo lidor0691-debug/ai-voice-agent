@@ -163,18 +163,18 @@ export function KnowledgeClient({ agents, initialItems }: Props) {
   return (
     <div className="flex-1 overflow-y-auto">
       {/* Header */}
-      <div className="sticky top-0 z-10 bg-surface-0/80 backdrop-blur border-b border-border px-8 py-4 flex items-center justify-between">
+      <div className="h-14 border-b border-border flex items-center justify-between px-6 flex-shrink-0 bg-surface-1">
         <div>
-          <h1 className="text-white font-semibold text-lg">{t.page_knowledge_title}</h1>
-          <p className="text-gray-500 text-sm mt-0.5">
+          <h1 className="text-white font-semibold text-sm tracking-tight">{t.page_knowledge_title}</h1>
+          <p className="text-gray-600 text-[11px] mt-0.5">
             {filtered.length} {filtered.length !== 1 ? t.knowledge_item_plural : t.knowledge_item_singular}
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5">
           <select
             value={filterAgent}
             onChange={(e) => setFilterAgent(e.target.value)}
-            className="bg-surface-2 border border-border rounded-lg px-3 py-2 text-sm text-gray-300 focus:outline-none focus:ring-1 focus:ring-brand-600"
+            className="bg-surface-2 border border-border rounded-lg px-3 py-2 text-[13px] text-gray-300 focus:outline-none focus:ring-1 focus:ring-brand-500 transition-colors"
           >
             <option value="">{t.all_agents_option}</option>
             {agents.map((a) => (
@@ -185,18 +185,18 @@ export function KnowledgeClient({ agents, initialItems }: Props) {
           </select>
           <button
             onClick={openCreate}
-            className="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+            className="btn-primary flex items-center gap-2"
           >
-            <Plus className="w-4 h-4" />
+            <Plus className="w-3.5 h-3.5" />
             {t.add_item_btn}
           </button>
         </div>
       </div>
 
-      <div className="p-8">
+      <div className="p-6">
         {/* Inline form */}
         {showForm && (
-          <div className="bg-surface-2 border border-brand-600/30 rounded-xl p-6 mb-6 space-y-4">
+          <div className="bg-surface-2 border border-brand-500/30 rounded-xl p-6 mb-6 space-y-4">
             <div className="flex items-center justify-between mb-2">
               <h2 className="text-white font-medium text-sm">
                 {editingId ? t.edit_item_title : t.new_item_title}
@@ -285,7 +285,7 @@ export function KnowledgeClient({ agents, initialItems }: Props) {
               <button
                 onClick={handleSave}
                 disabled={saving}
-                className="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+                className="btn-primary flex items-center gap-2 disabled:opacity-50"
               >
                 <Check className="w-3.5 h-3.5" />
                 {saving ? t.saving : t.save}
@@ -309,7 +309,7 @@ export function KnowledgeClient({ agents, initialItems }: Props) {
             </p>
             <button
               onClick={openCreate}
-              className="bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+              className="btn-primary"
             >
               {t.add_first_item_btn}
             </button>
@@ -318,15 +318,15 @@ export function KnowledgeClient({ agents, initialItems }: Props) {
 
         {/* Table */}
         {filtered.length > 0 && (
-          <div className="bg-surface-2 border border-border rounded-xl overflow-hidden">
+          <div className="card overflow-hidden">
             <table className="w-full">
               <thead>
                 <tr className="border-b border-border">
-                  <th className="text-left text-xs text-gray-500 font-medium px-5 py-3">{t.col_title}</th>
-                  <th className="text-left text-xs text-gray-500 font-medium px-4 py-3">{t.col_agent}</th>
-                  <th className="text-left text-xs text-gray-500 font-medium px-4 py-3">{t.field_category}</th>
-                  <th className="text-left text-xs text-gray-500 font-medium px-4 py-3">{t.col_priority}</th>
-                  <th className="text-left text-xs text-gray-500 font-medium px-4 py-3">{t.col_status}</th>
+                  <th className="text-left text-[11px] text-gray-600 font-medium px-5 py-3">{t.col_title}</th>
+                  <th className="text-left text-[11px] text-gray-600 font-medium px-4 py-3">{t.col_agent}</th>
+                  <th className="text-left text-[11px] text-gray-600 font-medium px-4 py-3">{t.field_category}</th>
+                  <th className="text-left text-[11px] text-gray-600 font-medium px-4 py-3">{t.col_priority}</th>
+                  <th className="text-left text-[11px] text-gray-600 font-medium px-4 py-3">{t.col_status}</th>
                   <th className="px-4 py-3" />
                 </tr>
               </thead>
@@ -334,7 +334,7 @@ export function KnowledgeClient({ agents, initialItems }: Props) {
                 {filtered.map((item) => (
                   <tr
                     key={item.id}
-                    className="border-b border-border last:border-0 hover:bg-surface-3 transition-colors"
+                    className="border-b border-border last:border-0 hover:bg-surface-2 transition-colors"
                   >
                     <td className="px-5 py-3.5">
                       <p className="text-white text-sm font-medium">{item.title}</p>
