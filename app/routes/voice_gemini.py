@@ -207,7 +207,6 @@ async def stream_gemini(twilio_ws: WebSocket):
                     # Reduce silence threshold so Gemini responds faster after speech ends.
                     # Default is ~1000ms — 400ms feels natural on a phone call.
                     "silence_duration_ms": 400,
-                    "prefix_padding_ms": 200,
                 },
             },
             "system_instruction": {
