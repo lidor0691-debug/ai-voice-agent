@@ -78,14 +78,22 @@ async def save_lead(data: dict) -> None:
 
     payload = {k: v for k, v in data.items() if v is not None}
 
+    # Upsert on phone — if lead already exists (e.g. from WhatsApp), update it
+    # instead of creating a duplicate. Requires unique constraint on leads.phone.
+    upsert_headers = {
+        **_headers(),
+        "Prefer": "resolution=merge-duplicates,return=minimal",
+    }
+
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.post(
                 f"{_SUPABASE_URL}/rest/v1/{_TABLE}",
                 json=payload,
-                headers=_headers(),
+                headers=upsert_headers,
+                params={"on_conflict": "phone"},
             )
             resp.raise_for_status()
-        logger.info("[LEAD CAPTURE] Saved lead phone=%s source=%s", data.get("phone"), data.get("source"))
+        logger.info("[LEAD CAPTURE] Upserted lead phone=%s source=%s", data.get("phone"), data.get("source"))
     except Exception as exc:
         logger.error("[LEAD CAPTURE] Failed to save lead: %s | data=%s", exc, data)
