@@ -212,14 +212,6 @@ async def stream_gemini(twilio_ws: WebSocket):
         # Wait for Gemini's setup acknowledgement before streaming audio
         setup_ack = await asyncio.wait_for(gemini_ws.recv(), timeout=10.0)
         print(f"[GEMINI-WS] Gemini setup ack: {setup_ack[:200]}")
-        # Trigger opening greeting — Gemini won't speak unless prompted first
-        await gemini_ws.send(json.dumps({
-            "client_content": {
-                "turns": [{"role": "user", "parts": [{"text": "שלום"}]}],
-                "turn_complete": True,
-            }
-        }))
-        print("[GEMINI-WS] Opening prompt sent — waiting for greeting")
     except asyncio.TimeoutError:
         print("[GEMINI-WS] ERROR: Gemini setup ack timed out — closing POC stream")
         await gemini_ws.close()
