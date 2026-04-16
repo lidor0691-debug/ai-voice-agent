@@ -21,7 +21,8 @@ export async function PATCH(
       .eq("id", id)
       .single();
     if (fetchError || !existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
-    const ownerClientId = (existing.agents_config as { client_id: string } | null)?.client_id;
+    const ac = existing.agents_config as { client_id: string }[] | { client_id: string } | null;
+    const ownerClientId = Array.isArray(ac) ? ac[0]?.client_id : ac?.client_id;
     if (ownerClientId !== ctx.clientId)
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
@@ -54,8 +55,9 @@ export async function DELETE(
       .eq("id", id)
       .single();
     if (fetchError || !existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
-    const ownerClientId = (existing.agents_config as { client_id: string } | null)?.client_id;
-    if (ownerClientId !== ctx.clientId)
+    const ac2 = existing.agents_config as { client_id: string }[] | { client_id: string } | null;
+    const ownerClientId2 = Array.isArray(ac2) ? ac2[0]?.client_id : ac2?.client_id;
+    if (ownerClientId2 !== ctx.clientId)
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
