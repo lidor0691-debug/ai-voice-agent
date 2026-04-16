@@ -2,10 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
-  const backendUrl = process.env.API_BASE_URL ?? "http://localhost:8000";
+  const backendUrl = process.env.API_BASE_URL;
+  if (!backendUrl && process.env.NODE_ENV === "production") {
+    return NextResponse.json({ error: "API_BASE_URL is not configured on this server" }, { status: 503 });
+  }
+  const resolvedUrl = backendUrl ?? "http://localhost:8000";
 
   try {
-    const res = await fetch(`${backendUrl}/voice-preview`, {
+    const res = await fetch(`${resolvedUrl}/voice-preview`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
