@@ -167,6 +167,10 @@ export function AgentForm({ initial, agentId }: Props) {
   const [previewing, setPreviewing] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
+  const [testCallPhone, setTestCallPhone] = useState("");
+  const [testCalling, setTestCalling] = useState(false);
+  const [testCallStatus, setTestCallStatus] = useState<string | null>(null);
+  const [testCallError, setTestCallError] = useState<string | null>(null);
 
   const [scheduleText, setScheduleText] = useState<string>(
     initial?.schedule != null ? JSON.stringify(initial.schedule, null, 2) : ""
@@ -258,6 +262,34 @@ export function AgentForm({ initial, agentId }: Props) {
       setPreviewError(t.af_preview_voice_error);
     } finally {
       setPreviewing(false);
+    }
+  };
+
+  const handleTestCall = async () => {
+    if (testCalling || !agentId) return;
+    setTestCallError(null);
+    setTestCallStatus(null);
+    if (!testCallPhone.trim()) {
+      setTestCallError(t.af_test_call_error);
+      return;
+    }
+    setTestCalling(true);
+    try {
+      const res = await fetch("/api/test-call", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agent_id: agentId, to_phone: testCallPhone.trim() }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setTestCallError(data.error ?? t.af_test_call_error);
+      } else {
+        setTestCallStatus(t.af_test_call_success);
+      }
+    } catch {
+      setTestCallError(t.af_test_call_error);
+    } finally {
+      setTestCalling(false);
     }
   };
 
@@ -544,6 +576,41 @@ export function AgentForm({ initial, agentId }: Props) {
                 <p className="mt-2 text-sm text-red-400">{previewError}</p>
               )}
             </div>
+            {/* ── Test Call ── */}
+            {agentId && (
+              <div className="pt-2 border-t border-border space-y-2">
+                <label className="block text-sm text-gray-400">{t.af_test_call_label}</label>
+                <div className="flex gap-2">
+                  <input
+                    type="tel"
+                    value={testCallPhone}
+                    onChange={(e) => setTestCallPhone(e.target.value)}
+                    placeholder={t.af_test_call_placeholder}
+                    className="flex-1 bg-surface-3 border border-border rounded-lg px-3 py-2 text-white text-sm placeholder-gray-600 focus:outline-none focus:border-brand-500"
+                  />
+                  <button
+                    type="button"
+                    disabled={testCalling || !testCallPhone.trim()}
+                    onClick={handleTestCall}
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg bg-surface-3 border border-border hover:border-brand-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors"
+                  >
+                    {testCalling ? (
+                      <>
+                        <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        {t.af_test_call_loading}
+                      </>
+                    ) : (
+                      <>
+                        <span>📞</span>
+                        {t.af_test_call_btn}
+                      </>
+                    )}
+                  </button>
+                </div>
+                {testCallStatus && <p className="text-sm text-green-400">{testCallStatus}</p>}
+                {testCallError && <p className="text-sm text-red-400">{testCallError}</p>}
+              </div>
+            )}
           </div>
         )}
 

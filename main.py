@@ -56,6 +56,7 @@ from app.routes.whatsapp_history_api import router as whatsapp_history_router
 from app.routes.whatsapp_reply_api import router as whatsapp_reply_router
 from app.routes.dev_agent import router as dev_agent_router
 from app.routes.voice_preview import router as voice_preview_router
+from app.routes.test_call import router as test_call_router
 
 app = FastAPI()
 
@@ -67,6 +68,7 @@ app.include_router(whatsapp_history_router)
 app.include_router(whatsapp_reply_router)
 app.include_router(dev_agent_router)
 app.include_router(voice_preview_router)
+app.include_router(test_call_router)
 
 @app.get("/")
 def root():

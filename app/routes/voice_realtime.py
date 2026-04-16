@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, WebSocket, Request
 from fastapi.responses import Response
 from twilio.twiml.voice_response import VoiceResponse, Connect
-from app.services.agent_config import fetch_supabase_agent_config
+from app.services.agent_config import fetch_supabase_agent_config, get_agent_phone_number_by_id
 from app.services.lead_capture import save_lead
 
 router = APIRouter()
@@ -300,6 +300,56 @@ async def voice_entry(request: Request):
     return Response(content=twiml_str, media_type="application/xml")
 
 
+# ── Test call Twilio webhook ─────────────────────────────────────────────────
+
+@router.post("/test-voice")
+async def test_voice_entry(request: Request):
+    """
+    Twilio webhook for outbound test calls initiated from the dashboard.
+    Looks up agent config by agent_id query param instead of To number,
+    and marks the call as test so leads/webhooks are skipped.
+    """
+    form_data = await request.form()
+    agent_id  = request.query_params.get("agent_id", "")
+    call_sid  = form_data.get("CallSid", "")
+    raw_from  = form_data.get("From", "")
+    norm_from = normalize_phone_key(raw_from)
+
+    print(f"[TEST-VOICE] agent_id={agent_id} | call_sid={call_sid} | from={raw_from}")
+
+    agent_phone = await get_agent_phone_number_by_id(agent_id)
+    if not agent_phone:
+        err = VoiceResponse()
+        err.say("Test call setup failed — agent not found.", language="en-US")
+        return Response(content=str(err), media_type="application/xml")
+
+    agent_cfg = await fetch_supabase_agent_config(agent_phone)
+    if agent_cfg.get("fallback_used"):
+        err = VoiceResponse()
+        err.say("Test call setup failed — agent config not found.", language="en-US")
+        return Response(content=str(err), media_type="application/xml")
+
+    _cleanup_stale_contexts()
+    CALL_CONTEXT[call_sid] = {
+        "to":                    agent_phone,
+        "from":                  norm_from,
+        "raw_to":                agent_phone,
+        "raw_from":              raw_from,
+        "created_at":            datetime.now().timestamp(),
+        "is_test":               True,
+        "agent_config_override": agent_cfg,
+    }
+    print(f"[TEST-VOICE] context stored for call_sid={call_sid}, agent='{agent_cfg.get('client_name')}'")
+
+    host       = request.url.hostname
+    stream_url = f"wss://{host}/voice-ai/stream?call_sid={quote(call_sid, safe='')}"
+    response   = VoiceResponse()
+    connect    = Connect()
+    connect.stream(url=stream_url)
+    response.append(connect)
+    return Response(content=str(response), media_type="application/xml")
+
+
 # ── WebSocket / realtime engine ───────────────────────────────────────────────
 
 @router.websocket("/stream")
@@ -371,39 +421,43 @@ async def websocket_endpoint(twilio_ws: WebSocket):
         print(f"[WS ERROR] Missing CALL_CONTEXT for call_sid='{call_sid}' — routing will fall back")
 
     # ── Phase 3: client lookup — Supabase only ────────────────────────────
-    print(f"[ROUTING] to_number used for lookup = '{to_number}'")
+    is_test = bool(call_ctx and call_ctx.get("is_test"))
+    print(f"[ROUTING] to_number used for lookup = '{to_number}' | is_test={is_test}")
 
-    if not to_number:
+    if call_ctx and call_ctx.get("agent_config_override"):
+        client_config = call_ctx["agent_config_override"]
+        print(f"[ROUTING] ✅ Test call — using pre-fetched config for '{client_config.get('client_name')}'")
+    elif not to_number:
         print(f"[ROUTING] ❌ No to_number — closing call")
         try:
             await twilio_ws.close()
         except Exception as e:
             print(f"[ROUTING] WebSocket close error (safe to ignore): {e}")
         return
-
-    try:
-        print(f"[DEBUG] Looking up Supabase for: {to_number}")
-        _candidate = await fetch_supabase_agent_config(to_number)
-        print(f"[DEBUG] Supabase result: fallback_used={_candidate.get('fallback_used')}, client_name={_candidate.get('client_name')}")
-        if _candidate and not _candidate.get("fallback_used"):
-            _candidate["_from_supabase"] = True
-            client_config = _candidate
-            print(f"[ROUTING] ✅ Supabase match: '{client_config.get('client_name')}' — using dashboard config")
-        else:
-            print(f"[ROUTING] ❌ No active agent in Supabase for '{to_number}' — closing call")
-            print(f"[DEBUG] Check that phone_number='{to_number}' exists in agents_config with is_active=true")
+    else:
+        try:
+            print(f"[DEBUG] Looking up Supabase for: {to_number}")
+            _candidate = await fetch_supabase_agent_config(to_number)
+            print(f"[DEBUG] Supabase result: fallback_used={_candidate.get('fallback_used')}, client_name={_candidate.get('client_name')}")
+            if _candidate and not _candidate.get("fallback_used"):
+                _candidate["_from_supabase"] = True
+                client_config = _candidate
+                print(f"[ROUTING] ✅ Supabase match: '{client_config.get('client_name')}' — using dashboard config")
+            else:
+                print(f"[ROUTING] ❌ No active agent in Supabase for '{to_number}' — closing call")
+                print(f"[DEBUG] Check that phone_number='{to_number}' exists in agents_config with is_active=true")
+                try:
+                    await twilio_ws.close()
+                except Exception as e:
+                    print(f"[ROUTING] WebSocket close error (safe to ignore): {e}")
+                return
+        except Exception as _e:
+            print(f"[ROUTING] ❌ Supabase lookup error: {_e} — closing call")
             try:
                 await twilio_ws.close()
             except Exception as e:
                 print(f"[ROUTING] WebSocket close error (safe to ignore): {e}")
             return
-    except Exception as _e:
-        print(f"[ROUTING] ❌ Supabase lookup error: {_e} — closing call")
-        try:
-            await twilio_ws.close()
-        except Exception as e:
-            print(f"[ROUTING] WebSocket close error (safe to ignore): {e}")
-        return
 
     if not client_config:
         print("[WS ERROR] No client config and no default — closing.")
@@ -600,25 +654,29 @@ async def websocket_endpoint(twilio_ws: WebSocket):
 
                         if func_name == "process_agency_lead":
                             func_call_id = event.get("call_id", "")
-                            builder = _PAYLOAD_BUILDERS.get(client_config.get("client_name"))
-                            if builder is None:
-                                print(f"[ERROR] No payload builder for '{client_config.get('client_name')}' — skipping lead")
-                            else:
-                                lead_payload = builder(args, caller_phone, client_config)
-                                await send_lead_to_webhook(webhook_url, lead_payload)
+                            if is_test:
+                                print("[TEST CALL] process_agency_lead fired — skipping lead/webhook (test mode)")
                                 lead_sent = True
+                            else:
+                                builder = _PAYLOAD_BUILDERS.get(client_config.get("client_name"))
+                                if builder is None:
+                                    print(f"[ERROR] No payload builder for '{client_config.get('client_name')}' — skipping lead")
+                                else:
+                                    lead_payload = builder(args, caller_phone, client_config)
+                                    await send_lead_to_webhook(webhook_url, lead_payload)
+                                    lead_sent = True
 
-                            # Always save directly to leads table so dashboard shows the lead
-                            # regardless of lead_delivery_method (webhook/whatsapp/etc.)
-                            await save_lead({
-                                "phone":     caller_phone,
-                                "name":      args.get("name") or args.get("parent_name") or None,
-                                "source":    "voice",
-                                "status":    "new",
-                                "client_id": client_config.get("client_id") or None,
-                                "notes":     args.get("notes") or None,
-                            })
-                            print(f"[LEAD] saved to leads table for client_id={client_config.get('client_id')}")
+                                # Always save directly to leads table so dashboard shows the lead
+                                # regardless of lead_delivery_method (webhook/whatsapp/etc.)
+                                await save_lead({
+                                    "phone":     caller_phone,
+                                    "name":      args.get("name") or args.get("parent_name") or None,
+                                    "source":    "voice",
+                                    "status":    "new",
+                                    "client_id": client_config.get("client_id") or None,
+                                    "notes":     args.get("notes") or None,
+                                })
+                                print(f"[LEAD] saved to leads table for client_id={client_config.get('client_id')}")
 
                             # Return function result to OpenAI so the conversation continues.
                             # Without this the model stalls waiting for output and the call drops.
@@ -706,7 +764,9 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                 pass
 
         # ── Safety net: force-send lead if process_agency_lead never fired ───
-        if not lead_sent and webhook_url:
+        if is_test:
+            print("[TEST CALL] Skipping safety-net lead — test mode")
+        elif not lead_sent and webhook_url:
             print(f"[SAFETY] ⚠️ process_agency_lead was never triggered — force-sending fallback lead")
             builder = _PAYLOAD_BUILDERS.get(client_config.get("client_name"))
             if builder is None:

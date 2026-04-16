@@ -255,6 +255,26 @@ async def _fetch_agent_row_by_field(field: str, number: str) -> Optional[dict]:
     return None
 
 
+async def get_agent_phone_number_by_id(agent_id: str) -> Optional[str]:
+    """Return the Twilio phone_number for an agent looked up by its UUID."""
+    if not _is_configured() or not agent_id:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(
+                f"{_SUPABASE_URL}/rest/v1/agents_config",
+                params={"id": f"eq.{agent_id}", "select": "phone_number", "limit": 1},
+                headers=_headers(),
+            )
+            resp.raise_for_status()
+            rows = resp.json()
+            if rows:
+                return rows[0].get("phone_number") or None
+    except Exception as exc:
+        logger.error("get_agent_phone_number_by_id failed for %s: %s", agent_id, exc)
+    return None
+
+
 async def _fetch_knowledge_items(agent_id: str) -> list[dict]:
     """
     Fetch active knowledge items for an agent, ordered by priority descending.
