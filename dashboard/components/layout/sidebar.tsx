@@ -99,7 +99,7 @@ export function Sidebar({ isAdmin = false }: { isAdmin?: boolean }) {
       <div className="px-3 py-3 border-t border-border space-y-1.5">
         <button
           onClick={handleLogout}
-          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-[13px] font-medium text-gray-300 hover:text-red-400 hover:bg-red-500/10 border border-border hover:border-red-500/20 transition-colors"
+          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-[13px] font-medium text-red-400 bg-red-500/10 border border-red-500/20 hover:bg-red-500/20 transition-colors"
         >
           <LogOut className="w-4 h-4 flex-shrink-0" />
           {t.logout ?? "Logout"}
