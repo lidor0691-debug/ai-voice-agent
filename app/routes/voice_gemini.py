@@ -215,7 +215,7 @@ async def stream_gemini(twilio_ws: WebSocket):
         # Trigger opening greeting — Gemini won't speak unless prompted first
         await gemini_ws.send(json.dumps({
             "client_content": {
-                "turns": [{"role": "user", "parts": [{"text": "התחילי את השיחה"}]}],
+                "turns": [{"role": "user", "parts": [{"text": "שלום"}]}],
                 "turn_complete": True,
             }
         }))
