@@ -1,7 +1,9 @@
 "use client";
 
-import { Search } from "lucide-react";
+import { Search, LogOut } from "lucide-react";
 import { useLanguage } from "@/context/language-context";
+import { useRouter } from "next/navigation";
+import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
 
 interface Props {
   title: string;
@@ -11,6 +13,13 @@ interface Props {
 
 export function Header({ title, subtitle, action }: Props) {
   const { lang, setLang, t } = useLanguage();
+  const router = useRouter();
+  const supabase = createSupabaseBrowserClient();
+
+  async function handleLogout() {
+    await supabase.auth.signOut();
+    router.push("/login");
+  }
 
   return (
     <div className="h-14 border-b border-border flex items-center justify-between px-6 flex-shrink-0 bg-surface-1">
@@ -56,6 +65,15 @@ export function Header({ title, subtitle, action }: Props) {
 
         {/* Optional page CTA */}
         {action}
+
+        {/* Logout */}
+        <button
+          onClick={handleLogout}
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium text-gray-500 hover:text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/20 transition-colors"
+        >
+          <LogOut className="w-3.5 h-3.5" />
+          {t.logout ?? "Logout"}
+        </button>
       </div>
     </div>
   );

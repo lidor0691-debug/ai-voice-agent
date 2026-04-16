@@ -1,17 +1,25 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard, Bot, Phone, BookOpen,
-  Settings, Zap, Users, ShieldCheck,
+  Settings, Zap, Users, ShieldCheck, LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/context/language-context";
+import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
 
 export function Sidebar({ isAdmin = false }: { isAdmin?: boolean }) {
   const pathname = usePathname();
+  const router = useRouter();
   const { t } = useLanguage();
+  const supabase = createSupabaseBrowserClient();
+
+  async function handleLogout() {
+    await supabase.auth.signOut();
+    router.push("/login");
+  }
 
   const NAV_ITEMS = [
     { href: "/dashboard",           label: t.nav_dashboard, icon: LayoutDashboard },
@@ -88,7 +96,14 @@ export function Sidebar({ isAdmin = false }: { isAdmin?: boolean }) {
       )}
 
       {/* Footer */}
-      <div className="px-3 py-3 border-t border-border">
+      <div className="px-3 py-3 border-t border-border space-y-1.5">
+        <button
+          onClick={handleLogout}
+          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-[13px] font-medium text-gray-300 hover:text-red-400 hover:bg-red-500/10 border border-border hover:border-red-500/20 transition-colors"
+        >
+          <LogOut className="w-4 h-4 flex-shrink-0" />
+          {t.logout ?? "Logout"}
+        </button>
         <div className="flex items-center gap-2.5 px-2 py-1.5 rounded-xl bg-surface-2 border border-border">
           <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-brand-500 to-indigo-500 flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0">
             M

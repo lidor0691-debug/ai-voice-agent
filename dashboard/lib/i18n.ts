@@ -15,6 +15,7 @@ export const translations = {
     // Header
     search_placeholder: "חיפוש...",
     status_active: "פעיל",
+    logout: "יציאה",
     // Dashboard page
     page_dashboard_title: "דשבורד",
     page_dashboard_subtitle: "Maya AI Agent Platform",
@@ -195,6 +196,9 @@ export const translations = {
     af_speed_slow: "איטי",
     af_speed_normal: "רגיל",
     af_speed_fast: "מהיר",
+    af_preview_voice: "שמע תצוגה מקדימה",
+    af_preview_voice_loading: "מייצר...",
+    af_preview_voice_error: "שגיאה בייצור תצוגה מקדימה",
     af_s3_title: "מה קורה בשיחות",
     af_s3_subtitle: "הגדר מה מאיה אומרת ואיך היא מתנהגת עם לקוחות",
     af_first_message_label: "מה מאיה אומרת כשהיא עונה לשיחה?",
@@ -315,6 +319,7 @@ export const translations = {
     // Header
     search_placeholder: "Search...",
     status_active: "Active",
+    logout: "Logout",
     // Dashboard page
     page_dashboard_title: "Dashboard",
     page_dashboard_subtitle: "Maya AI Agent Platform",
@@ -495,6 +500,9 @@ export const translations = {
     af_speed_slow: "Slow",
     af_speed_normal: "Normal",
     af_speed_fast: "Fast",
+    af_preview_voice: "Preview Voice",
+    af_preview_voice_loading: "Generating...",
+    af_preview_voice_error: "Failed to generate preview",
     af_s3_title: "What Happens in Calls",
     af_s3_subtitle: "Define what Maya says and how she behaves with customers",
     af_first_message_label: "What does Maya say when answering?",
