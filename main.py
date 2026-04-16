@@ -57,6 +57,7 @@ from app.routes.whatsapp_reply_api import router as whatsapp_reply_router
 from app.routes.dev_agent import router as dev_agent_router
 from app.routes.voice_preview import router as voice_preview_router
 from app.routes.test_call import router as test_call_router
+from app.routes.voice_gemini import router as voice_gemini_router
 
 app = FastAPI()
 
@@ -69,6 +70,7 @@ app.include_router(whatsapp_reply_router)
 app.include_router(dev_agent_router)
 app.include_router(voice_preview_router)
 app.include_router(test_call_router)
+app.include_router(voice_gemini_router, prefix="/voice-ai")  # Gemini Live POC
 
 @app.get("/")
 def root():

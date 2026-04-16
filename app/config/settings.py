@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     SUPABASE_URL:      str = ""
     SUPABASE_ANON_KEY: str = ""
 
+    # Gemini Live POC
+    GEMINI_API_KEY: str = ""
+
     # Google Sheets
     # Path to the service account JSON key file downloaded from Google Cloud Console
     GOOGLE_SERVICE_ACCOUNT_JSON: str = "service_account.json"
