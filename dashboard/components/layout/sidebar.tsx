@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import {
   LayoutDashboard, Bot, Phone, BookOpen,
   Settings, Zap, Users, ShieldCheck, LogOut,
@@ -15,6 +16,13 @@ export function Sidebar({ isAdmin = false }: { isAdmin?: boolean }) {
   const router = useRouter();
   const { t } = useLanguage();
   const supabase = createSupabaseBrowserClient();
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      setUserEmail(data.user?.email ?? null);
+    });
+  }, []);
 
   async function handleLogout() {
     await supabase.auth.signOut();
@@ -31,7 +39,7 @@ export function Sidebar({ isAdmin = false }: { isAdmin?: boolean }) {
   ];
 
   return (
-    <aside className="w-56 min-h-screen bg-surface-1 border-e border-border flex flex-col flex-shrink-0">
+    <aside className="w-56 h-full bg-surface-1 border-e border-border flex flex-col flex-shrink-0">
       {/* Brand */}
       <div className="h-14 flex items-center gap-3 px-4 border-b border-border">
         <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-brand-500 to-indigo-500 flex items-center justify-center flex-shrink-0 shadow-glow-sm">
@@ -95,23 +103,34 @@ export function Sidebar({ isAdmin = false }: { isAdmin?: boolean }) {
         </div>
       )}
 
-      {/* Footer */}
-      <div className="px-3 py-3 border-t border-border space-y-1.5">
-        <button
-          onClick={handleLogout}
-          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-[13px] font-medium text-red-400 bg-red-500/10 border border-red-500/20 hover:bg-red-500/20 transition-colors"
-        >
-          <LogOut className="w-4 h-4 flex-shrink-0" />
-          {t.logout ?? "Logout"}
-        </button>
-        <div className="flex items-center gap-2.5 px-2 py-1.5 rounded-xl bg-surface-2 border border-border">
-          <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-brand-500 to-indigo-500 flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0">
-            M
+      {/* Account footer */}
+      <div className="px-3 pb-3 pt-2 border-t border-border">
+        <div className="rounded-xl bg-surface-2 border border-border overflow-hidden">
+          {/* User row */}
+          <div className="flex items-center gap-2.5 px-3 py-2.5">
+            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-brand-500 to-indigo-500 flex items-center justify-center text-white text-[11px] font-bold flex-shrink-0">
+              {userEmail ? userEmail[0].toUpperCase() : "U"}
+            </div>
+            <div className="overflow-hidden flex-1 min-w-0">
+              <p className="text-gray-200 text-[12px] font-medium truncate leading-none">
+                {userEmail ?? "User"}
+              </p>
+              {isAdmin && (
+                <p className="text-brand-400 text-[10px] mt-0.5 leading-none">Admin</p>
+              )}
+            </div>
+            <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0" style={{boxShadow:'0 0 6px #10b981'}} />
           </div>
-          <div className="overflow-hidden flex-1">
-            <p className="text-gray-300 text-xs font-medium truncate">{t.workspace}</p>
+          {/* Logout row */}
+          <div className="border-t border-border">
+            <button
+              onClick={handleLogout}
+              className="w-full flex items-center gap-2 px-3 py-2 text-[12px] font-medium text-red-400 hover:bg-red-500/10 transition-colors"
+            >
+              <LogOut className="w-3.5 h-3.5 flex-shrink-0" />
+              {t.logout ?? "Logout"}
+            </button>
           </div>
-          <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0" style={{boxShadow:'0 0 6px #10b981'}} />
         </div>
       </div>
     </aside>
