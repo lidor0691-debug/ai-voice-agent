@@ -17,10 +17,13 @@ class TestCallRequest(BaseModel):
 
 @router.post("/test-call")
 async def start_test_call(body: TestCallRequest):
+    logger.info("[TEST CALL] request | agent_id=%r | to_phone=%r", body.agent_id, body.to_phone)
+
     if not body.agent_id or not body.to_phone:
         raise HTTPException(status_code=400, detail="agent_id and to_phone are required")
 
     agent_phone = await get_agent_phone_number_by_id(body.agent_id)
+    logger.info("[TEST CALL] agent_phone resolved = %r", agent_phone)
     if not agent_phone:
         raise HTTPException(status_code=404, detail="Agent not found or has no phone number configured")
 
