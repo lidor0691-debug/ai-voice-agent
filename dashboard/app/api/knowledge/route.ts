@@ -5,9 +5,24 @@ import { getUserContext } from "@/lib/user-context";
 export async function GET(req: NextRequest) {
   const client = await createSupabaseServerClient();
   const { data: { user } } = await client.auth.getUser();
-  if (!getUserContext(user)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const ctx = getUserContext(user);
+  if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const agentId = req.nextUrl.searchParams.get("agent_id");
+
+  if (!ctx.isAdmin) {
+    if (!agentId) return NextResponse.json({ error: "agent_id is required" }, { status: 400 });
+
+    const { data: agent, error: agentError } = await client
+      .from("agents_config")
+      .select("client_id")
+      .eq("id", agentId)
+      .single();
+
+    if (agentError || !agent) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    if (agent.client_id !== ctx.clientId)
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   let query = client
     .from("knowledge_items")

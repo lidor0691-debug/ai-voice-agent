@@ -10,8 +10,21 @@ export async function PATCH(
   const { id } = await params;
   const client = await createSupabaseServerClient();
   const { data: { user } } = await client.auth.getUser();
-  if (!getUserContext(user)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const ctx = getUserContext(user);
+  if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const body = (await req.json()) as Partial<KnowledgeItem>;
+
+  if (!ctx.isAdmin) {
+    const { data: existing, error: fetchError } = await client
+      .from("knowledge_items")
+      .select("agents_config(client_id)")
+      .eq("id", id)
+      .single();
+    if (fetchError || !existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    const ownerClientId = (existing.agents_config as { client_id: string } | null)?.client_id;
+    if (ownerClientId !== ctx.clientId)
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   const { data, error } = await client
     .from("knowledge_items")
@@ -31,7 +44,20 @@ export async function DELETE(
   const { id } = await params;
   const client = await createSupabaseServerClient();
   const { data: { user } } = await client.auth.getUser();
-  if (!getUserContext(user)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const ctx = getUserContext(user);
+  if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  if (!ctx.isAdmin) {
+    const { data: existing, error: fetchError } = await client
+      .from("knowledge_items")
+      .select("agents_config(client_id)")
+      .eq("id", id)
+      .single();
+    if (fetchError || !existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    const ownerClientId = (existing.agents_config as { client_id: string } | null)?.client_id;
+    if (ownerClientId !== ctx.clientId)
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   const { error } = await client
     .from("knowledge_items")

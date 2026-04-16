@@ -10,7 +10,8 @@ export async function GET(
   const { id } = await params;
   const client = await createSupabaseServerClient();
   const { data: { user } } = await client.auth.getUser();
-  if (!getUserContext(user)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const ctx = getUserContext(user);
+  if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { data, error } = await client
     .from("agents_config")
@@ -19,6 +20,9 @@ export async function GET(
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 404 });
+  if (!ctx.isAdmin && data.client_id !== ctx.clientId)
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
   return NextResponse.json(data);
 }
 
@@ -29,9 +33,21 @@ export async function PATCH(
   const { id } = await params;
   const client = await createSupabaseServerClient();
   const { data: { user } } = await client.auth.getUser();
-  if (!getUserContext(user)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const ctx = getUserContext(user);
+  if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = (await req.json()) as Partial<AgentConfig>;
+
+  if (!ctx.isAdmin) {
+    const { data: existing, error: fetchError } = await client
+      .from("agents_config")
+      .select("client_id")
+      .eq("id", id)
+      .single();
+    if (fetchError) return NextResponse.json({ error: fetchError.message }, { status: 404 });
+    if (existing.client_id !== ctx.clientId)
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   const { data, error } = await client
     .from("agents_config")
@@ -51,7 +67,19 @@ export async function DELETE(
   const { id } = await params;
   const client = await createSupabaseServerClient();
   const { data: { user } } = await client.auth.getUser();
-  if (!getUserContext(user)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const ctx = getUserContext(user);
+  if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  if (!ctx.isAdmin) {
+    const { data: existing, error: fetchError } = await client
+      .from("agents_config")
+      .select("client_id")
+      .eq("id", id)
+      .single();
+    if (fetchError) return NextResponse.json({ error: fetchError.message }, { status: 404 });
+    if (existing.client_id !== ctx.clientId)
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   const { error } = await client
     .from("agents_config")
