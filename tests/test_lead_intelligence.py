@@ -218,15 +218,23 @@ async def test_save_insights_never_raises_on_error_and_returns_empty():
 
 # ── API route ─────────────────────────────────────────────────────────────────
 
+def _make_test_app():
+    """Minimal FastAPI app with only the lead intelligence router — avoids main.py stream side-effects."""
+    from fastapi import FastAPI
+    from app.routes.lead_intelligence_api import router as lead_intelligence_router
+    _app = FastAPI()
+    _app.include_router(lead_intelligence_router)
+    return _app
+
+
 @pytest.mark.asyncio
 async def test_test_extract_route_returns_extracted_and_saved():
-    from main import app
     from httpx import AsyncClient, ASGITransport
 
     mock_saved = [{"id": "abc", "insight_type": "question", "frequency_count": 1}]
 
     with patch("app.routes.lead_intelligence_api.save_insights", new=AsyncMock(return_value=mock_saved)):
-        transport = ASGITransport(app=app)
+        transport = ASGITransport(app=_make_test_app())
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
             resp = await ac.post("/lead-intelligence/test-extract", json={
                 "client_id":        "00000000-0000-0000-0000-000000000001",
@@ -247,10 +255,9 @@ async def test_test_extract_route_returns_extracted_and_saved():
 
 @pytest.mark.asyncio
 async def test_test_extract_route_validates_source_type():
-    from main import app
     from httpx import AsyncClient, ASGITransport
 
-    transport = ASGITransport(app=app)
+    transport = ASGITransport(app=_make_test_app())
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         resp = await ac.post("/lead-intelligence/test-extract", json={
             "client_id":   "00000000-0000-0000-0000-000000000001",
