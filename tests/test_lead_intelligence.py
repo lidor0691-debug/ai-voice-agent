@@ -2,7 +2,7 @@
 Tests for app/services/lead_intelligence.py
 """
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 from app.services.lead_intelligence import normalize_text, extract_insights
 
 
@@ -200,7 +200,7 @@ async def test_save_insights_increments_frequency_when_existing_row():
 
 
 @pytest.mark.asyncio
-async def test_save_insights_never_raises_on_error():
+async def test_save_insights_never_raises_on_error_and_returns_empty():
     from app.services.lead_intelligence import save_insights
 
     with patch("app.services.lead_intelligence._is_configured", return_value=True), \
@@ -214,3 +214,48 @@ async def test_save_insights_never_raises_on_error():
         )
 
     assert result == []
+
+
+# ── API route ─────────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_test_extract_route_returns_extracted_and_saved():
+    from main import app
+    from httpx import AsyncClient, ASGITransport
+
+    mock_saved = [{"id": "abc", "insight_type": "question", "frequency_count": 1}]
+
+    with patch("app.routes.lead_intelligence_api.save_insights", new=AsyncMock(return_value=mock_saved)):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            resp = await ac.post("/lead-intelligence/test-extract", json={
+                "client_id":        "00000000-0000-0000-0000-000000000001",
+                "agent_id":         None,
+                "source_type":      "whatsapp",
+                "source_record_id": None,
+                "text":             "מה המחיר?"
+            })
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "extracted" in body
+    assert "saved" in body
+    assert len(body["extracted"]) >= 1
+    assert body["extracted"][0]["insight_type"] == "question"
+    assert body["saved"] == mock_saved
+
+
+@pytest.mark.asyncio
+async def test_test_extract_route_validates_source_type():
+    from main import app
+    from httpx import AsyncClient, ASGITransport
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        resp = await ac.post("/lead-intelligence/test-extract", json={
+            "client_id":   "00000000-0000-0000-0000-000000000001",
+            "source_type": "invalid_source",
+            "text":        "מה המחיר?"
+        })
+
+    assert resp.status_code == 422
