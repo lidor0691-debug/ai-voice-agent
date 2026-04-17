@@ -205,8 +205,8 @@ async def stream_gemini(twilio_ws: WebSocket):
             "realtime_input_config": {
                 "automatic_activity_detection": {
                     # Reduce silence threshold so Gemini responds faster after speech ends.
-                    # Default is ~1000ms — 400ms feels natural on a phone call.
-                    "silence_duration_ms": 400,
+                    # Default is ~1000ms — 300ms is the practical minimum for phone audio.
+                    "silence_duration_ms": 300,
                 },
             },
             "system_instruction": {
@@ -247,15 +247,14 @@ async def stream_gemini(twilio_ws: WebSocket):
     async def twilio_to_gemini_loop():
         nonlocal _first_inbound_logged
 
-        # Replay any audio buffered before the start event
-        for payload in _buffered_media:
-            pcm_b64 = twilio_to_gemini(payload)
-            await gemini_ws.send(json.dumps({
-                "realtime_input": {
-                    "audio": {"data": pcm_b64, "mimeType": "audio/pcm;rate=16000"}
-                }
-            }))
+        # Discard audio buffered before the start event (line noise / ringback).
+        # Replaying it races against the opening greeting and causes inconsistency.
         _buffered_media.clear()
+
+        # Give Gemini time to start generating the opening greeting before
+        # live caller audio flows in. Without this, early audio frames arrive
+        # while Gemini is processing the text trigger and can disrupt the first turn.
+        await asyncio.sleep(1.0)
 
         try:
             async for raw in twilio_ws.iter_text():
