@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { CheckCircle, ChevronRight, ChevronLeft } from "lucide-react";
 import { AgentConfig } from "@/types/database";
@@ -164,9 +164,6 @@ export function AgentForm({ initial, agentId }: Props) {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [phoneError, setPhoneError] = useState<string | null>(null);
-  const [previewing, setPreviewing] = useState(false);
-  const [previewError, setPreviewError] = useState<string | null>(null);
-  const previewAudioRef = useRef<HTMLAudioElement | null>(null);
   const [testCallPhone, setTestCallPhone] = useState("");
   const [testCalling, setTestCalling] = useState(false);
   const [testCallStatus, setTestCallStatus] = useState<string | null>(null);
@@ -221,49 +218,6 @@ export function AgentForm({ initial, agentId }: Props) {
 
   const set = (key: keyof FormData, value: unknown) =>
     setForm((prev) => ({ ...prev, [key]: value }));
-
-  const handlePreviewVoice = async () => {
-    if (previewing) return;
-    setPreviewError(null);
-    setPreviewing(true);
-
-    // Stop any currently playing preview and clean up its Blob URL
-    if (previewAudioRef.current) {
-      const prev = previewAudioRef.current;
-      prev.pause();
-      const prevSrc = prev.src;
-      previewAudioRef.current = null;
-      if (prevSrc.startsWith("blob:")) URL.revokeObjectURL(prevSrc);
-    }
-
-    try {
-      const res = await fetch("/api/voice-preview", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          voice_id: form.voice_id ?? "shimmer",
-          speaking_rate: form.speaking_rate ?? 1.0,
-          language: form.language ?? "he",
-        }),
-      });
-
-      if (!res.ok) {
-        setPreviewError(t.af_preview_voice_error);
-        return;
-      }
-
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const audio = new Audio(url);
-      previewAudioRef.current = audio;
-      audio.onended = () => URL.revokeObjectURL(url);
-      await audio.play();
-    } catch {
-      setPreviewError(t.af_preview_voice_error);
-    } finally {
-      setPreviewing(false);
-    }
-  };
 
   const handleTestCall = async () => {
     if (testCalling || !agentId) return;
@@ -552,30 +506,6 @@ export function AgentForm({ initial, agentId }: Props) {
                 </div>
               </div>
             </Field>
-            {/* ── Voice Preview ── */}
-            <div className="pt-1">
-              <button
-                type="button"
-                disabled={previewing}
-                onClick={handlePreviewVoice}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors"
-              >
-                {previewing ? (
-                  <>
-                    <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    {t.af_preview_voice_loading}
-                  </>
-                ) : (
-                  <>
-                    <span>▶</span>
-                    {t.af_preview_voice}
-                  </>
-                )}
-              </button>
-              {previewError && (
-                <p className="mt-2 text-sm text-red-400">{previewError}</p>
-              )}
-            </div>
             {/* ── Test Call ── */}
             {agentId && (
               <div className="pt-2 border-t border-border space-y-2">
