@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 _SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 _SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
 _TABLE = "lead_intelligence_insights"
-_EXTRACTION_VERSION = "1.0"
+_EXTRACTION_VERSION = "1.1"
 
 _QUESTION_WORDS = {
     "מה", "איך", "כמה", "האם", "מתי", "למה",
@@ -47,6 +47,35 @@ _QUESTION_WORDS = {
 _OBJECTION_CUES = [
     "יקר מדי", "יקר", "לא בטוח", "צריך לחשוב",
     "too expensive", "not sure", "need to think", "maybe later", "not interested",
+]
+
+# Intent signal rules — ordered list of (matched_rule_name, cue_phrases).
+# First matching rule wins within each rule group.
+# Designed for real BPM WhatsApp response patterns where users answer Maya's
+# prompts rather than asking direct questions.
+_INTENT_SIGNAL_RULES: list[tuple[str, list[str]]] = [
+    # Interest / inquiry — user expresses interest in a service
+    ("interest_cue", [
+        "מתעניינת", "מתעניין",
+        "לגבי בת מצווה", "לגבי שיעור", "לגבי ריקוד",
+        "רוצה לדעת",
+        "interested in",
+    ]),
+    # Hesitation — user is undecided or stalling
+    ("hesitation_cue", [
+        "מתלבטת", "מתלבט",
+        "כרגע אין", "כרגע לא",
+        "עדיין לא",
+        "אין תאריך",
+        "still deciding", "not sure yet",
+    ]),
+    # Context — factual user-state signals relevant to the service
+    ("context_cue", [
+        "אין לה ניסיון", "אין ניסיון",
+        "לא מנוסה",
+        "אין ניסיון קודם",
+        "no experience", "no prior experience",
+    ]),
 ]
 
 
@@ -103,6 +132,18 @@ def _detect_objection(candidate: str) -> bool:
     return any(cue in lower for cue in _OBJECTION_CUES)
 
 
+def _detect_intent_signal(candidate: str) -> Optional[str]:
+    """
+    Return the first matching intent signal rule name, or None.
+    Uses original candidate text. Checks rule groups in order — first match wins.
+    """
+    lower = candidate.lower()
+    for rule_name, cues in _INTENT_SIGNAL_RULES:
+        if any(cue in lower for cue in cues):
+            return rule_name
+    return None
+
+
 def extract_insights(text: str) -> list[dict]:
     """
     Pure heuristic extraction from raw conversation text.
@@ -110,15 +151,19 @@ def extract_insights(text: str) -> list[dict]:
 
     Detection uses the original candidate text.
     normalized_text = normalize_text(candidate).rstrip("?")
+
+    Each candidate can produce multiple insights (e.g. question + objection,
+    or objection + intent_signal) — each as a separate dict.
     """
     results = []
 
     for candidate in _split_sentences(text):
         question_rule = _detect_question(candidate)
         is_objection = _detect_objection(candidate)
+        intent_rule = _detect_intent_signal(candidate)
 
-        # Skip noise: fewer than 2 words and no pattern match
-        if _word_count(candidate) < 2 and not question_rule and not is_objection:
+        # Skip noise: fewer than 2 words and no pattern match at all
+        if _word_count(candidate) < 2 and not question_rule and not is_objection and not intent_rule:
             continue
 
         normalized = normalize_text(candidate).rstrip("?")
@@ -144,6 +189,18 @@ def extract_insights(text: str) -> list[dict]:
                 "title":           title,
                 "metadata": {
                     "matched_rule":       "objection_cue",
+                    "extraction_version": _EXTRACTION_VERSION,
+                },
+            })
+
+        if intent_rule:
+            results.append({
+                "insight_type":    "intent_signal",
+                "original_text":   candidate,
+                "normalized_text": normalized,
+                "title":           title,
+                "metadata": {
+                    "matched_rule":       intent_rule,
                     "extraction_version": _EXTRACTION_VERSION,
                 },
             })

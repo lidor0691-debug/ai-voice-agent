@@ -125,7 +125,103 @@ def test_extract_english_objection():
 
 def test_extract_metadata_has_extraction_version():
     results = extract_insights("מה המחיר?")
-    assert results[0]["metadata"]["extraction_version"] == "1.0"
+    assert results[0]["metadata"]["extraction_version"] == "1.1"
+
+
+# ── intent_signal detection ───────────────────────────────────────────────────
+
+def test_extract_intent_signal_interest_explicit():
+    # "אני מתעניינת לגבי בת מצווה" — real BPM pattern
+    results = extract_insights("אני מתעניינת לגבי בת מצווה")
+    assert len(results) == 1
+    r = results[0]
+    assert r["insight_type"] == "intent_signal"
+    assert r["metadata"]["matched_rule"] == "interest_cue"
+
+
+def test_extract_intent_signal_interest_single_word():
+    # "מתעניינת" alone — 1 word but matches pattern, should be kept
+    results = extract_insights("מתעניינת")
+    assert len(results) == 1
+    assert results[0]["insight_type"] == "intent_signal"
+    assert results[0]["metadata"]["matched_rule"] == "interest_cue"
+
+
+def test_extract_intent_signal_hesitation_single_word():
+    # "מתלבטת" — real BPM response, 1 word, should be captured
+    results = extract_insights("מתלבטת")
+    assert len(results) == 1
+    assert results[0]["insight_type"] == "intent_signal"
+    assert results[0]["metadata"]["matched_rule"] == "hesitation_cue"
+
+
+def test_extract_intent_signal_hesitation_phrase():
+    # "כרגע אין תאריך" — real BPM response
+    results = extract_insights("כרגע אין תאריך")
+    assert len(results) == 1
+    assert results[0]["insight_type"] == "intent_signal"
+    assert results[0]["metadata"]["matched_rule"] == "hesitation_cue"
+
+
+def test_extract_intent_signal_context_no_experience():
+    # "לא אין לה ניסיון" — real BPM response
+    results = extract_insights("לא אין לה ניסיון")
+    assert len(results) == 1
+    assert results[0]["insight_type"] == "intent_signal"
+    assert results[0]["metadata"]["matched_rule"] == "context_cue"
+
+
+def test_extract_short_noise_not_captured():
+    # "כן" and "לא" alone — no pattern match, should be skipped
+    assert extract_insights("כן") == []
+    assert extract_insights("לא") == []
+
+
+def test_extract_intent_signal_does_not_fire_on_generic_text():
+    # plain response with no signal cue
+    results = extract_insights("יום ראשון")
+    assert results == []
+
+
+def test_extract_intent_signal_multi_pattern_with_objection():
+    # "לא בטוח, מתלבט" — matches both objection and hesitation → two insights
+    results = extract_insights("לא בטוח, מתלבט")
+    types = {r["insight_type"] for r in results}
+    assert "objection" in types
+    assert "intent_signal" in types
+
+
+def test_extract_intent_title_fallback_single_word():
+    # single-word match → title fallback = "insight"
+    results = extract_insights("מתלבטת")
+    assert results[0]["title"] == "insight"
+
+
+def test_extract_real_bpm_conversation_user_messages():
+    # Simulate the real Conv 1 user messages joined by newline
+    text = (
+        "שיעור ניסיון בסטודיו\n"
+        "היא בת 8\n"
+        "יום ראשון\n"
+        "אני מתעניינת לגבי בת מצווה\n"
+        "כרגע אין תאריך\n"
+        "מתלבטת\n"
+        "לא אין לה ניסיון"
+    )
+    results = extract_insights(text)
+    types = [r["insight_type"] for r in results]
+    rules = [r["metadata"]["matched_rule"] for r in results]
+
+    # Should capture the 4 meaningful signals, skip the noise
+    assert "intent_signal" in types
+    assert "interest_cue" in rules
+    assert "hesitation_cue" in rules
+    assert "context_cue" in rules
+    # Should NOT capture "שיעור ניסיון בסטודיו", "היא בת 8", "יום ראשון"
+    original_texts = [r["original_text"] for r in results]
+    assert not any("שיעור ניסיון" in t for t in original_texts)
+    assert not any("היא בת 8" in t for t in original_texts)
+    assert not any("יום ראשון" in t for t in original_texts)
 
 
 # ── save_insights ─────────────────────────────────────────────────────────────
