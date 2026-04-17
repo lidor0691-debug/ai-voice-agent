@@ -69,7 +69,13 @@ Normalization rule (used for both extraction and dedup):
 1. Lowercase
 2. Strip leading/trailing whitespace
 3. Collapse internal whitespace to single space
-4. Strip trailing punctuation: `.,!;:` — **not** `?` during detection, but `?` is stripped when producing `normalized_text` for dedup consistency
+4. Strip trailing punctuation: `.,!;:` only — **`?` is never removed by `normalize_text`**
+
+**Responsibility boundary:**
+- Detection always uses the **original candidate text** (pre-normalization), so trailing `?` is visible for question detection.
+- `normalize_text` does not touch `?`.
+- When building `normalized_text` for dedup/storage, the **caller** strips a trailing `?` from the normalized result: `normalize_text(candidate).rstrip("?")`
+- This keeps the boundary clean: `normalize_text` is a pure normalization utility; the caller owns the dedup key construction.
 
 ### `extract_insights(text: str) → list[dict]`
 
@@ -80,19 +86,29 @@ Split on `\n` and `.` / `!` only — **not** on `?`. This keeps `?` attached to 
 
 **Per candidate sentence:**
 
-Detection uses the **original candidate text** (before normalization).
-Dedup key (`normalized_text`) uses the normalized form with trailing punctuation including `?` stripped.
+Detection always uses the **original candidate text** (before normalization).
+`normalized_text` for dedup/storage = `normalize_text(candidate).rstrip("?")` — performed by the caller inside `extract_insights`.
 
 | Pattern | Rule |
 |---|---|
-| **question** | candidate ends with `?` OR first word (lowercased) is in question word list |
+| **question** | see precedence rules below |
 | **objection** | candidate contains an objection cue phrase |
 
 Question words: `מה`, `איך`, `כמה`, `האם`, `מתי`, `למה`, `what`, `how`, `when`, `why`, `is`, `can`, `do`, `does`
 
 Objection cues: `יקר`, `לא בטוח`, `צריך לחשוב`, `too expensive`, `not sure`, `need to think`, `maybe later`, `not interested`
 
-**Multi-pattern candidates:** if a sentence matches both question and objection patterns, emit two separate insight dicts with different `insight_type` values.
+**Question detection — matched_rule precedence (first match wins):**
+1. `ends_with_question_mark` — original candidate ends with `?`
+2. `question_word` — first word of original candidate (lowercased) is in question word list
+
+Only the first matched rule is stored in `metadata.matched_rule` for that insight.
+
+**Multi-pattern candidates:** if a sentence matches question logic AND objection logic, emit two separate insight dicts:
+- one with `insight_type = "question"`, `matched_rule` = first question rule matched
+- one with `insight_type = "objection"`, `matched_rule = "objection_cue"`
+
+Each dict is independent — same `original_text`, same `normalized_text`, different `insight_type` and `matched_rule`.
 
 **Skip rule:** skip candidates with fewer than 2 words that do not match any pattern. Short candidates that do match a pattern are kept.
 
@@ -101,7 +117,7 @@ Objection cues: `יקר`, `לא בטוח`, `צריך לחשוב`, `too expensive
 {
     "insight_type":     "question" | "objection",
     "original_text":    original candidate sentence,
-    "normalized_text":  normalize_text(candidate),  # trailing ? also stripped here
+    "normalized_text":  normalize_text(candidate).rstrip("?"),
     "title":            first_6_words(normalized_text) or fallback,
     "metadata": {
         "matched_rule":        "ends_with_question_mark" | "question_word" | "objection_cue",
