@@ -385,11 +385,19 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
                     }))
 
                 elif evt["event"] == "stop":
-                    print("[GEMINI-WS] Twilio stream stopped")
+                    print("[GEMINI-WS] Twilio stream stopped — closing Gemini WS to unblock gather")
+                    try:
+                        await gemini_ws.close()
+                    except Exception:
+                        pass
                     break
 
         except Exception as e:
             print(f"[GEMINI-WS] Twilio receiver error: {e}")
+            try:
+                await gemini_ws.close()
+            except Exception:
+                pass
 
     # ── Forward Gemini audio → Twilio ─────────────────────────────────────────
     async def gemini_to_twilio_loop():
