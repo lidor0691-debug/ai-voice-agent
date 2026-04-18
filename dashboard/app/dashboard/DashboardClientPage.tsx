@@ -6,6 +6,7 @@ import { Header } from "@/components/layout/header";
 import { TestAgent } from "@/components/dashboard/test-agent";
 import { LeadInsightsCard } from "@/components/dashboard/lead-insights-card";
 import { InjectionEventsCard } from "@/components/dashboard/injection-events-card";
+import { WinSignalsCard } from "@/components/dashboard/win-signals-card";
 import { useLanguage } from "@/context/language-context";
 import type { AgentConfig, CallLog } from "@/types/database";
 
@@ -15,6 +16,7 @@ interface Props {
   knowledgeCount: number;
   insights: { insight_type: string; title: string; frequency_count: number; created_at: string }[] | null;
   injectionEvents: { created_at: string; new_data: { client_id: string; rule_key: string; sentence: string; weight: number } }[] | null;
+  winSignals: { title: string; created_at: string }[] | null;
 }
 
 // 20 bars — mountain shape peaking around bar 6-7 and secondary peak at 12
@@ -50,7 +52,7 @@ const AGENT_GRADIENTS = [
 ];
 
 
-export function DashboardClientPage({ agents, calls, knowledgeCount, insights, injectionEvents }: Props) {
+export function DashboardClientPage({ agents, calls, knowledgeCount, insights, injectionEvents, winSignals }: Props) {
   const { t } = useLanguage();
 
   const totalAgents  = agents?.length ?? 0;
@@ -274,9 +276,10 @@ export function DashboardClientPage({ agents, calls, knowledgeCount, insights, i
         </div>
 
         {/* Lead Intelligence */}
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
           <LeadInsightsCard insights={insights} />
           <InjectionEventsCard events={injectionEvents} />
+          <WinSignalsCard signals={winSignals} />
         </div>
 
       </div>

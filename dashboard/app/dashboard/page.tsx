@@ -11,7 +11,7 @@ export default async function DashboardPage() {
   const ctx = getUserContext(user);
 
   if (!ctx) {
-    return <DashboardClientPage agents={null} calls={null} knowledgeCount={0} insights={null} injectionEvents={null} />;
+    return <DashboardClientPage agents={null} calls={null} knowledgeCount={0} insights={null} injectionEvents={null} winSignals={null} />;
   }
 
   const agentQuery = client
@@ -42,6 +42,15 @@ export default async function DashboardPage() {
   if (!ctx.isAdmin) insightQuery.eq("client_id", ctx.clientId);
   const insightRes = await insightQuery;
 
+  const winQuery = client
+    .from("lead_intelligence_insights")
+    .select("title, created_at")
+    .eq("insight_type", "win_signal")
+    .order("created_at", { ascending: false })
+    .limit(20);
+  if (!ctx.isAdmin) winQuery.eq("client_id", ctx.clientId);
+  const winRes = await winQuery;
+
   const injectionQuery = client
     .from("audit_logs")
     .select("created_at, new_data")
@@ -58,6 +67,7 @@ export default async function DashboardPage() {
       knowledgeCount={knowledgeRes.data?.length ?? 0}
       insights={insightRes.data as { insight_type: string; title: string; frequency_count: number; created_at: string }[] | null}
       injectionEvents={injectionRes.data as { created_at: string; new_data: { client_id: string; rule_key: string; sentence: string; weight: number } }[] | null}
+      winSignals={winRes.data as { title: string; created_at: string }[] | null}
     />
   );
 }
