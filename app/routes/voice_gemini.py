@@ -421,6 +421,10 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
     _first_outbound_logged = False
     _gemini_speaking       = False   # True while we are forwarding Gemini audio to Twilio
     _transcript_lines: list[str] = []  # accumulated conversation for post-call extraction
+    _should_hangup         = False   # set when Maya signals end of call
+
+    # Phrases in Maya's output that signal the call should end
+    _HANGUP_PHRASES = ("יום טוב", "להתראות", "המשך יום", "שיהיה")
 
     # ── Forward Twilio audio → Gemini ─────────────────────────────────────────
     async def twilio_to_gemini_loop():
@@ -470,7 +474,7 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
 
     # ── Forward Gemini audio → Twilio ─────────────────────────────────────────
     async def gemini_to_twilio_loop():
-        nonlocal _first_outbound_logged, _gemini_speaking
+        nonlocal _first_outbound_logged, _gemini_speaking, _should_hangup
 
         try:
             async for raw in gemini_ws:
@@ -495,6 +499,9 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
                 output_t = server_content.get("outputTranscription", {})
                 if output_t.get("text"):
                     _transcript_lines.append(f"מאיה: {output_t['text']}")
+                    if any(p in output_t["text"] for p in _HANGUP_PHRASES):
+                        _should_hangup = True
+                        print(f"[GEMINI-WS] Hangup phrase detected in Maya output — will disconnect after turn")
 
                 # Audio chunks from Gemini
                 model_turn = server_content.get("modelTurn", {})
@@ -524,6 +531,11 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
                 # Turn complete — Gemini done speaking this turn
                 if server_content.get("turnComplete"):
                     _gemini_speaking = False
+                    if _should_hangup:
+                        print("[GEMINI-WS] Turn complete after hangup phrase — closing session")
+                        await asyncio.sleep(0.5)  # let last audio frame reach Twilio
+                        await gemini_ws.close()
+                        break
 
         except Exception as e:
             print(f"[GEMINI-WS] Gemini receiver error: {e}")
