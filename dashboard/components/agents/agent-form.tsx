@@ -194,12 +194,12 @@ export function AgentForm({ initial, agentId }: Props) {
     system_prompt: "",
     tone: "friendly",
     language: "he",
-    voice_provider: "openai",
-    voice_id: "shimmer",
+    voice_provider: "gemini",
+    voice_id: "Zephyr",
     speaking_rate: 1.0,
     style_prompt: "",
-    model_provider: "openai",
-    model_name: "gpt-4o",
+    model_provider: "gemini",
+    model_name: "gemini-3.1-flash-live-preview",
     temperature: 0.7,
     transfer_number: "",
     post_call_webhook_url: initial?.post_call_webhook_url ?? "",
@@ -470,15 +470,15 @@ export function AgentForm({ initial, agentId }: Props) {
               hint={t.af_voice_hint}
             >
               <Select
-                value={form.voice_id ?? "shimmer"}
+                value={form.voice_id ?? "Zephyr"}
                 onChange={(e) => set("voice_id", e.target.value)}
                 options={[
-                  { value: "shimmer", label: t.af_voice_shimmer },
-                  { value: "coral", label: t.af_voice_coral },
-                  { value: "sage", label: t.af_voice_sage },
-                  { value: "alloy", label: t.af_voice_alloy },
-                  { value: "echo", label: t.af_voice_echo },
-                  { value: "verse", label: t.af_voice_verse },
+                  { value: "Zephyr", label: t.af_voice_zephyr },
+                  { value: "Puck", label: t.af_voice_puck },
+                  { value: "Charon", label: t.af_voice_charon },
+                  { value: "Kore", label: t.af_voice_kore },
+                  { value: "Fenrir", label: t.af_voice_fenrir },
+                  { value: "Aoede", label: t.af_voice_aoede },
                 ]}
               />
             </Field>
