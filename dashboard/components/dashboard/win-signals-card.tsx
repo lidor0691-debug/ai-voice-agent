@@ -14,6 +14,8 @@ interface Props {
 export function WinSignalsCard({ signals }: Props) {
   const recent = signals ?? [];
   const count = recent.length;
+  const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+  const last24h = recent.filter((s) => new Date(s.created_at).getTime() >= cutoff).length;
 
   return (
     <div className="card p-4">
@@ -24,6 +26,11 @@ export function WinSignalsCard({ signals }: Props) {
           <p className="text-gray-600 text-[10px] mt-0.5">
             {count > 0 ? `${count} אחרונים` : "אין עדיין"}
           </p>
+          {last24h > 0 && (
+            <p className="text-[9px] mt-0.5" style={{ color: "#fbbf24" }}>
+              {last24h} ב-24 שעות האחרונות
+            </p>
+          )}
         </div>
         {count > 0 && (
           <span
