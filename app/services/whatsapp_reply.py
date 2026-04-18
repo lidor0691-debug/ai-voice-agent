@@ -233,6 +233,21 @@ async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: st
             {"role": "assistant", "content": reply},
         ]
 
+    # ── 6b. Lead Intelligence — extract insights from current user message ──────
+    try:
+        from app.services.lead_intelligence import extract_insights, save_insights as _save_insights
+        _insights = extract_insights(user_message)
+        if _insights:
+            await _save_insights(
+                insights=_insights,
+                client_id=agent.get("client_id") or "",
+                agent_id=str(agent.get("agent_id") or agent.get("id") or "") or None,
+                source_type="whatsapp",
+                source_record_id=None,
+            )
+    except Exception as _exc:
+        logger.warning("[LEAD INTELLIGENCE] extraction skipped: %s", _exc)
+
     # ── 7. Extract name from conversation and update lead if not yet set ────────
     # Heuristic: if the previous assistant message asked for a name and the
     # current user message is short (1-4 words), treat it as the caller's name.
