@@ -204,6 +204,111 @@ async def _call_openai(messages: list[dict]) -> str:
         raise RuntimeError(f"DIAG_STEP5G_FAIL: {exc}") from exc
 
 
+# ---------------------------------------------------------------------------
+# Lead Intelligence — sentence injection helper
+# ---------------------------------------------------------------------------
+# Keyword → sentence mapping (same patterns as the dashboard preview).
+_INJECTION_RULES = [
+    {
+        "keywords": ["מחיר", "עולה", "כמה", "תמחור"],
+        "types":    ["question", "objection"],
+        "sentence": "יש לנו כמה אפשרויות במחירים שונים — אפשר לעשות סדר קצר אם זה רלוונטי.",
+    },
+    {
+        "keywords": ["ניסיון", "מתחיל", "לא יודע", "לא מכיר"],
+        "types":    ["intent_signal", "question"],
+        "sentence": "לא צריך ניסיון קודם — מתחילים מאפס, בקצב שמתאים.",
+    },
+    {
+        "keywords": ["לחשוב", "לא בטוח", "אולי", "נחזור", "מאוחר יותר"],
+        "types":    ["objection"],
+        "sentence": "אין לחץ בכלל, וכשיש שאלות — תמיד אפשר לשאול.",
+    },
+]
+
+
+async def _maybe_inject_sentence(reply: str, client_id: str, history: list[dict]) -> str:
+    """
+    Appends at most ONE short sentence to `reply` when a strong pattern is
+    detected in recent lead_intelligence_insights for this client.
+
+    Guards:
+    - Requires ≥ 2 matching insight rows (by summed frequency_count).
+    - Skips if any injection sentence already appears in the last 3 assistant
+      turns (best-effort once-per-window suppression, no new state infra).
+    - Never raises — returns original reply on any error.
+    """
+    if not client_id or not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
+        return reply
+
+    # Fetch recent insights for this client
+    try:
+        headers = {
+            "apikey": _SUPABASE_SERVICE_KEY,
+            "Authorization": f"Bearer {_SUPABASE_SERVICE_KEY}",
+        }
+        async with httpx.AsyncClient(timeout=4.0) as _c:
+            _r = await _c.get(
+                f"{_SUPABASE_URL}/rest/v1/lead_intelligence_insights",
+                params={
+                    "client_id": f"eq.{client_id}",
+                    "select":    "insight_type,title,frequency_count",
+                    "order":     "created_at.desc",
+                    "limit":     "20",
+                },
+                headers=headers,
+            )
+        insights = _r.json() if _r.status_code == 200 else []
+    except Exception as exc:
+        logger.warning("[INJECTION] fetch failed: %s", exc)
+        return reply
+
+    if not isinstance(insights, list) or not insights:
+        return reply
+
+    # Clean bad rows (same filter as dashboard)
+    def _clean(t: str) -> bool:
+        t = (t or "").strip()
+        if not t or t.lower() == "insight":
+            return False
+        import re
+        if re.match(r'^[?\s\W]+$', t):
+            return False
+        return True
+
+    insights = [r for r in insights if _clean(r.get("title", ""))]
+
+    # Score each rule: sum of frequency_count for matching rows
+    best_sentence = None
+    best_weight = 0
+    for rule in _INJECTION_RULES:
+        weight = sum(
+            r.get("frequency_count", 0)
+            for r in insights
+            if r.get("insight_type") in rule["types"]
+            and any(kw in (r.get("title") or "") for kw in rule["keywords"])
+        )
+        if weight >= 2 and weight > best_weight:
+            best_weight = weight
+            best_sentence = rule["sentence"]
+
+    if not best_sentence:
+        return reply
+
+    # Best-effort once-per-window: skip if sentence already in last 3 assistant turns
+    recent_assistant = [
+        m.get("content", "")
+        for m in history[-6:]
+        if m.get("role") == "assistant"
+    ][-3:]
+    if any(best_sentence in turn for turn in recent_assistant):
+        logger.info("[INJECTION] suppressed — already injected recently")
+        return reply
+
+    logger.info("[INJECTION] appending sentence (weight=%d)", best_weight)
+    return reply.rstrip() + "\n\n" + best_sentence
+
+
 async def generate_whatsapp_reply(customer_phone: str, business_phone: str, user_message: str) -> dict:
     try:
         return await _generate_whatsapp_reply_inner(customer_phone, business_phone, user_message)
@@ -348,6 +453,12 @@ async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: st
             print(f"[LEAD] name updated: {user_message.strip()!r} for {customer_phone}", flush=True)
     except Exception as exc:
         logger.warning("[LEAD] name extraction failed: %s", exc)
+
+    # ── 6c. Lead Intelligence — sentence injection (guarded) ────────────────────
+    try:
+        reply = await _maybe_inject_sentence(reply, agent.get("client_id") or "", updated_messages)
+    except Exception as _exc:
+        logger.warning("[LEAD INTELLIGENCE] injection skipped: %s", _exc)
 
     reply = _sanitize_output(reply)
     messages = [
