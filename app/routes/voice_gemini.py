@@ -533,7 +533,7 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
                     _gemini_speaking = False
                     if _should_hangup:
                         print("[GEMINI-WS] Turn complete after hangup phrase — closing session")
-                        await asyncio.sleep(0.5)  # let last audio frame reach Twilio
+                        await asyncio.sleep(2.5)  # let last audio frame reach Twilio
                         await gemini_ws.close()
                         break
 
