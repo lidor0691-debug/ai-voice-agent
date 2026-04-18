@@ -87,7 +87,9 @@ _EXTRACT_PROMPT = """\
   "name": "שם המתקשר — רק לפי הכללים למטה, אחרת null",
   "phone_number": null,
   "topic": "נושא השיחה בקצרה",
-  "notes": "פרטים חשובים (גיל, יום מועדף, תאריך אירוע וכו')"
+  "notes": "פרטים חשובים (גיל, תאריך אירוע וכו')",
+  "appointment_day": "יום השיעור/הפגישה שנקבע — ראשון/שני/שלישי/רביעי/חמישי/שישי/שבת, או null אם לא נקבע",
+  "appointment_time": "שעת השיעור/הפגישה שנקבעה בפורמט HH:MM, או null אם לא נקבעה"
 }
 
 חוקים לחילוץ שם:
@@ -553,6 +555,32 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
                 _summary_parts.append(f"פרטים: {_notes}")
             _last_call_summary = " | ".join(_summary_parts) or None
 
+            # ── Compute appointment_at from day + time extracted ──────────────
+            _appointment_at = None
+            _appt_day = extracted.get("appointment_day") or ""
+            _appt_time = extracted.get("appointment_time") or ""
+            if _appt_day and _appt_time:
+                try:
+                    from datetime import timedelta
+                    _DAY_MAP = {
+                        "ראשון": 6, "שני": 0, "שלישי": 1,
+                        "רביעי": 2, "חמישי": 3, "שישי": 4, "שבת": 5,
+                    }
+                    _target_weekday = _DAY_MAP.get(_appt_day)
+                    if _target_weekday is not None:
+                        _now = datetime.utcnow()
+                        _days_ahead = (_target_weekday - _now.weekday()) % 7
+                        if _days_ahead == 0:
+                            _days_ahead = 7  # always next occurrence
+                        _appt_date = _now + timedelta(days=_days_ahead)
+                        _h, _m = map(int, _appt_time.split(":"))
+                        _appointment_at = _appt_date.replace(
+                            hour=_h, minute=_m, second=0, microsecond=0
+                        ).isoformat()
+                        print(f"[GEMINI-LEAD] 📅 appointment_at={_appointment_at}")
+                except Exception as _exc:
+                    print(f"[GEMINI-LEAD] ⚠️ Failed to compute appointment_at: {_exc}")
+
             await save_lead({
                 "phone":             extracted.get("phone") or caller_phone,
                 "source":            "voice",
@@ -563,6 +591,7 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
                 "last_call_summary": _last_call_summary,
                 "last_call_topic":   _topic,
                 "last_call_at":      datetime.utcnow().isoformat(),
+                "appointment_at":    _appointment_at,
             })
             print(f"[GEMINI-LEAD] ✅ Lead upserted — phone={caller_phone} name={extracted.get('name')} client_id={client_id}")
         else:
