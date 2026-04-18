@@ -2,6 +2,7 @@
 
 import { Brain, ArrowRight } from "lucide-react";
 import Link from "next/link";
+import RULES from "@/lib/lead-intelligence-rules.json";
 
 interface Insight {
   insight_type: string;
@@ -97,20 +98,10 @@ export function LeadInsightsCard({ insights }: Props) {
 
   // --- Suggested Injection Preview (preview only, not used anywhere) ---
   // Each entry fires when its pattern has weight > 0, sentence is shown as-is in the reply preview.
-  const INJECTION_RULES: { sentence: string; weight: number }[] = [
-    {
-      sentence: "יש לנו כמה אפשרויות במחירים שונים — אפשר לעשות סדר קצר אם זה רלוונטי.",
-      weight: totalFreq(["מחיר", "עולה", "כמה", "תמחור"], ["question", "objection"]),
-    },
-    {
-      sentence: "לא צריך ניסיון קודם — מתחילים מאפס, בקצב שמתאים.",
-      weight: totalFreq(["ניסיון", "מתחיל", "לא יודע", "לא מכיר"], ["intent_signal", "question"]),
-    },
-    {
-      sentence: "אין לחץ בכלל, וכשיש שאלות — תמיד אפשר לשאול.",
-      weight: totalFreq(["לחשוב", "לא בטוח", "אולי", "נחזור", "מאוחר יותר"], ["objection"]),
-    },
-  ];
+  const INJECTION_RULES = RULES.map((rule) => ({
+    sentence: rule.sentence,
+    weight: totalFreq(rule.keywords, rule.types),
+  }));
 
   const injectionPreviews = INJECTION_RULES
     .filter((r) => r.weight > 0)

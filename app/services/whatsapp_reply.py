@@ -207,24 +207,17 @@ async def _call_openai(messages: list[dict]) -> str:
 # ---------------------------------------------------------------------------
 # Lead Intelligence — sentence injection helper
 # ---------------------------------------------------------------------------
-# Keyword → sentence mapping (same patterns as the dashboard preview).
-_INJECTION_RULES = [
-    {
-        "keywords": ["מחיר", "עולה", "כמה", "תמחור"],
-        "types":    ["question", "objection"],
-        "sentence": "יש כמה אפשרויות במחירים שונים, אפשר לעשות סדר קצר אם זה רלוונטי.",
-    },
-    {
-        "keywords": ["ניסיון", "מתחיל", "לא יודע", "לא מכיר"],
-        "types":    ["intent_signal", "question"],
-        "sentence": "לא צריך ניסיון קודם — מתחילים מאפס, בקצב שמתאים.",
-    },
-    {
-        "keywords": ["לחשוב", "לא בטוח", "אולי", "נחזור", "מאוחר יותר"],
-        "types":    ["objection"],
-        "sentence": "אין לחץ בכלל, וכשיש שאלות — תמיד אפשר לשאול.",
-    },
-]
+# Rules loaded from shared/lead-intelligence-rules.json (single source of truth
+# shared with the dashboard preview card).
+import json as _json
+from pathlib import Path as _Path
+
+_RULES_PATH = _Path(__file__).parent.parent.parent / "dashboard" / "lib" / "lead-intelligence-rules.json"
+try:
+    _INJECTION_RULES: list[dict] = _json.loads(_RULES_PATH.read_text(encoding="utf-8"))
+except Exception as _e:
+    logger.warning("[LEAD INTELLIGENCE] could not load rules from %s: %s — using empty rules", _RULES_PATH, _e)
+    _INJECTION_RULES = []
 
 
 async def _maybe_inject_sentence(reply: str, client_id: str, history: list[dict]) -> str:
