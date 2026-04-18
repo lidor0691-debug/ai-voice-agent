@@ -36,7 +36,8 @@ router = APIRouter()
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_API_KEY      = os.getenv("GEMINI_API_KEY", "")       # Live WebSocket (AQ....)
+GEMINI_API_KEY_REST = os.getenv("GEMINI_API_KEY_REST", "")  # REST generateContent (AIza...)
 
 
 # ── In-memory call context (keyed by Twilio CallSid) ─────────────────────────
@@ -105,7 +106,8 @@ async def _extract_lead_from_transcript(transcript: str, caller_phone: str) -> d
     Returns a dict with keys: name, phone, topic, notes (all may be None).
     Never raises.
     """
-    if not GEMINI_API_KEY:
+    rest_key = GEMINI_API_KEY_REST or GEMINI_API_KEY
+    if not rest_key:
         return {}
     prompt = _EXTRACT_PROMPT.replace("{transcript}", transcript)
     body = {
@@ -115,7 +117,7 @@ async def _extract_lead_from_transcript(transcript: str, caller_phone: str) -> d
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.post(
-                _GEMINI_REST_URL.format(api_key=GEMINI_API_KEY),
+                _GEMINI_REST_URL.format(api_key=rest_key),
                 json=body,
                 headers={"Content-Type": "application/json"},
             )
