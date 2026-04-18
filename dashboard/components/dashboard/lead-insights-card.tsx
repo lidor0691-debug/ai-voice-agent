@@ -99,15 +99,15 @@ export function LeadInsightsCard({ insights }: Props) {
   // Each entry fires when its pattern has weight > 0, sentence is shown as-is in the reply preview.
   const INJECTION_RULES: { sentence: string; weight: number }[] = [
     {
-      sentence: "אגב, יש לנו כמה אפשרויות במחירים שונים — שווה לדבר על זה לפני שמחליטים.",
+      sentence: "יש לנו כמה אפשרויות במחירים שונים — אפשר לעשות סדר קצר אם זה רלוונטי.",
       weight: totalFreq(["מחיר", "עולה", "כמה", "תמחור"], ["question", "objection"]),
     },
     {
-      sentence: "לא צריך ניסיון קודם — מתחילים מאפס, ממש לא מסובך.",
+      sentence: "לא צריך ניסיון קודם — מתחילים מאפס, בקצב שמתאים.",
       weight: totalFreq(["ניסיון", "מתחיל", "לא יודע", "לא מכיר"], ["intent_signal", "question"]),
     },
     {
-      sentence: "אין לחץ בכלל, כשיש שאלות אני פה.",
+      sentence: "אין לחץ בכלל, וכשיש שאלות — תמיד אפשר לשאול.",
       weight: totalFreq(["לחשוב", "לא בטוח", "אולי", "נחזור", "מאוחר יותר"], ["objection"]),
     },
   ];
