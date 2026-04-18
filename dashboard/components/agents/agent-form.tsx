@@ -750,6 +750,40 @@ export function AgentForm({ initial, agentId }: Props) {
                 </>
               )}
 
+              {/* Appointment follow-up toggle */}
+              <div className="flex items-center justify-between py-2 border-t border-border/50">
+                <div>
+                  <p className="text-sm font-medium text-gray-200">{t.af_appt_followup_label}</p>
+                  <p className="text-xs text-gray-500 mt-0.5">{t.af_appt_followup_hint}</p>
+                </div>
+                <div
+                  onClick={() => set("appointment_followup_enabled", !form.appointment_followup_enabled)}
+                  className={`relative shrink-0 w-12 h-6 rounded-full transition-colors cursor-pointer ${
+                    form.appointment_followup_enabled ? "bg-brand-600" : "bg-surface-4"
+                  }`}
+                >
+                  <div
+                    className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${
+                      form.appointment_followup_enabled ? "translate-x-7" : "translate-x-1"
+                    }`}
+                  />
+                </div>
+              </div>
+
+              {form.appointment_followup_enabled && (
+                <Field label={t.af_appt_followup_timing_label}>
+                  <Select
+                    value={form.appointment_followup_timing ?? "1_day"}
+                    onChange={(e) => set("appointment_followup_timing", e.target.value)}
+                    options={[
+                      { value: "1_day",   label: t.af_appt_followup_timing_1day },
+                      { value: "2_hours", label: t.af_appt_followup_timing_2hours },
+                      { value: "1_hour",  label: t.af_appt_followup_timing_1hour },
+                    ]}
+                  />
+                </Field>
+              )}
+
               {!form.whatsapp_enabled && (
                 <div className="rounded-lg bg-surface-3/50 border border-border/50 px-4 py-3">
                   <p className="text-xs text-gray-600 leading-relaxed">

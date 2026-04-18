@@ -73,6 +73,10 @@ export interface AgentConfig {
   whatsapp_required_fields: Json | null;   // always array when set, e.g. ["name","phone"]
   whatsapp_rules: Json | null;             // always array when set, e.g. [{"rule":"..."}]
 
+  // Appointment follow-up
+  appointment_followup_enabled: boolean | null;
+  appointment_followup_timing: string | null;  // "1_day" | "2_hours" | "1_hour"
+
   // Scheduling
   schedule: Json | null;
 
