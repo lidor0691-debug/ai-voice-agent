@@ -1,29 +1,81 @@
 """
-Gemini Live voice POC — isolated Twilio → Gemini Live bridge.
+Gemini Live voice path — Twilio → Gemini Live bridge with business parity.
 
 Routes registered under the /voice-ai prefix (see main.py):
   POST /voice-ai/voice-gemini   — TwiML entry point (point a Twilio number here)
   WS   /voice-ai/stream-gemini  — bidirectional Twilio Media Stream ↔ Gemini Live
 
-This is a POC only. Do NOT modify or share state with the OpenAI realtime path.
+Business parity vs OpenAI path:
+  - Agent config fetched from Supabase by "To" number at call entry
+  - System prompt sourced from agent config (fallback: hardcoded BPM instruction)
+  - Lead saved to Supabase leads table on every call end
+  - Webhook fired to Make.com on every call end
+  NOTE: Structured lead fields (name, topic) are not yet extracted — Gemini Live
+  has no function-call mechanism. The webhook payload contains caller phone + metadata.
+  Full structured extraction is tracked as a follow-up task.
 """
 
 import asyncio
 import json
 import os
+from datetime import datetime
+from urllib.parse import quote
 
+import httpx
 import websockets
-from fastapi import APIRouter, WebSocket, Request
+from fastapi import APIRouter, WebSocket, Request, Query
 from fastapi.responses import Response
 from twilio.twiml.voice_response import VoiceResponse, Connect
 
 from app.utils.audio_gemini import twilio_to_gemini, gemini_to_twilio
+from app.services.agent_config import fetch_supabase_agent_config
+from app.services.lead_capture import save_lead
 
 router = APIRouter()
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+
+
+# ── In-memory call context (keyed by Twilio CallSid) ─────────────────────────
+# Populated at TwiML entry time so phone numbers and agent config survive
+# proxy URL encoding (same pattern as CALL_CONTEXT in voice_realtime.py).
+_GEMINI_CALL_CONTEXT: dict = {}
+
+
+def _normalize_phone(phone: str) -> str:
+    """Normalize to E.164 Israeli format (+972...). Mirrors voice_realtime.py."""
+    if not phone:
+        return ""
+    digits = "".join(ch for ch in phone if ch.isdigit())
+    national = digits[3:] if digits.startswith("972") else digits
+    while national.startswith("0"):
+        national = national[1:]
+    if not national:
+        return phone.strip()
+    return f"+972{national}"
+
+
+async def _send_gemini_webhook(webhook_url: str, payload: dict) -> None:
+    """POST payload to webhook URL. Never raises — errors are logged only."""
+    if not webhook_url:
+        print("[GEMINI-WEBHOOK] ⚠️  No webhook URL configured — skipping")
+        return
+    print(f"[GEMINI-WEBHOOK] ▶ POST {webhook_url}")
+    print(f"[GEMINI-WEBHOOK] 📦 payload: {json.dumps(payload, ensure_ascii=False)}")
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                webhook_url,
+                json=payload,
+                headers={"Content-Type": "application/json"},
+            )
+            print(f"[GEMINI-WEBHOOK] ← HTTP {resp.status_code}")
+            resp.raise_for_status()
+            print("[GEMINI-WEBHOOK] ✅ delivered successfully")
+    except Exception as exc:
+        print(f"[GEMINI-WEBHOOK] ❌ delivery failed: {exc}")
 
 # Centralized model choice — swap here to try newer preview models.
 # gemini-2.0-flash-live-001 is the current stable Live audio model.
@@ -125,16 +177,37 @@ _SYSTEM_INSTRUCTION = """\
 @router.post("/voice-gemini")
 async def voice_gemini_entry(request: Request):
     """
-    Twilio webhook — returns TwiML that opens a bidirectional Media Stream
-    to the Gemini POC WebSocket endpoint.
+    Twilio webhook — fetches agent config, stores call context, returns TwiML
+    that opens a bidirectional Media Stream to the Gemini WebSocket endpoint.
     """
+    form_data = await request.form()
+    raw_to    = form_data.get("To", "")
+    raw_from  = form_data.get("From", "")
+    call_sid  = form_data.get("CallSid", "")
+
+    norm_to   = _normalize_phone(raw_to)
+    norm_from = _normalize_phone(raw_from)
+
+    print(f"[GEMINI-VOICE] call_sid={call_sid} to={norm_to} from={norm_from}")
+
+    # Fetch agent config for the destination number — always succeeds (returns safe default on miss)
+    agent_cfg = await fetch_supabase_agent_config(norm_to)
+    print(f"[GEMINI-VOICE] agent='{agent_cfg.get('client_name')}' fallback={agent_cfg.get('fallback_used')}")
+
+    # Store context keyed by CallSid so the WebSocket can find it without URL param issues
+    _GEMINI_CALL_CONTEXT[call_sid] = {
+        "to":         norm_to,
+        "from":       norm_from,
+        "agent_cfg":  agent_cfg,
+        "created_at": datetime.now().timestamp(),
+    }
+
     host       = request.url.hostname
-    stream_url = f"wss://{host}/voice-ai/stream-gemini"
-    print(f"[GEMINI-VOICE] incoming call → stream_url={stream_url}")
+    stream_url = f"wss://{host}/voice-ai/stream-gemini?call_sid={quote(call_sid, safe='')}"
+    print(f"[GEMINI-VOICE] stream_url={stream_url}")
 
     response = VoiceResponse()
     connect  = Connect()
-    # <Stream> with bidirectional mode so Twilio sends AND receives audio
     connect.stream(url=stream_url)
     response.append(connect)
     return Response(content=str(response), media_type="application/xml")
@@ -143,7 +216,7 @@ async def voice_gemini_entry(request: Request):
 # ── WebSocket bridge ──────────────────────────────────────────────────────────
 
 @router.websocket("/stream-gemini")
-async def stream_gemini(twilio_ws: WebSocket):
+async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default="")):
     """
     Bridges a Twilio Media Stream to a Gemini Live session.
 
@@ -152,7 +225,24 @@ async def stream_gemini(twilio_ws: WebSocket):
       Gemini Live (PCM16 24 kHz) → convert → Twilio (μ-law 8 kHz)
     """
     await twilio_ws.accept()
-    print("[GEMINI-WS] Twilio connection accepted")
+    print(f"[GEMINI-WS] Twilio connection accepted — call_sid={call_sid!r}")
+
+    # ── Resolve call context set by voice_gemini_entry ────────────────────────
+    ctx          = _GEMINI_CALL_CONTEXT.get(call_sid, {})
+    caller_phone = ctx.get("from", "")
+    agent_cfg    = ctx.get("agent_cfg", {})
+
+    webhook_url  = agent_cfg.get("webhook_url", "") or agent_cfg.get("lead_delivery_target", "")
+    client_id    = agent_cfg.get("client_id") or None
+    client_name  = agent_cfg.get("client_name", "")
+
+    # System prompt: use Supabase config when available, fall back to hardcoded
+    if agent_cfg.get("prompt_override") and not agent_cfg.get("fallback_used"):
+        system_instruction = agent_cfg["prompt_override"].replace("{{caller_phone}}", caller_phone)
+        print(f"[GEMINI-WS] Using Supabase prompt for '{client_name}'")
+    else:
+        system_instruction = _SYSTEM_INSTRUCTION
+        print(f"[GEMINI-WS] Using hardcoded fallback prompt (no Supabase config for '{client_name}')")
 
     if not GEMINI_API_KEY:
         print("[GEMINI-WS] ERROR: GEMINI_API_KEY is not set — closing Gemini stream")
@@ -213,7 +303,7 @@ async def stream_gemini(twilio_ws: WebSocket):
                 },
             },
             "system_instruction": {
-                "parts": [{"text": _SYSTEM_INSTRUCTION}]
+                "parts": [{"text": system_instruction}]
             },
         }
     }
@@ -338,7 +428,46 @@ async def stream_gemini(twilio_ws: WebSocket):
     try:
         await asyncio.gather(twilio_to_gemini_loop(), gemini_to_twilio_loop())
     finally:
-        print("[GEMINI-WS] Session ended — closing connections")
+        print("[GEMINI-WS] Session ended — running end-of-call business logic")
+
+        # ── Lead persistence: always save a record to Supabase leads table ────
+        # Minimum guaranteed fields: phone + source. Name/topic not yet available
+        # (Gemini Live has no function-call mechanism for structured extraction).
+        if caller_phone:
+            await save_lead({
+                "phone":     caller_phone,
+                "source":    "voice",
+                "status":    "new",
+                "client_id": client_id,
+            })
+            print(f"[GEMINI-LEAD] ✅ Lead upserted for phone={caller_phone} client_id={client_id}")
+        else:
+            print("[GEMINI-LEAD] ⚠️  No caller phone available — lead not saved")
+
+        # ── Webhook delivery: fire Make.com with basic call metadata ──────────
+        # Structured fields (name, topic, notes) will be empty until function-call
+        # extraction is implemented; downstream Make scenarios should handle that.
+        if caller_phone and webhook_url:
+            webhook_payload = {
+                "timestamp":    datetime.now().isoformat(),
+                "source":       "voice_gemini",
+                "client":       client_name,
+                "caller_phone": caller_phone,
+                "call_sid":     call_sid,
+                # Placeholder fields — empty until structured extraction is added
+                "name":         "",
+                "phone_number": caller_phone,
+                "topic":        "",
+                "notes":        "",
+            }
+            await _send_gemini_webhook(webhook_url, webhook_payload)
+        elif not webhook_url:
+            print("[GEMINI-WEBHOOK] ⚠️  No webhook URL in agent config — skipping")
+
+        # ── Context cleanup ───────────────────────────────────────────────────
+        _GEMINI_CALL_CONTEXT.pop(call_sid, None)
+
+        # ── Close connections ─────────────────────────────────────────────────
         try:
             await gemini_ws.close()
         except Exception:
