@@ -95,6 +95,29 @@ export function LeadInsightsCard({ insights }: Props) {
     .slice(0, 3);
   // --- end rules ---
 
+  // --- Suggested Injection Preview (preview only, not used anywhere) ---
+  // Each entry fires when its pattern has weight > 0, sentence is shown as-is in the reply preview.
+  const INJECTION_RULES: { sentence: string; weight: number }[] = [
+    {
+      sentence: "אני מבין שזה נשמע יקר — כדאי לדעת שיש לנו אפשרויות גמישות שמתאימות לכל תקציב.",
+      weight: totalFreq(["מחיר", "עולה", "כמה", "תמחור"], ["question", "objection"]),
+    },
+    {
+      sentence: "אין שום בעיה אם אין עדיין ניסיון — אנחנו מלווים כל לקוח מהתחלה בדיוק בקצב שלו.",
+      weight: totalFreq(["ניסיון", "מתחיל", "לא יודע", "לא מכיר"], ["intent_signal", "question"]),
+    },
+    {
+      sentence: "קחי את הזמן שצריך — אשמח לענות על כל שאלה שתעלה ולחזור אליך בכל רגע נוח.",
+      weight: totalFreq(["לחשוב", "לא בטוח", "אולי", "נחזור", "מאוחר יותר"], ["objection"]),
+    },
+  ];
+
+  const injectionPreviews = INJECTION_RULES
+    .filter((r) => r.weight > 0)
+    .sort((a, b) => b.weight - a.weight)
+    .slice(0, 2);
+  // --- end injection preview ---
+
   return (
     <div className="card p-4">
       <div className="flex items-center justify-between mb-3">
@@ -124,6 +147,28 @@ export function LeadInsightsCard({ insights }: Props) {
                 <span className="text-brand-400 text-[10px] mt-0.5 flex-shrink-0">→</span>
                 <span className="text-gray-300 text-[11px] leading-snug">{s.label}</span>
               </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {injectionPreviews.length > 0 && (
+        <div className="mt-4 rounded-[10px] border border-border p-3" style={{ background: "rgba(59,130,246,0.04)" }}>
+          <div className="flex items-center gap-1.5 mb-2">
+            <p className="text-[10px] font-semibold text-blue-400">שיפור תשובה מוצע</p>
+            <span className="text-[8px] px-1.5 py-0.5 rounded" style={{ color: "#60a5fa", background: "rgba(59,130,246,0.1)" }}>
+              preview only
+            </span>
+          </div>
+          <div className="flex flex-col gap-2">
+            {injectionPreviews.map((p, i) => (
+              <p
+                key={i}
+                className="text-gray-300 text-[11px] leading-relaxed px-2 py-1.5 rounded-lg"
+                style={{ background: "rgba(255,255,255,0.03)", borderRight: "2px solid rgba(59,130,246,0.4)" }}
+              >
+                "{p.sentence}"
+              </p>
             ))}
           </div>
         </div>
