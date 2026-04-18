@@ -290,32 +290,15 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
     await twilio_ws.accept()
     print(f"[GEMINI-WS] Twilio connection accepted — call_sid={call_sid!r}")
 
-    # ── Resolve call context set by voice_gemini_entry ────────────────────────
+    # ── Resolve call context — deferred until after Twilio start event ───────────
+    # call_sid may be empty here because Twilio strips WebSocket query params.
+    # We keep mutable refs and finalize them once the start event arrives.
     ctx          = _GEMINI_CALL_CONTEXT.get(call_sid, {})
     caller_phone = ctx.get("from", "")
     agent_cfg    = ctx.get("agent_cfg", {})
-
-    # webhook_url is pre-computed in agent_config: set only when lead_delivery_method=="webhook"
-    # Do NOT fall back to lead_delivery_target — it may be a phone number (whatsapp method)
     webhook_url  = agent_cfg.get("webhook_url", "")
     client_id    = agent_cfg.get("client_id") or None
     client_name  = agent_cfg.get("client_name", "")
-
-    # System prompt: use Supabase config when available, fall back to hardcoded
-    if agent_cfg.get("prompt_override") and not agent_cfg.get("fallback_used"):
-        system_instruction = agent_cfg["prompt_override"].replace("{{caller_phone}}", caller_phone)
-        print(f"[GEMINI-WS] Using Supabase prompt for '{client_name}'")
-    else:
-        system_instruction = _SYSTEM_INSTRUCTION
-        print(f"[GEMINI-WS] Using hardcoded fallback prompt (no Supabase config for '{client_name}')")
-
-    # Voice: use voice_id from agent config if set, otherwise default to Zephyr
-    gemini_voice = (agent_cfg.get("voice") or "Zephyr").strip() or "Zephyr"
-    print(f"[GEMINI-WS] Voice: {gemini_voice}")
-
-    # Opening trigger: use first_message from agent config if set, otherwise default Hebrew greeting
-    opening_trigger = (agent_cfg.get("first_message") or "").strip() or "שלום"
-    print(f"[GEMINI-WS] Opening trigger: {opening_trigger!r}")
 
     if not GEMINI_API_KEY:
         print("[GEMINI-WS] ERROR: GEMINI_API_KEY is not set — closing Gemini stream")
@@ -333,24 +316,18 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
             evt = json.loads(raw)
             if evt["event"] == "start":
                 stream_sid = evt["start"]["streamSid"]
-                # Twilio strips query params from WebSocket URLs — read callSid from the start event instead
+                # Twilio strips query params from WebSocket URLs — read callSid from the start event
                 if not call_sid:
                     call_sid = evt["start"].get("callSid", "")
-                    print(f"[GEMINI-WS] call_sid resolved from start event: {call_sid!r}")
-                    # Re-resolve context now that we have the real call_sid
-                    ctx          = _GEMINI_CALL_CONTEXT.get(call_sid, {})
-                    caller_phone = ctx.get("from", "")
-                    agent_cfg    = ctx.get("agent_cfg", {})
-                    webhook_url  = agent_cfg.get("webhook_url", "")
-                    client_id    = agent_cfg.get("client_id") or None
-                    client_name  = agent_cfg.get("client_name", "")
-                    if agent_cfg.get("prompt_override") and not agent_cfg.get("fallback_used"):
-                        system_instruction = agent_cfg["prompt_override"].replace("{{caller_phone}}", caller_phone)
-                        print(f"[GEMINI-WS] Prompt updated from context: using Supabase prompt for '{client_name}'")
-                    else:
-                        system_instruction = _SYSTEM_INSTRUCTION
-                    print(f"[GEMINI-WS] Context resolved — caller={caller_phone} client='{client_name}' webhook={'yes' if webhook_url else 'no'}")
-                print(f"[GEMINI-WS] Twilio stream started — stream_sid={stream_sid}")
+                print(f"[GEMINI-WS] Start event received — stream_sid={stream_sid} call_sid={call_sid!r}")
+                # Always re-resolve context after start event so call_sid is guaranteed correct
+                ctx          = _GEMINI_CALL_CONTEXT.get(call_sid, {})
+                caller_phone = ctx.get("from", "")
+                agent_cfg    = ctx.get("agent_cfg", {})
+                webhook_url  = agent_cfg.get("webhook_url", "")
+                client_id    = agent_cfg.get("client_id") or None
+                client_name  = agent_cfg.get("client_name", "")
+                print(f"[GEMINI-WS] Agent context loaded — caller={caller_phone} client='{client_name}' webhook={'yes' if webhook_url else 'no'}")
                 break
             elif evt["event"] == "media":
                 # buffer any audio that arrives before start (rare but possible)
@@ -359,6 +336,20 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
         print(f"[GEMINI-WS] ERROR waiting for start event: {e}")
         await twilio_ws.close()
         return
+
+    # ── Finalize prompt / voice / opening — always after start event ──────────
+    if agent_cfg.get("prompt_override") and not agent_cfg.get("fallback_used"):
+        system_instruction = agent_cfg["prompt_override"].replace("{{caller_phone}}", caller_phone)
+        print(f"[GEMINI-WS] Prompt source: Supabase config for '{client_name}'")
+    else:
+        system_instruction = _SYSTEM_INSTRUCTION
+        print(f"[GEMINI-WS] Prompt source: hardcoded fallback (no Supabase config for '{client_name}')")
+
+    gemini_voice = (agent_cfg.get("voice") or "Zephyr").strip() or "Zephyr"
+    print(f"[GEMINI-WS] Voice: {gemini_voice}")
+
+    opening_trigger = (agent_cfg.get("first_message") or "").strip() or "שלום"
+    print(f"[GEMINI-WS] Opening trigger: {opening_trigger!r}")
 
     # ── Open Gemini Live WebSocket ────────────────────────────────────────────
     gemini_url = _GEMINI_WS_URL.format(api_key=GEMINI_API_KEY)
