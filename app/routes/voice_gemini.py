@@ -339,7 +339,14 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
 
     # ── Finalize prompt / voice / opening — always after start event ──────────
     if agent_cfg.get("prompt_override") and not agent_cfg.get("fallback_used"):
-        system_instruction = agent_cfg["prompt_override"].replace("{{caller_phone}}", caller_phone)
+        base_prompt = agent_cfg["prompt_override"].replace("{{caller_phone}}", caller_phone)
+        # If first_message is set, inject it as an opening instruction into the system prompt.
+        # Do NOT use it as realtime_input — that would be interpreted as the caller speaking.
+        first_message = (agent_cfg.get("first_message") or "").strip()
+        if first_message:
+            base_prompt = f"פתחי את השיחה תמיד עם המשפט הבא בדיוק:\n\"{first_message}\"\n\n{base_prompt}"
+            print(f"[GEMINI-WS] first_message injected into system prompt")
+        system_instruction = base_prompt
         print(f"[GEMINI-WS] Prompt source: Supabase config for '{client_name}'")
     else:
         system_instruction = _SYSTEM_INSTRUCTION
@@ -351,7 +358,9 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
     gemini_voice = _raw_voice if _raw_voice in _GEMINI_VALID_VOICES else "Zephyr"
     print(f"[GEMINI-WS] Voice: {gemini_voice} (requested={_raw_voice!r})")
 
-    opening_trigger = (agent_cfg.get("first_message") or "").strip() or "שלום"
+    # Opening trigger: always a short neutral text so Gemini speaks first.
+    # first_message content is already injected into the system prompt above.
+    opening_trigger = "שלום"
     print(f"[GEMINI-WS] Opening trigger: {opening_trigger!r}")
 
     # ── Open Gemini Live WebSocket ────────────────────────────────────────────
