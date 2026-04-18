@@ -78,6 +78,61 @@ async def _send_gemini_webhook(webhook_url: str, payload: dict) -> None:
     except Exception as exc:
         print(f"[GEMINI-WEBHOOK] ❌ delivery failed: {exc}")
 
+_EXTRACT_PROMPT = """\
+להלן תמליל שיחה טלפונית בין נציגת שירות (מאיה) ללקוח.
+חלץ את הפרטים הבאים מהשיחה והחזר JSON בלבד, ללא טקסט נוסף:
+
+{
+  "name": "שם הלקוח/הורה/ילד שהוזכר, או null",
+  "phone": "מספר טלפון שהוזכר בשיחה (עם קידומת ישראלית), או null",
+  "topic": "נושא השיחה בקצרה (שיעור ניסיון / בת מצווה / אחר), או null",
+  "notes": "פרטים רלוונטיים נוספים (גיל, יום מועדף, תאריך אירוע וכו'), או null"
+}
+
+תמליל השיחה:
+{transcript}
+"""
+
+_GEMINI_REST_URL = (
+    "https://generativelanguage.googleapis.com/v1beta/models/"
+    "gemini-2.0-flash:generateContent?key={api_key}"
+)
+
+
+async def _extract_lead_from_transcript(transcript: str, caller_phone: str) -> dict:
+    """
+    One-shot Gemini generate call to extract structured lead fields from transcript.
+    Returns a dict with keys: name, phone, topic, notes (all may be None).
+    Never raises.
+    """
+    if not GEMINI_API_KEY:
+        return {}
+    prompt = _EXTRACT_PROMPT.replace("{transcript}", transcript)
+    body = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": 0.0, "maxOutputTokens": 256},
+    }
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                _GEMINI_REST_URL.format(api_key=GEMINI_API_KEY),
+                json=body,
+                headers={"Content-Type": "application/json"},
+            )
+            resp.raise_for_status()
+            raw_text = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+            # Strip markdown code fences if present
+            raw_text = raw_text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+            result = json.loads(raw_text)
+            # Normalize phone from transcript — prefer caller_phone if extraction missed it
+            if not result.get("phone"):
+                result["phone"] = caller_phone
+            return result
+    except Exception as exc:
+        print(f"[GEMINI-EXTRACT] ❌ Extraction failed: {exc}")
+        return {"phone": caller_phone}
+
+
 # Centralized model choice — swap here to try newer preview models.
 # gemini-2.0-flash-live-001 is the current stable Live audio model.
 GEMINI_LIVE_MODEL = os.getenv("GEMINI_LIVE_MODEL", "gemini-3.1-flash-live-preview")
@@ -324,6 +379,9 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
                     "start_of_speech_sensitivity": "START_SENSITIVITY_HIGH",
                 },
             },
+            # Enable text transcripts alongside audio so we can extract lead data post-call
+            "input_audio_transcription":  {},
+            "output_audio_transcription": {},
             "system_instruction": {
                 "parts": [{"text": system_instruction}]
             },
@@ -357,6 +415,7 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
     _first_inbound_logged  = False
     _first_outbound_logged = False
     _gemini_speaking       = False   # True while we are forwarding Gemini audio to Twilio
+    _transcript_lines: list[str] = []  # accumulated conversation for post-call extraction
 
     # ── Forward Twilio audio → Gemini ─────────────────────────────────────────
     async def twilio_to_gemini_loop():
@@ -421,10 +480,20 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
                         await twilio_ws.send_json({"event": "clear", "streamSid": stream_sid})
                     continue
 
-                # Audio chunks from Gemini
                 server_content = msg.get("serverContent", {})
-                model_turn     = server_content.get("modelTurn", {})
-                parts          = model_turn.get("parts", [])
+
+                # ── Capture transcripts for post-call extraction ──────────────
+                input_t = server_content.get("inputTranscription", {})
+                if input_t.get("text"):
+                    _transcript_lines.append(f"לקוח: {input_t['text']}")
+
+                output_t = server_content.get("outputTranscription", {})
+                if output_t.get("text"):
+                    _transcript_lines.append(f"מאיה: {output_t['text']}")
+
+                # Audio chunks from Gemini
+                model_turn = server_content.get("modelTurn", {})
+                parts      = model_turn.get("parts", [])
 
                 for part in parts:
                     inline_data = part.get("inlineData", {})
@@ -460,23 +529,31 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
     finally:
         print("[GEMINI-WS] Session ended — running end-of-call business logic")
 
+        # ── Extract structured lead fields from transcript ────────────────────
+        extracted: dict = {}
+        transcript_text = "\n".join(_transcript_lines)
+        if transcript_text.strip():
+            print(f"[GEMINI-EXTRACT] Transcript ({len(_transcript_lines)} lines) — running extraction")
+            extracted = await _extract_lead_from_transcript(transcript_text, caller_phone)
+            print(f"[GEMINI-EXTRACT] Result: {extracted}")
+        else:
+            print("[GEMINI-EXTRACT] No transcript captured — skipping extraction")
+
         # ── Lead persistence: always save a record to Supabase leads table ────
-        # Minimum guaranteed fields: phone + source. Name/topic not yet available
-        # (Gemini Live has no function-call mechanism for structured extraction).
         if caller_phone:
             await save_lead({
-                "phone":     caller_phone,
+                "phone":     extracted.get("phone") or caller_phone,
                 "source":    "voice",
                 "status":    "new",
                 "client_id": client_id,
+                "name":      extracted.get("name") or None,
+                "notes":     extracted.get("notes") or None,
             })
-            print(f"[GEMINI-LEAD] ✅ Lead upserted for phone={caller_phone} client_id={client_id}")
+            print(f"[GEMINI-LEAD] ✅ Lead upserted — phone={caller_phone} name={extracted.get('name')} client_id={client_id}")
         else:
             print("[GEMINI-LEAD] ⚠️  No caller phone available — lead not saved")
 
-        # ── Webhook delivery: fire Make.com with basic call metadata ──────────
-        # Structured fields (name, topic, notes) will be empty until function-call
-        # extraction is implemented; downstream Make scenarios should handle that.
+        # ── Webhook delivery ──────────────────────────────────────────────────
         if caller_phone and webhook_url:
             webhook_payload = {
                 "timestamp":    datetime.now().isoformat(),
@@ -484,11 +561,10 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
                 "client":       client_name,
                 "caller_phone": caller_phone,
                 "call_sid":     call_sid,
-                # Placeholder fields — empty until structured extraction is added
-                "name":         "",
-                "phone_number": caller_phone,
-                "topic":        "",
-                "notes":        "",
+                "name":         extracted.get("name", ""),
+                "phone_number": extracted.get("phone") or caller_phone,
+                "topic":        extracted.get("topic", ""),
+                "notes":        extracted.get("notes", ""),
             }
             await _send_gemini_webhook(webhook_url, webhook_payload)
         elif not webhook_url:
