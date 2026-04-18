@@ -17,6 +17,7 @@ generate_whatsapp_reply(phone, user_message) -> dict
 import json
 import logging
 import os
+from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
@@ -24,6 +25,53 @@ import httpx
 from app.services.agent_config import get_whatsapp_agent_config
 from app.services.lead_capture import save_lead, update_lead_name
 from app.services.whatsapp_history import append_whatsapp_messages, _load_row, _normalize_messages
+
+_SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+_SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
+
+
+async def _fetch_recent_call_context(phone: str, max_age_minutes: int = 60) -> Optional[str]:
+    """
+    Fetch last_call_summary from leads table if last_call_at is within max_age_minutes.
+    Returns a context string or None.
+    """
+    if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY or not phone:
+        return None
+    try:
+        headers = {
+            "apikey": _SUPABASE_SERVICE_KEY,
+            "Authorization": f"Bearer {_SUPABASE_SERVICE_KEY}",
+        }
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(
+                f"{_SUPABASE_URL}/rest/v1/leads",
+                params={"phone": f"eq.{phone}", "select": "last_call_summary,last_call_at,name"},
+                headers=headers,
+            )
+            resp.raise_for_status()
+            rows = resp.json()
+        if not rows:
+            return None
+        row = rows[0]
+        last_call_at = row.get("last_call_at")
+        summary = row.get("last_call_summary")
+        if not last_call_at or not summary:
+            return None
+        # Parse timestamp and check age
+        call_time = datetime.fromisoformat(last_call_at.replace("Z", "+00:00"))
+        now = datetime.now(timezone.utc)
+        age_minutes = (now - call_time).total_seconds() / 60
+        if age_minutes > max_age_minutes:
+            return None
+        name = row.get("name") or ""
+        ctx = f"שיחה טלפונית שהתקיימה לפני {int(age_minutes)} דקות"
+        if name:
+            ctx += f" עם {name}"
+        ctx += f": {summary}"
+        return ctx
+    except Exception as exc:
+        logger.warning("[WHATSAPP] Failed to fetch recent call context: %s", exc)
+        return None
 
 logger = logging.getLogger(__name__)
 
@@ -195,6 +243,20 @@ async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: st
         system_content = _build_system_message(agent)
     except Exception as exc:
         return {"reply": strict_sanitize(f"DIAG_STEP2_FAIL: {exc}"), "messages": []}
+
+    # ── 2b. Inject recent phone call context if available (last 60 min) ───────
+    try:
+        recent_call_ctx = await _fetch_recent_call_context(customer_phone)
+        if recent_call_ctx:
+            system_content += (
+                f"\n\n---\nהֶקשר חשוב: הלקוח שיחק איתך בטלפון לאחרונה.\n"
+                f"{recent_call_ctx}\n"
+                f"המשך את השיחה מנקודה זו. אל תשאל שוב על פרטים שכבר ידועים מהשיחה הטלפונית.\n"
+                f"תן עדיפות למידע מהשיחה הטלפונית על פני היסטוריית WhatsApp ישנה יותר.\n---"
+            )
+            print(f"[WHATSAPP] ✅ Injected recent call context for {customer_phone}")
+    except Exception as exc:
+        logger.warning("[WHATSAPP] Failed to inject call context: %s", exc)
 
     # ── 3. Load history via customer_phone ────────────────────────────────────
     try:

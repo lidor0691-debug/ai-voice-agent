@@ -544,13 +544,25 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
 
         # ── Lead persistence: always save a record to Supabase leads table ────
         if caller_phone:
+            _topic = extracted.get("topic") or None
+            _notes = extracted.get("notes") or None
+            _summary_parts = []
+            if _topic:
+                _summary_parts.append(f"נושא: {_topic}")
+            if _notes:
+                _summary_parts.append(f"פרטים: {_notes}")
+            _last_call_summary = " | ".join(_summary_parts) or None
+
             await save_lead({
-                "phone":     extracted.get("phone") or caller_phone,
-                "source":    "voice",
-                "status":    "new",
-                "client_id": client_id,
-                "name":      extracted.get("name") or None,
-                "notes":     extracted.get("notes") or None,
+                "phone":             extracted.get("phone") or caller_phone,
+                "source":            "voice",
+                "status":            "new",
+                "client_id":         client_id,
+                "name":              extracted.get("name") or None,
+                "notes":             _notes,
+                "last_call_summary": _last_call_summary,
+                "last_call_topic":   _topic,
+                "last_call_at":      datetime.utcnow().isoformat(),
             })
             print(f"[GEMINI-LEAD] ✅ Lead upserted — phone={caller_phone} name={extracted.get('name')} client_id={client_id}")
         else:
