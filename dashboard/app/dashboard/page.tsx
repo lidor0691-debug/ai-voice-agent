@@ -11,7 +11,7 @@ export default async function DashboardPage() {
   const ctx = getUserContext(user);
 
   if (!ctx) {
-    return <DashboardClientPage agents={null} calls={null} knowledgeCount={0} />;
+    return <DashboardClientPage agents={null} calls={null} knowledgeCount={0} insights={null} />;
   }
 
   const agentQuery = client
@@ -34,11 +34,20 @@ export default async function DashboardPage() {
 
   const knowledgeRes = await client.from("knowledge_items").select("id, is_active");
 
+  const insightQuery = client
+    .from("lead_intelligence_insights")
+    .select("insight_type, title, frequency_count, created_at")
+    .order("created_at", { ascending: false })
+    .limit(20);
+  if (!ctx.isAdmin) insightQuery.eq("client_id", ctx.clientId);
+  const insightRes = await insightQuery;
+
   return (
     <DashboardClientPage
       agents={agentRes.data as Pick<AgentConfig, "id" | "agent_name" | "is_active" | "system_prompt" | "first_message" | "phone_number">[] | null}
       calls={callRes.data as Pick<CallLog, "id" | "status" | "created_at">[] | null}
       knowledgeCount={knowledgeRes.data?.length ?? 0}
+      insights={insightRes.data as { insight_type: string; title: string; frequency_count: number; created_at: string }[] | null}
     />
   );
 }

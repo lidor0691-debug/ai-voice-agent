@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Bot, Phone, Users, Clock, ArrowRight, Plus } from "lucide-react";
 import { Header } from "@/components/layout/header";
 import { TestAgent } from "@/components/dashboard/test-agent";
+import { LeadInsightsCard } from "@/components/dashboard/lead-insights-card";
 import { useLanguage } from "@/context/language-context";
 import type { AgentConfig, CallLog } from "@/types/database";
 
@@ -11,6 +12,7 @@ interface Props {
   agents: Pick<AgentConfig, "id" | "agent_name" | "is_active" | "system_prompt" | "first_message" | "phone_number">[] | null;
   calls:  Pick<CallLog, "id" | "status" | "created_at">[] | null;
   knowledgeCount: number;
+  insights: { insight_type: string; title: string; frequency_count: number; created_at: string }[] | null;
 }
 
 // 20 bars — mountain shape peaking around bar 6-7 and secondary peak at 12
@@ -46,7 +48,7 @@ const AGENT_GRADIENTS = [
 ];
 
 
-export function DashboardClientPage({ agents, calls, knowledgeCount }: Props) {
+export function DashboardClientPage({ agents, calls, knowledgeCount, insights }: Props) {
   const { t } = useLanguage();
 
   const totalAgents  = agents?.length ?? 0;
@@ -268,6 +270,10 @@ export function DashboardClientPage({ agents, calls, knowledgeCount }: Props) {
           </div>
 
         </div>
+
+        {/* Lead Intelligence */}
+        <LeadInsightsCard insights={insights} />
+
       </div>
     </div>
   );
