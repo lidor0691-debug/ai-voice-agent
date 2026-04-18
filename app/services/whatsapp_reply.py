@@ -274,6 +274,26 @@ async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: st
             "client_id": agent.get("client_id") or None,
         })
 
+    # ── 3b. First WhatsApp message after a phone call — inject call summary into history ──
+    # Condition: no existing WhatsApp history AND last_call_summary exists in lead.
+    # This permanently embeds the phone context into WhatsApp memory (not time-limited).
+    # Runs only once — subsequent messages already have history so condition is false.
+    if row is None:
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as _c:
+                _r = await _c.get(
+                    f"{_SUPABASE_URL}/rest/v1/leads",
+                    params={"phone": f"eq.{customer_phone}", "select": "last_call_summary"},
+                    headers={"apikey": _SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {_SUPABASE_SERVICE_KEY}"},
+                )
+                _rows = _r.json() if _r.status_code == 200 else []
+            _call_summary = (_rows[0].get("last_call_summary") or "") if _rows else ""
+            if _call_summary:
+                history = [{"role": "system", "content": f"סיכום שיחת הטלפון האחרונה עם הלקוח: {_call_summary}"}]
+                print(f"[WHATSAPP] ✅ Permanently injected phone call summary into history for {customer_phone}")
+        except Exception as exc:
+            logger.warning("[WHATSAPP] Failed to inject call summary into history: %s", exc)
+
     # ── 4+5. Call OpenAI ──────────────────────────────────────────────────────
     openai_messages = (
         [{"role": "system", "content": system_content}]
