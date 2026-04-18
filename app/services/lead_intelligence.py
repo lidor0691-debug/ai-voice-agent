@@ -79,6 +79,30 @@ _INTENT_SIGNAL_RULES: list[tuple[str, list[str]]] = [
 ]
 
 
+# Win signal cues — strong positive conversion indicators.
+# Kept strict: only phrases that clearly signal commitment or closure.
+_WIN_SIGNAL_CUES = [
+    "קבענו",
+    "לסגור",
+    "לשלם",
+    "תשלום",
+    "נרשמים",
+    "נרשמת",
+    "נרשם",
+    "מתחילים",
+    "אפשר לקבוע",
+    "מתי מתחילים",
+    "רוצה לסגור",
+    "רוצה להירשם",
+]
+
+
+def _detect_win_signal(candidate: str) -> bool:
+    """Return True if candidate contains a strong conversion/win signal."""
+    lower = candidate.lower()
+    return any(cue in lower for cue in _WIN_SIGNAL_CUES)
+
+
 # ── Normalization ─────────────────────────────────────────────────────────────
 
 def normalize_text(text: str) -> str:
@@ -161,9 +185,10 @@ def extract_insights(text: str) -> list[dict]:
         question_rule = _detect_question(candidate)
         is_objection = _detect_objection(candidate)
         intent_rule = _detect_intent_signal(candidate)
+        is_win_signal = _detect_win_signal(candidate)
 
         # Skip noise: fewer than 2 words and no pattern match at all
-        if _word_count(candidate) < 2 and not question_rule and not is_objection and not intent_rule:
+        if _word_count(candidate) < 2 and not question_rule and not is_objection and not intent_rule and not is_win_signal:
             continue
 
         normalized = normalize_text(candidate).rstrip("?")
@@ -201,6 +226,18 @@ def extract_insights(text: str) -> list[dict]:
                 "title":           title,
                 "metadata": {
                     "matched_rule":       intent_rule,
+                    "extraction_version": _EXTRACTION_VERSION,
+                },
+            })
+
+        if is_win_signal:
+            results.append({
+                "insight_type":    "win_signal",
+                "original_text":   candidate,
+                "normalized_text": normalized,
+                "title":           title,
+                "metadata": {
+                    "matched_rule":       "win_signal_cue",
                     "extraction_version": _EXTRACTION_VERSION,
                 },
             })

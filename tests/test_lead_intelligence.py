@@ -224,6 +224,67 @@ def test_extract_real_bpm_conversation_user_messages():
     assert not any("יום ראשון" in t for t in original_texts)
 
 
+# ── win_signal detection ──────────────────────────────────────────────────────
+
+def test_extract_win_signal_kabanu():
+    results = extract_insights("קבענו לפגישה ביום שלישי")
+    types = [r["insight_type"] for r in results]
+    assert "win_signal" in types
+    win = next(r for r in results if r["insight_type"] == "win_signal")
+    assert win["metadata"]["matched_rule"] == "win_signal_cue"
+
+
+def test_extract_win_signal_lisgor():
+    results = extract_insights("אני רוצה לסגור את העניין")
+    types = [r["insight_type"] for r in results]
+    assert "win_signal" in types
+
+
+def test_extract_win_signal_lishlaem():
+    results = extract_insights("אפשר לשלם עכשיו")
+    types = [r["insight_type"] for r in results]
+    assert "win_signal" in types
+
+
+def test_extract_win_signal_matkhilim():
+    results = extract_insights("מתי מתחילים את השיעורים")
+    types = [r["insight_type"] for r in results]
+    assert "win_signal" in types
+
+
+def test_extract_win_signal_efshar_likboa():
+    results = extract_insights("אפשר לקבוע פגישה להשבוע")
+    types = [r["insight_type"] for r in results]
+    assert "win_signal" in types
+
+
+def test_extract_win_signal_no_false_positive_general_chat():
+    # Generic greeting — should not trigger win_signal
+    results = extract_insights("שלום, אני מתעניין בשיעור ניסיון")
+    types = [r["insight_type"] for r in results]
+    assert "win_signal" not in types
+
+
+def test_extract_win_signal_no_false_positive_price_question():
+    # Price question — should trigger question, not win_signal
+    results = extract_insights("כמה עולה השיעור?")
+    types = [r["insight_type"] for r in results]
+    assert "win_signal" not in types
+
+
+def test_extract_win_signal_no_false_positive_hesitation():
+    # Hesitation — should not trigger win_signal
+    results = extract_insights("אני צריך לחשוב על זה")
+    types = [r["insight_type"] for r in results]
+    assert "win_signal" not in types
+
+
+def test_extract_win_signal_title_populated():
+    results = extract_insights("קבענו לפגישה ביום שלישי")
+    win = next(r for r in results if r["insight_type"] == "win_signal")
+    assert win["title"] != "insight"  # enough words for a real title
+
+
 # ── save_insights ─────────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
