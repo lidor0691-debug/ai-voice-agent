@@ -326,9 +326,7 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
                     ctx          = _GEMINI_CALL_CONTEXT.get(call_sid, {})
                     caller_phone = ctx.get("from", "")
                     agent_cfg    = ctx.get("agent_cfg", {})
-                    # webhook_url is pre-computed in agent_config: set only when lead_delivery_method=="webhook"
-    # Do NOT fall back to lead_delivery_target — it may be a phone number (whatsapp method)
-    webhook_url  = agent_cfg.get("webhook_url", "")
+                    webhook_url  = agent_cfg.get("webhook_url", "")
                     client_id    = agent_cfg.get("client_id") or None
                     client_name  = agent_cfg.get("client_name", "")
                     if agent_cfg.get("prompt_override") and not agent_cfg.get("fallback_used"):
