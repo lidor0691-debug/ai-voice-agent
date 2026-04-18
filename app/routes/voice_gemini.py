@@ -37,7 +37,8 @@ router = APIRouter()
 # ── Config ────────────────────────────────────────────────────────────────────
 
 GEMINI_API_KEY      = os.getenv("GEMINI_API_KEY", "")       # Live WebSocket (AQ....)
-GEMINI_API_KEY_REST = os.getenv("GEMINI_API_KEY_REST", "")  # REST generateContent (AIza...)
+GEMINI_API_KEY_REST = os.getenv("GEMINI_API_KEY_REST", "")  # kept for reference, no longer used for extraction
+OPENAI_API_KEY      = os.getenv("OPENAI_API_KEY", "")       # used for post-call extraction
 
 
 # ── In-memory call context (keyed by Twilio CallSid) ─────────────────────────
@@ -85,7 +86,7 @@ _EXTRACT_PROMPT = """\
 
 {
   "name": "שם הלקוח/הורה/ילד שהוזכר, או null",
-  "phone": "מספר טלפון שהוזכר בשיחה (עם קידומת ישראלית), או null",
+  "phone_number": "מספר טלפון שהוזכר בשיחה (עם קידומת ישראלית), או null",
   "topic": "נושא השיחה בקצרה (שיעור ניסיון / בת מצווה / אחר), או null",
   "notes": "פרטים רלוונטיים נוספים (גיל, יום מועדף, תאריך אירוע וכו'), או null"
 }
@@ -94,45 +95,41 @@ _EXTRACT_PROMPT = """\
 {transcript}
 """
 
-_GEMINI_REST_URL = (
-    "https://generativelanguage.googleapis.com/v1beta/models/"
-    "gemini-2.0-flash:generateContent?key={api_key}"
-)
-
-
 async def _extract_lead_from_transcript(transcript: str, caller_phone: str) -> dict:
     """
-    One-shot Gemini generate call to extract structured lead fields from transcript.
-    Returns a dict with keys: name, phone, topic, notes (all may be None).
-    Never raises.
+    Post-call extraction via OpenAI gpt-4o-mini.
+    Returns a dict with keys: name, phone_number, topic, notes (all may be None).
+    Never raises — falls back to phone-only on any error.
     """
-    rest_key = GEMINI_API_KEY_REST or GEMINI_API_KEY
-    if not rest_key:
-        return {}
+    if not OPENAI_API_KEY:
+        return {"phone_number": caller_phone}
     prompt = _EXTRACT_PROMPT.replace("{transcript}", transcript)
     body = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.0, "maxOutputTokens": 256},
+        "model": "gpt-4o-mini",
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.0,
+        "max_tokens": 256,
     }
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.post(
-                _GEMINI_REST_URL.format(api_key=rest_key),
+                "https://api.openai.com/v1/chat/completions",
                 json=body,
-                headers={"Content-Type": "application/json"},
+                headers={
+                    "Authorization": f"Bearer {OPENAI_API_KEY}",
+                    "Content-Type": "application/json",
+                },
             )
             resp.raise_for_status()
-            raw_text = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
-            # Strip markdown code fences if present
+            raw_text = resp.json()["choices"][0]["message"]["content"]
             raw_text = raw_text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
             result = json.loads(raw_text)
-            # Normalize phone from transcript — prefer caller_phone if extraction missed it
-            if not result.get("phone"):
-                result["phone"] = caller_phone
+            if not result.get("phone_number"):
+                result["phone_number"] = caller_phone
             return result
     except Exception as exc:
         print(f"[GEMINI-EXTRACT] ❌ Extraction failed: {exc}")
-        return {"phone": caller_phone}
+        return {"phone_number": caller_phone}
 
 
 # Centralized model choice — swap here to try newer preview models.
@@ -562,7 +559,7 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
                 "caller_phone": caller_phone,
                 "call_sid":     call_sid,
                 "name":         extracted.get("name", ""),
-                "phone_number": extracted.get("phone") or caller_phone,
+                "phone_number": extracted.get("phone_number") or caller_phone,
                 "topic":        extracted.get("topic", ""),
                 "notes":        extracted.get("notes", ""),
             }
