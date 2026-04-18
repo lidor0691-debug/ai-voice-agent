@@ -309,6 +309,14 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
         system_instruction = _SYSTEM_INSTRUCTION
         print(f"[GEMINI-WS] Using hardcoded fallback prompt (no Supabase config for '{client_name}')")
 
+    # Voice: use voice_id from agent config if set, otherwise default to Zephyr
+    gemini_voice = (agent_cfg.get("voice") or "Zephyr").strip() or "Zephyr"
+    print(f"[GEMINI-WS] Voice: {gemini_voice}")
+
+    # Opening trigger: use first_message from agent config if set, otherwise default Hebrew greeting
+    opening_trigger = (agent_cfg.get("first_message") or "").strip() or "שלום"
+    print(f"[GEMINI-WS] Opening trigger: {opening_trigger!r}")
+
     if not GEMINI_API_KEY:
         print("[GEMINI-WS] ERROR: GEMINI_API_KEY is not set — closing Gemini stream")
         await twilio_ws.close()
@@ -370,7 +378,7 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
                 "response_modalities": ["AUDIO"],
                 "speech_config": {
                     "voice_config": {
-                        "prebuilt_voice_config": {"voice_name": "Zephyr"}
+                        "prebuilt_voice_config": {"voice_name": gemini_voice}
                     }
                 },
             },
@@ -400,7 +408,7 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
         # Trigger opening greeting via realtime_input (correct for gemini-3.1-flash-live-preview).
         # client_content is not supported for mid-session triggers on this model.
         await gemini_ws.send(json.dumps({
-            "realtime_input": {"text": "שלום"}
+            "realtime_input": {"text": opening_trigger}
         }))
         print("[GEMINI-WS] Opening trigger sent via realtime_input")
     except asyncio.TimeoutError:
