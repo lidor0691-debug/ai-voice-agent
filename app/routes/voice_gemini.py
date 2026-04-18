@@ -345,8 +345,11 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
         system_instruction = _SYSTEM_INSTRUCTION
         print(f"[GEMINI-WS] Prompt source: hardcoded fallback (no Supabase config for '{client_name}')")
 
-    gemini_voice = (agent_cfg.get("voice") or "Zephyr").strip() or "Zephyr"
-    print(f"[GEMINI-WS] Voice: {gemini_voice}")
+    # Valid Gemini Live prebuilt voice names — reject anything else (e.g. OpenAI leftovers)
+    _GEMINI_VALID_VOICES = {"Zephyr", "Puck", "Charon", "Kore", "Fenrir", "Aoede", "Leda", "Orus", "Schedar"}
+    _raw_voice = (agent_cfg.get("voice") or "").strip()
+    gemini_voice = _raw_voice if _raw_voice in _GEMINI_VALID_VOICES else "Zephyr"
+    print(f"[GEMINI-WS] Voice: {gemini_voice} (requested={_raw_voice!r})")
 
     opening_trigger = (agent_cfg.get("first_message") or "").strip() or "שלום"
     print(f"[GEMINI-WS] Opening trigger: {opening_trigger!r}")
@@ -422,8 +425,9 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
     _transcript_lines: list[str] = []  # accumulated conversation for post-call extraction
     _should_hangup         = False   # set when Maya signals end of call
 
-    # Phrases in Maya's output that signal the call should end
-    _HANGUP_PHRASES = ("יום טוב", "להתראות", "המשך יום", "שיהיה")
+    # Phrases in Maya's output that signal the call should end.
+    # Keep these specific — common words like "שיהיה" trigger false positives mid-conversation.
+    _HANGUP_PHRASES = ("להתראות", "המשך יום")
 
     # ── Forward Twilio audio → Gemini ─────────────────────────────────────────
     async def twilio_to_gemini_loop():
