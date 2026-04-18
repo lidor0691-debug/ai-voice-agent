@@ -96,7 +96,7 @@ _EXTRACT_PROMPT = """\
 
 _GEMINI_REST_URL = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
-    "gemini-2.0-flash-lite:generateContent?key={api_key}"
+    "gemini-2.0-flash:generateContent?key={api_key}"
 )
 
 
