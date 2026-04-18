@@ -260,6 +260,23 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
             evt = json.loads(raw)
             if evt["event"] == "start":
                 stream_sid = evt["start"]["streamSid"]
+                # Twilio strips query params from WebSocket URLs — read callSid from the start event instead
+                if not call_sid:
+                    call_sid = evt["start"].get("callSid", "")
+                    print(f"[GEMINI-WS] call_sid resolved from start event: {call_sid!r}")
+                    # Re-resolve context now that we have the real call_sid
+                    ctx          = _GEMINI_CALL_CONTEXT.get(call_sid, {})
+                    caller_phone = ctx.get("from", "")
+                    agent_cfg    = ctx.get("agent_cfg", {})
+                    webhook_url  = agent_cfg.get("webhook_url", "") or agent_cfg.get("lead_delivery_target", "")
+                    client_id    = agent_cfg.get("client_id") or None
+                    client_name  = agent_cfg.get("client_name", "")
+                    if agent_cfg.get("prompt_override") and not agent_cfg.get("fallback_used"):
+                        system_instruction = agent_cfg["prompt_override"].replace("{{caller_phone}}", caller_phone)
+                        print(f"[GEMINI-WS] Prompt updated from context: using Supabase prompt for '{client_name}'")
+                    else:
+                        system_instruction = _SYSTEM_INSTRUCTION
+                    print(f"[GEMINI-WS] Context resolved — caller={caller_phone} client='{client_name}' webhook={'yes' if webhook_url else 'no'}")
                 print(f"[GEMINI-WS] Twilio stream started — stream_sid={stream_sid}")
                 break
             elif evt["event"] == "media":
