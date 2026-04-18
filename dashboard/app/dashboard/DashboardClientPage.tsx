@@ -5,6 +5,7 @@ import { Bot, Phone, Users, Clock, ArrowRight, Plus } from "lucide-react";
 import { Header } from "@/components/layout/header";
 import { TestAgent } from "@/components/dashboard/test-agent";
 import { LeadInsightsCard } from "@/components/dashboard/lead-insights-card";
+import { InjectionEventsCard } from "@/components/dashboard/injection-events-card";
 import { useLanguage } from "@/context/language-context";
 import type { AgentConfig, CallLog } from "@/types/database";
 
@@ -13,6 +14,7 @@ interface Props {
   calls:  Pick<CallLog, "id" | "status" | "created_at">[] | null;
   knowledgeCount: number;
   insights: { insight_type: string; title: string; frequency_count: number; created_at: string }[] | null;
+  injectionEvents: { created_at: string; new_data: { client_id: string; rule_key: string; sentence: string; weight: number } }[] | null;
 }
 
 // 20 bars — mountain shape peaking around bar 6-7 and secondary peak at 12
@@ -48,7 +50,7 @@ const AGENT_GRADIENTS = [
 ];
 
 
-export function DashboardClientPage({ agents, calls, knowledgeCount, insights }: Props) {
+export function DashboardClientPage({ agents, calls, knowledgeCount, insights, injectionEvents }: Props) {
   const { t } = useLanguage();
 
   const totalAgents  = agents?.length ?? 0;
@@ -272,7 +274,10 @@ export function DashboardClientPage({ agents, calls, knowledgeCount, insights }:
         </div>
 
         {/* Lead Intelligence */}
-        <LeadInsightsCard insights={insights} />
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+          <LeadInsightsCard insights={insights} />
+          <InjectionEventsCard events={injectionEvents} />
+        </div>
 
       </div>
     </div>

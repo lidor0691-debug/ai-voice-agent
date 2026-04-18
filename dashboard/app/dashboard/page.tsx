@@ -11,7 +11,7 @@ export default async function DashboardPage() {
   const ctx = getUserContext(user);
 
   if (!ctx) {
-    return <DashboardClientPage agents={null} calls={null} knowledgeCount={0} insights={null} />;
+    return <DashboardClientPage agents={null} calls={null} knowledgeCount={0} insights={null} injectionEvents={null} />;
   }
 
   const agentQuery = client
@@ -42,12 +42,22 @@ export default async function DashboardPage() {
   if (!ctx.isAdmin) insightQuery.eq("client_id", ctx.clientId);
   const insightRes = await insightQuery;
 
+  const injectionQuery = client
+    .from("audit_logs")
+    .select("created_at, new_data")
+    .eq("table_name", "lead_intelligence_injection")
+    .order("created_at", { ascending: false })
+    .limit(10);
+  if (!ctx.isAdmin) injectionQuery.eq("new_data->>client_id", ctx.clientId);
+  const injectionRes = await injectionQuery;
+
   return (
     <DashboardClientPage
       agents={agentRes.data as Pick<AgentConfig, "id" | "agent_name" | "is_active" | "system_prompt" | "first_message" | "phone_number">[] | null}
       calls={callRes.data as Pick<CallLog, "id" | "status" | "created_at">[] | null}
       knowledgeCount={knowledgeRes.data?.length ?? 0}
       insights={insightRes.data as { insight_type: string; title: string; frequency_count: number; created_at: string }[] | null}
+      injectionEvents={injectionRes.data as { created_at: string; new_data: { client_id: string; rule_key: string; sentence: string; weight: number } }[] | null}
     />
   );
 }
