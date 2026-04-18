@@ -64,10 +64,10 @@ async def _fetch_recent_call_context(phone: str, max_age_minutes: int = 60) -> O
         if age_minutes > max_age_minutes:
             return None
         name = row.get("name") or ""
-        ctx = f"שיחה טלפונית שהתקיימה לפני {int(age_minutes)} דקות"
+        ctx = f"לפני {int(age_minutes)} דקות התקיימה שיחה טלפונית"
         if name:
             ctx += f" עם {name}"
-        ctx += f": {summary}"
+        ctx += f". מה שנאמר בשיחה: {summary}"
         return ctx
     except Exception as exc:
         logger.warning("[WHATSAPP] Failed to fetch recent call context: %s", exc)
@@ -249,9 +249,8 @@ async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: st
         recent_call_ctx = await _fetch_recent_call_context(customer_phone)
         if recent_call_ctx:
             system_content += (
-                f"\n\n---\nהֶקשר חשוב: הלקוח שיחק איתך בטלפון לאחרונה.\n"
-                f"{recent_call_ctx}\n"
-                f"המשך את השיחה מנקודה זו. אל תשאל שוב על פרטים שכבר ידועים מהשיחה הטלפונית.\n"
+                f"\n\n---\nהקשר חשוב: {recent_call_ctx}\n"
+                f"המשך את השיחה מנקודה זו. אל תשאל שוב על פרטים שכבר ידועים.\n"
                 f"תן עדיפות למידע מהשיחה הטלפונית על פני היסטוריית WhatsApp ישנה יותר.\n---"
             )
             print(f"[WHATSAPP] ✅ Injected recent call context for {customer_phone}")
