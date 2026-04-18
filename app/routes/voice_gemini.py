@@ -30,6 +30,7 @@ from twilio.twiml.voice_response import VoiceResponse, Connect
 from app.utils.audio_gemini import twilio_to_gemini, gemini_to_twilio
 from app.services.agent_config import fetch_supabase_agent_config
 from app.services.lead_capture import save_lead
+from app.integrations.twilio_client import _get_client as _get_twilio_client
 
 router = APIRouter()
 
@@ -232,7 +233,9 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
     caller_phone = ctx.get("from", "")
     agent_cfg    = ctx.get("agent_cfg", {})
 
-    webhook_url  = agent_cfg.get("webhook_url", "") or agent_cfg.get("lead_delivery_target", "")
+    # webhook_url is pre-computed in agent_config: set only when lead_delivery_method=="webhook"
+    # Do NOT fall back to lead_delivery_target — it may be a phone number (whatsapp method)
+    webhook_url  = agent_cfg.get("webhook_url", "")
     client_id    = agent_cfg.get("client_id") or None
     client_name  = agent_cfg.get("client_name", "")
 
@@ -268,7 +271,9 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
                     ctx          = _GEMINI_CALL_CONTEXT.get(call_sid, {})
                     caller_phone = ctx.get("from", "")
                     agent_cfg    = ctx.get("agent_cfg", {})
-                    webhook_url  = agent_cfg.get("webhook_url", "") or agent_cfg.get("lead_delivery_target", "")
+                    # webhook_url is pre-computed in agent_config: set only when lead_delivery_method=="webhook"
+    # Do NOT fall back to lead_delivery_target — it may be a phone number (whatsapp method)
+    webhook_url  = agent_cfg.get("webhook_url", "")
                     client_id    = agent_cfg.get("client_id") or None
                     client_name  = agent_cfg.get("client_name", "")
                     if agent_cfg.get("prompt_override") and not agent_cfg.get("fallback_used"):
@@ -488,6 +493,19 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
             await _send_gemini_webhook(webhook_url, webhook_payload)
         elif not webhook_url:
             print("[GEMINI-WEBHOOK] ⚠️  No webhook URL in agent config — skipping")
+
+        # ── Hang up Twilio call via REST API ─────────────────────────────────
+        # Closing the WebSocket alone does not always terminate the Twilio call.
+        # Explicitly end it via the REST API so the caller is disconnected.
+        if call_sid:
+            try:
+                twilio_client = _get_twilio_client()
+                await asyncio.to_thread(
+                    lambda: twilio_client.calls(call_sid).update(status="completed")
+                )
+                print(f"[GEMINI-HANGUP] ✅ Twilio call {call_sid} terminated via REST API")
+            except Exception as exc:
+                print(f"[GEMINI-HANGUP] ⚠️  Could not terminate call via REST: {exc}")
 
         # ── Context cleanup ───────────────────────────────────────────────────
         _GEMINI_CALL_CONTEXT.pop(call_sid, None)
