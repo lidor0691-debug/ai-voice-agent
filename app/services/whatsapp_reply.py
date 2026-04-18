@@ -299,6 +299,36 @@ async def _maybe_inject_sentence(reply: str, client_id: str, history: list[dict]
         return reply
 
     logger.info("[INJECTION] appending sentence (weight=%d)", best_weight)
+
+    # Fire-and-forget audit record — never blocks reply
+    try:
+        _rule_key = next(
+            (r["keywords"][0] for r in _INJECTION_RULES if r["sentence"] == best_sentence),
+            "unknown",
+        )
+        async with httpx.AsyncClient(timeout=3.0) as _ac:
+            await _ac.post(
+                f"{_SUPABASE_URL}/rest/v1/audit_logs",
+                headers={
+                    "apikey": _SUPABASE_SERVICE_KEY,
+                    "Authorization": f"Bearer {_SUPABASE_SERVICE_KEY}",
+                    "Content-Type": "application/json",
+                    "Prefer": "return=minimal",
+                },
+                json={
+                    "table_name": "lead_intelligence_injection",
+                    "action":     "inject",
+                    "new_data": {
+                        "client_id": client_id,
+                        "rule_key":  _rule_key,
+                        "sentence":  best_sentence,
+                        "weight":    best_weight,
+                    },
+                },
+            )
+    except Exception as _ae:
+        logger.warning("[INJECTION] audit write failed: %s", _ae)
+
     return reply.rstrip() + "\n\n" + best_sentence
 
 
