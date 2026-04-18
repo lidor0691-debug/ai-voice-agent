@@ -54,6 +54,47 @@ export function LeadInsightsCard({ insights }: Props) {
     return acc;
   }, {});
 
+  // --- Suggested Actions (deterministic rules) ---
+  // Each rule checks the clean insight list and fires when a pattern is detected.
+  // "weight" = sum of frequency_count for matching rows (0 = no match).
+  const totalFreq = (keywords: string[], types?: string[]) =>
+    clean
+      .filter((r) => {
+        const matchType = !types || types.includes(r.insight_type);
+        const matchKw = keywords.some((kw) => r.title.includes(kw));
+        return matchType && matchKw;
+      })
+      .reduce((sum, r) => sum + r.frequency_count, 0);
+
+  const RULES: { label: string; weight: number }[] = [
+    {
+      label: "לידים שואלים על מחיר — הוסף/הבהר מחיר מוקדם יותר בשיחה",
+      weight: totalFreq(["מחיר", "עולה", "כמה", "תמחור"], ["question", "objection"]),
+    },
+    {
+      label: "לידים מהססים — הוסף מסר ביטחון או טיימינג ל-follow-up",
+      weight: totalFreq(["לחשוב", "לא בטוח", "אולי", "נחזור", "מאוחר יותר"], ["objection"]),
+    },
+    {
+      label: "עניין חוזר בבת מצווה — הדגש את החבילה לבת מצווה בהצעה הראשונה",
+      weight: totalFreq(["בת מצווה"], ["intent_signal", "interest", "question"]),
+    },
+    {
+      label: "לידים ללא ניסיון — הדגש התאמה למתחילים ותהליך הכניסה",
+      weight: totalFreq(["ניסיון", "מתחיל", "לא יודע", "לא מכיר"], ["intent_signal", "question"]),
+    },
+    {
+      label: "שאלות חוזרות על תיאום — שפר את תהליך קביעת הפגישה בשיחה",
+      weight: totalFreq(["תאריך", "שעה", "יום", "קבענו", "לתאם"], ["question"]),
+    },
+  ];
+
+  const suggestions = RULES
+    .filter((r) => r.weight > 0)
+    .sort((a, b) => b.weight - a.weight)
+    .slice(0, 3);
+  // --- end rules ---
+
   return (
     <div className="card p-4">
       <div className="flex items-center justify-between mb-3">
@@ -73,6 +114,20 @@ export function LeadInsightsCard({ insights }: Props) {
           לידים <ArrowRight className="w-3 h-3" />
         </Link>
       </div>
+
+      {suggestions.length > 0 && (
+        <div className="mb-4 rounded-[10px] border border-border p-3" style={{ background: "rgba(167,139,250,0.05)" }}>
+          <p className="text-[10px] font-semibold text-brand-400 mb-2">פעולות מוצעות</p>
+          <div className="flex flex-col gap-1.5">
+            {suggestions.map((s, i) => (
+              <div key={i} className="flex items-start gap-2">
+                <span className="text-brand-400 text-[10px] mt-0.5 flex-shrink-0">→</span>
+                <span className="text-gray-300 text-[11px] leading-snug">{s.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
         {Object.entries(grouped).map(([type, rows]) => {
