@@ -6,13 +6,14 @@ import { Archive } from "lucide-react";
 import { AgentConfig } from "@/types/database";
 import { AgentForm } from "./agent-form";
 import { ClientAssetsTab } from "./client-assets-tab";
+import { LiveVoicePanel } from "./live-voice-panel";
 import { useLanguage } from "@/context/language-context";
 
 interface Props {
   agent: AgentConfig;
 }
 
-type Tab = "settings" | "assets";
+type Tab = "settings" | "assets" | "voice";
 
 export function AgentPageTabs({ agent }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>("settings");
@@ -54,6 +55,16 @@ export function AgentPageTabs({ agent }: Props) {
             >
               {t.tab_assets}
             </button>
+            <button
+              onClick={() => setActiveTab("voice")}
+              className={`px-4 py-2.5 text-sm font-medium rounded-t-lg transition-colors border-b-2 -mb-px ${
+                activeTab === "voice"
+                  ? "text-white border-brand-600 bg-surface-2"
+                  : "text-gray-500 border-transparent hover:text-gray-300"
+              }`}
+            >
+              Live Voice
+            </button>
           </div>
           <button
             onClick={handleArchive}
@@ -72,6 +83,9 @@ export function AgentPageTabs({ agent }: Props) {
       )}
       {activeTab === "assets" && (
         <ClientAssetsTab clientId={agent.client_id ?? ""} />
+      )}
+      {activeTab === "voice" && (
+        <LiveVoicePanel agentId={agent.id} />
       )}
     </div>
   );

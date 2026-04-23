@@ -470,3 +470,96 @@ async def fetch_supabase_agent_config(to_number: str) -> dict:
         "_from_supabase":        True,
         "fallback_used":         False,
     }
+
+
+# ── Fetch by agent ID (for browser-based live voice) ────────────────────────
+
+async def fetch_agent_config_by_id(agent_id: str) -> dict:
+    """
+    Fetch an agent from Supabase by its UUID primary key.
+
+    Returns the same dict shape as fetch_supabase_agent_config().
+    On any failure returns _AGENT_SAFE_DEFAULT with fallback_used=True.
+    """
+    if not _is_configured():
+        logger.warning("Supabase not configured — using safe default")
+        return _AGENT_SAFE_DEFAULT
+
+    if not agent_id:
+        logger.warning("fetch_agent_config_by_id called with empty agent_id — using safe default")
+        return _AGENT_SAFE_DEFAULT
+
+    try:
+        base_url = f"{_SUPABASE_URL}/rest/v1/agents_config"
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(
+                base_url,
+                params={"id": f"eq.{agent_id}", "is_active": "eq.true", "limit": "1"},
+                headers=_headers(),
+            )
+            resp.raise_for_status()
+            rows = resp.json()
+        if not rows:
+            logger.info("No Supabase agent found for id=%s — using safe default", agent_id)
+            return _AGENT_SAFE_DEFAULT
+        row = rows[0]
+    except Exception as exc:
+        logger.error("Supabase agent lookup failed for id=%s: %s — using safe default", agent_id, exc)
+        return _AGENT_SAFE_DEFAULT
+
+    logger.info(
+        "Supabase agent found by id: '%s' (id=%s)",
+        row.get("agent_name"), row.get("id"),
+    )
+
+    # Fetch knowledge items (best-effort)
+    try:
+        knowledge_items = await _fetch_knowledge_items(row["id"])
+        logger.info("  knowledge items: %d", len(knowledge_items))
+    except Exception as exc:
+        logger.warning("Failed to fetch knowledge items for agent %s: %s", row["id"], exc)
+        knowledge_items = []
+
+    prompt_template = build_supabase_system_prompt(row, knowledge_items, caller_phone="{{caller_phone}}")
+
+    agent_name    = (row.get("agent_name") or "Maya").strip()
+    business_name = (row.get("business_name") or agent_name).strip()
+    first_message = (row.get("first_message") or "").strip()
+    voice         = _resolve_voice(row)
+
+    # Lead delivery
+    lead_delivery_method = (row.get("lead_delivery_method") or "").strip()
+    lead_delivery_target = (row.get("lead_delivery_target") or "").strip()
+    legacy_webhook       = (row.get("post_call_webhook_url") or "").strip()
+
+    if not lead_delivery_target and legacy_webhook:
+        lead_delivery_method = "webhook"
+        lead_delivery_target = legacy_webhook
+
+    return {
+        # Identity
+        "agent_id":              row.get("id", ""),
+        "client_id":             row.get("client_id", ""),
+        "business_name":         business_name,
+        "client_name":           agent_name,
+        "assistant_name":        agent_name,
+        # Voice / model
+        "voice":                 voice,
+        "temperature":           float(row.get("temperature") or 0.7),
+        # Conversation
+        "prompt_override":       prompt_template,
+        "first_message":         first_message,
+        # Lead delivery
+        "lead_delivery_method":  lead_delivery_method,
+        "lead_delivery_target":  lead_delivery_target,
+        "webhook_url":           lead_delivery_target if lead_delivery_method == "webhook" else "",
+        # WhatsApp channel
+        "whatsapp_enabled":          bool(row.get("whatsapp_enabled") or False),
+        "whatsapp_number":           (row.get("whatsapp_number") or "").strip(),
+        "whatsapp_followup_enabled": bool(row.get("whatsapp_followup_enabled") or False),
+        "whatsapp_followup_type":    (row.get("whatsapp_followup_type") or "none").strip(),
+        "whatsapp_followup_template":(row.get("whatsapp_followup_template") or "").strip(),
+        # Meta
+        "_from_supabase":        True,
+        "fallback_used":         False,
+    }

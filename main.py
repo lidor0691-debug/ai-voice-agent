@@ -49,6 +49,7 @@ from dotenv import load_dotenv
 load_dotenv()  # must run before any os.getenv() calls in imported modules
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from app.routes.voice_realtime import router as voice_ai_router
 from app.routes.assets import router as assets_router
 from app.routes.agent_config_api import router as agent_config_router
@@ -60,8 +61,20 @@ from app.routes.test_call import router as test_call_router
 from app.routes.voice_gemini import router as voice_gemini_router
 from app.routes.lead_intelligence_api import router as lead_intelligence_router
 from app.routes.appointment_followup_api import router as appointment_followup_router
+from app.routes.maya_tts import router as maya_tts_router
+from app.routes.maya_nlu import router as maya_nlu_router
+from app.routes.maya_insight import router as maya_insight_router
+from app.routes.maya_stt import router as maya_stt_router
+from app.routes.voice_browser import router as voice_browser_router
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # כאן היה חסר ה-prefix! עכשיו הוספנו אותו
 app.include_router(voice_ai_router, prefix="/voice-ai")
@@ -75,6 +88,15 @@ app.include_router(test_call_router)
 app.include_router(voice_gemini_router, prefix="/voice-ai")  # Gemini Live POC
 app.include_router(lead_intelligence_router)
 app.include_router(appointment_followup_router)
+app.include_router(maya_tts_router)
+app.include_router(maya_nlu_router)
+app.include_router(maya_insight_router)
+app.include_router(maya_stt_router)
+app.include_router(voice_browser_router)
+
+# Serve mockup files for development
+from fastapi.staticfiles import StaticFiles
+app.mount("/mockup", StaticFiles(directory=".superpowers/brainstorm/142-1776577129/content", html=True), name="mockup")
 
 @app.get("/")
 def root():
