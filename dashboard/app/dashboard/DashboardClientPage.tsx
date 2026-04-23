@@ -7,6 +7,7 @@ import { TestAgent } from "@/components/dashboard/test-agent";
 import { LeadInsightsCard } from "@/components/dashboard/lead-insights-card";
 import { InjectionEventsCard } from "@/components/dashboard/injection-events-card";
 import { WinSignalsCard } from "@/components/dashboard/win-signals-card";
+import { DashboardAssistant } from "@/components/dashboard/dashboard-assistant";
 import { useLanguage } from "@/context/language-context";
 import type { AgentConfig, CallLog } from "@/types/database";
 
@@ -72,6 +73,9 @@ export function DashboardClientPage({ agents, calls, knowledgeCount, insights, i
       <Header title={t.page_dashboard_title} subtitle={t.page_dashboard_subtitle} />
 
       <div className="p-5 space-y-4 bg-surface-0 min-h-full">
+
+        {/* Maya Assistant */}
+        <DashboardAssistant defaultAgentId={agents?.[0]?.id ?? null} />
 
         {/* KPI Row */}
         <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">

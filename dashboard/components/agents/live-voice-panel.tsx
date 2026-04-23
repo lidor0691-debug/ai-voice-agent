@@ -18,10 +18,20 @@ interface TranscriptEntry {
 
 interface Props {
   agentId: string;
+  mode?: "preview" | "assistant";
+  onUiAction?: (action: string, target: string) => void;
 }
 
-const STATE_LABELS: Record<VoiceState, string> = {
-  disconnected: "התחל שיחה עם Maya",
+const PREVIEW_LABELS: Record<VoiceState, string> = {
+  disconnected: "בדוק את הסוכן",
+  connecting: "מתחברת...",
+  listening: "מקשיבה...",
+  thinking: "חושבת...",
+  speaking: "מדברת...",
+};
+
+const ASSISTANT_LABELS: Record<VoiceState, string> = {
+  disconnected: "דבר עם מאיה",
   connecting: "מתחברת...",
   listening: "מקשיבה...",
   thinking: "חושבת...",
@@ -51,16 +61,17 @@ function base64ToInt16(base64: string): Int16Array {
   return new Int16Array(bytes.buffer);
 }
 
-function buildWsUrl(agentId: string): string {
+function buildWsUrl(agentId: string, mode: string): string {
   const apiBase =
     process.env.NEXT_PUBLIC_API_BASE_URL ||
     "http://localhost:8000";
   const wsBase = apiBase.replace(/^http/, "ws");
-  return `${wsBase}/ws/voice-browser?agent_id=${agentId}`;
+  return `${wsBase}/ws/voice-browser?agent_id=${agentId}&mode=${mode}`;
 }
 
 // ── Component ───────────────────────────────────────────────────────────────
-export function LiveVoicePanel({ agentId }: Props) {
+export function LiveVoicePanel({ agentId, mode = "preview", onUiAction }: Props) {
+  const stateLabels = mode === "assistant" ? ASSISTANT_LABELS : PREVIEW_LABELS;
   const [state, setState] = useState<VoiceState>("disconnected");
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [showTranscript, setShowTranscript] = useState(false);
@@ -184,7 +195,7 @@ export function LiveVoicePanel({ agentId }: Props) {
       // workletNode intentionally not connected to destination (no local echo)
 
       // 5. Connect WebSocket
-      const wsUrl = buildWsUrl(agentId);
+      const wsUrl = buildWsUrl(agentId, mode);
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
@@ -236,6 +247,10 @@ export function LiveVoicePanel({ agentId }: Props) {
             }
             break;
 
+          case "ui_action":
+            if (onUiAction) onUiAction(msg.action, msg.target);
+            break;
+
           case "error":
             console.error("[LiveVoice] Server error:", msg.message);
             cleanup();
@@ -250,7 +265,7 @@ export function LiveVoicePanel({ agentId }: Props) {
       console.error("[LiveVoice] Start failed:", err);
       cleanup();
     }
-  }, [agentId, cleanup, clearPlayback, playAudioChunk]);
+  }, [agentId, mode, cleanup, clearPlayback, playAudioChunk, onUiAction]);
 
   // ── End call ──────────────────────────────────────────────────────────
   const endCall = useCallback(() => {
@@ -260,15 +275,13 @@ export function LiveVoicePanel({ agentId }: Props) {
     cleanup();
   }, [cleanup]);
 
-  const isActive = state !== "disconnected" && state !== "connecting";
-
   return (
     <div className="p-8" dir="rtl">
       <div className="max-w-lg mx-auto">
         {/* State indicator */}
         <div className="flex flex-col items-center gap-4 py-8">
           <div className={`w-4 h-4 rounded-full ${STATE_COLORS[state]}`} />
-          <p className="text-white text-sm font-medium">{STATE_LABELS[state]}</p>
+          <p className="text-white text-sm font-medium">{stateLabels[state]}</p>
         </div>
 
         {/* Controls */}
@@ -279,7 +292,7 @@ export function LiveVoicePanel({ agentId }: Props) {
               className="flex items-center gap-2 px-6 py-3 bg-brand-600 hover:bg-brand-500 text-white rounded-xl font-medium transition-colors"
             >
               <Mic className="w-5 h-5" />
-              התחל שיחה
+              {mode === "assistant" ? "דבר עם מאיה" : "בדוק את הסוכן"}
             </button>
           ) : (
             <button
@@ -292,6 +305,13 @@ export function LiveVoicePanel({ agentId }: Props) {
             </button>
           )}
         </div>
+
+        {/* Preview disclaimer */}
+        {mode === "preview" && (
+          <p className="text-center text-gray-600 text-[11px] mt-4">
+            שיחה זו היא לבדיקה בלבד — לא נשמרים לידים ולא נשלחות פעולות
+          </p>
+        )}
 
         {/* Transcript (collapsed by default) */}
         {transcript.length > 0 && (

@@ -20,6 +20,12 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
 from app.services.agent_config import fetch_agent_config_by_id
 from app.services.voice_shared import extract_lead_from_transcript, send_voice_webhook
 from app.services.lead_capture import save_lead
+from app.services.dashboard_snapshot import (
+    fetch_dashboard_snapshot,
+    fetch_leads_detail,
+    fetch_calls_detail,
+    fetch_daily_summary,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -60,16 +66,62 @@ def _is_meaningful_transcript(lines: list[str]) -> bool:
     return True
 
 
+# ── Assistant mode ───────────────────────────────────────────────────────────
+
+_ASSISTANT_PROMPT = """\
+את מאיה, עוזרת ניהולית חכמה של בעל העסק.
+את מדברת בעברית טבעית, ישירה ומקצועית.
+
+התפקיד שלך:
+- לעזור לבעל העסק להבין מה קורה בעסק שלו
+- להמליץ מה הפעולה הבאה הכי חשובה
+- לענות על שאלות על לידים, שיחות, ומצב המכירות
+- להיות ממוקדת ותכליתית — לא להרצות
+
+כללים:
+- תמיד תענה בקצרה (2-3 משפטים)
+- אם יש data — תשתמש בו. אם אין — תגיד שאין מידע זמין
+- אם מבקשים לראות משהו — תגיד "פותחת לך" ואז תפעלי
+- לא לבצע פעולות אמיתיות (שליחת הודעות, שיחות)
+- את לא סוכן מכירות — את עוזרת ניהולית
+- אל תמציאי נתונים. אם לא קיבלת data — תגידי שאין
+
+{snapshot}
+"""
+
+_INTENT_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "leads": ("לידים", "ליד", "חמים", "דחוף", "לקוחות", "פניות"),
+    "calls": ("שיחות", "שיחה", "טלפון", "התקשרו"),
+    "summary": ("סיכום", "מה קרה", "מה המצב", "מה חדש", "עדכון"),
+}
+
+_INTENT_UI_ACTIONS: dict[str, dict] = {
+    "leads": {"action": "open_tab", "target": "leads"},
+    "calls": {"action": "open_tab", "target": "calls"},
+}
+
+_INJECTION_COOLDOWN_S = 10
+
+
+def _detect_intent(text: str) -> str | None:
+    """Detect intent from user transcript text."""
+    for intent, keywords in _INTENT_KEYWORDS.items():
+        if any(kw in text for kw in keywords):
+            return intent
+    return None
+
+
 # ── WebSocket endpoint ───────────────────────────────────────────────────────
 
 @router.websocket("/ws/voice-browser")
-async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default="")):
+async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""), mode: str = Query(default="preview")):
     """
     Proxy WebSocket: Browser <-> Gemini Live.
     Accepts PCM16 16kHz from browser, forwards to Gemini, returns PCM16 24kHz.
     """
     await browser_ws.accept()
-    logger.info("[BROWSER-WS] Connection accepted - agent_id=%s", agent_id)
+    is_preview = (mode == "preview")
+    logger.info("[BROWSER-WS] Connection accepted - agent_id=%s mode=%s", agent_id, mode)
 
     # ── Validate prerequisites ───────────────────────────────────────────
     if not _GEMINI_API_KEY:
@@ -93,13 +145,21 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
     first_message = (agent_cfg.get("first_message") or "").strip()
 
     # ── Build system instruction ─────────────────────────────────────────
-    system_instruction = agent_cfg.get("prompt_override", "")
-    if first_message and system_instruction:
-        system_instruction = (
-            f'פתחי את השיחה תמיד עם המשפט הבא בדיוק:\n'
-            f'"{first_message}"\n\n'
-            f'{system_instruction}'
-        )
+    if is_preview:
+        # Preview mode: use agent's customer-facing prompt
+        system_instruction = agent_cfg.get("prompt_override", "")
+        if first_message and system_instruction:
+            system_instruction = (
+                f'פתחי את השיחה תמיד עם המשפט הבא בדיוק:\n'
+                f'"{first_message}"\n\n'
+                f'{system_instruction}'
+            )
+    else:
+        # Assistant mode: dashboard assistant prompt with live data snapshot
+        snapshot = await fetch_dashboard_snapshot(client_id)
+        system_instruction = _ASSISTANT_PROMPT.replace("{snapshot}", snapshot)
+        first_message = ""  # assistant doesn't use agent's first_message
+        logger.info("[BROWSER-WS] Assistant mode - snapshot loaded (%d chars)", len(snapshot))
 
     # ── Resolve voice ────────────────────────────────────────────────────
     raw_voice = (agent_cfg.get("voice") or "").strip()
@@ -168,6 +228,11 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
     transcript_lines: list[str] = []
     _speaking = False
     _shutdown = asyncio.Event()  # signals all loops to exit
+    _turn_count = 0
+    # Injection guards (assistant mode only)
+    _last_injected_intent: str | None = None
+    _last_injection_time: float = 0
+    _last_injection_turn: int = 0
 
     # ── Browser -> Gemini loop ───────────────────────────────────────────
     async def browser_to_gemini():
@@ -202,7 +267,7 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
 
     # ── Gemini -> Browser loop ───────────────────────────────────────────
     async def gemini_to_browser():
-        nonlocal _speaking
+        nonlocal _speaking, _turn_count, _last_injected_intent, _last_injection_time, _last_injection_turn
 
         try:
             async for raw in gemini_ws:
@@ -226,6 +291,47 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
                         "type": "transcript_in",
                         "text": input_t["text"],
                     })
+
+                    # ── Data injection (assistant mode only) ─────────
+                    if not is_preview:
+                        detected = _detect_intent(input_t["text"])
+                        now = asyncio.get_event_loop().time()
+                        if (
+                            detected
+                            and (
+                                detected != _last_injected_intent
+                                or now - _last_injection_time > _INJECTION_COOLDOWN_S
+                                or _turn_count != _last_injection_turn
+                            )
+                        ):
+                            _last_injected_intent = detected
+                            _last_injection_time = now
+                            _last_injection_turn = _turn_count
+
+                            if detected == "leads":
+                                injection = await fetch_leads_detail(client_id)
+                            elif detected == "calls":
+                                injection = await fetch_calls_detail(client_id)
+                            elif detected == "summary":
+                                injection = await fetch_daily_summary(client_id)
+                            else:
+                                injection = None
+
+                            if injection:
+                                await gemini_ws.send(json.dumps({
+                                    "realtime_input": {"text": injection}
+                                }))
+                                logger.info(
+                                    "[BROWSER-WS] Injected %s data (%d chars)",
+                                    detected, len(injection),
+                                )
+
+                            ui = _INTENT_UI_ACTIONS.get(detected)
+                            if ui:
+                                await browser_ws.send_json({
+                                    "type": "ui_action",
+                                    **ui,
+                                })
 
                 # Output transcript
                 output_t = server_content.get("outputTranscription", {})
@@ -258,6 +364,7 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
                 # Turn complete
                 if server_content.get("turnComplete"):
                     _speaking = False
+                    _turn_count += 1
                     await browser_ws.send_json({"type": "turn_complete"})
                     await browser_ws.send_json({
                         "type": "state",
@@ -297,8 +404,10 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
     finally:
         logger.info("[BROWSER-WS] Session ended - cleanup")
 
-        # ── Lead extraction (only for meaningful transcripts) ────────────
-        if _is_meaningful_transcript(transcript_lines):
+        # ── Lead extraction (skipped in preview mode) ───────────────────
+        if is_preview:
+            logger.info("[BROWSER-WS] Preview mode - skipping lead extraction/save/webhook")
+        elif _is_meaningful_transcript(transcript_lines):
             transcript_text = "\n".join(transcript_lines)
             logger.info(
                 "[BROWSER-WS] Extracting lead from %d transcript lines",
