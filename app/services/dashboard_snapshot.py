@@ -145,6 +145,60 @@ async def _snapshot_agents(client_id: str | None) -> str:
     return "\n".join(lines)
 
 
+# ── Business context (from knowledge_items with category "Business Context") ─
+
+_BUSINESS_CONTEXT_FALLBACK = """\
+עסק כללי. אין מידע ספציפי על סוג העסק.
+תתייחסי ללידים ושיחות באופן כללי."""
+
+
+async def fetch_business_context(agent_ids: list[str]) -> str:
+    """
+    Fetch knowledge items with category 'Business Context' for given agents.
+    Returns formatted text for prompt injection.
+    """
+    if not _is_configured() or not agent_ids:
+        return _BUSINESS_CONTEXT_FALLBACK
+
+    try:
+        # Fetch all business context items for all active agents
+        all_contexts = []
+        for agent_id in agent_ids:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(
+                    f"{_SUPABASE_URL}/rest/v1/knowledge_items",
+                    params={
+                        "agent_id": f"eq.{agent_id}",
+                        "category": "eq.Business Context",
+                        "is_active": "eq.true",
+                        "select": "title,content,agents_config(agent_name)",
+                    },
+                    headers=_headers(),
+                )
+                resp.raise_for_status()
+                rows = resp.json()
+                for r in rows:
+                    agent_name = ""
+                    ac = r.get("agents_config")
+                    if isinstance(ac, dict):
+                        agent_name = ac.get("agent_name", "")
+                    elif isinstance(ac, list) and ac:
+                        agent_name = ac[0].get("agent_name", "")
+                    title = r.get("title") or ""
+                    content = r.get("content") or ""
+                    if content:
+                        all_contexts.append(f"[{agent_name}] {title}\n{content}")
+
+        if not all_contexts:
+            return _BUSINESS_CONTEXT_FALLBACK
+
+        return "━━ הכרת העסקים ━━\n" + "\n\n".join(all_contexts)
+
+    except Exception as exc:
+        logger.warning("[SNAPSHOT] business context fetch failed: %s", exc)
+        return _BUSINESS_CONTEXT_FALLBACK
+
+
 # ── Live data queries (for mid-conversation injection) ───────────────────────
 
 async def fetch_leads_detail(client_id: str | None) -> str:

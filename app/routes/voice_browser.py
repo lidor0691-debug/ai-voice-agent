@@ -24,6 +24,7 @@ from app.services.voice_shared import extract_lead_from_transcript, send_voice_w
 from app.services.lead_capture import save_lead
 from app.services.dashboard_snapshot import (
     fetch_dashboard_snapshot,
+    fetch_business_context,
     fetch_leads_detail,
     fetch_calls_detail,
     fetch_daily_summary,
@@ -114,6 +115,12 @@ _ASSISTANT_PROMPT = """\
 אחרי שענית — תזרקי follow-up טבעי כשמתאים:
 "רוצה שניכנס לזה?" / "נבדוק את זה יחד?" / "אפשר גם להסתכל על..."
 לא תמיד — רק כשיש באמת לאן להמשיך.
+
+━━ הכרת העסק ━━
+את מכירה את העסקים שאת עובדת איתם (ראי למטה).
+כשאת נותנת המלצות — את מתאימה אותן לסוג העסק.
+מה נחשב ליד חם, מה חשוב למכירה, איזה follow-up נכון — משתנה לפי העסק.
+אם אין לך מידע ספציפי על עסק — תתייחסי באופן כללי.
 
 ━━ ניווט ━━
 כשמבקשים לראות משהו — תגידי "פותחת" ותפתחי.
@@ -233,9 +240,13 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
         # Assistant mode: dashboard assistant prompt with live data snapshot
         # Pass None to get ALL agents/leads (not filtered by single client)
         snapshot = await fetch_dashboard_snapshot(None)
-        system_instruction = _ASSISTANT_PROMPT.replace("{snapshot}", snapshot)
+        # Load business context from knowledge_items for all active agents
+        all_agent_ids = list(_agent_name_map.values())
+        biz_context = await fetch_business_context(all_agent_ids)
+        full_context = f"{biz_context}\n\n{snapshot}" if biz_context else snapshot
+        system_instruction = _ASSISTANT_PROMPT.replace("{snapshot}", full_context)
         first_message = ""  # assistant doesn't use agent's first_message — greeting is in prompt
-        logger.info("[BROWSER-WS] Assistant mode - snapshot loaded (%d chars)", len(snapshot))
+        logger.info("[BROWSER-WS] Assistant mode - snapshot loaded (%d chars), biz context (%d chars)", len(snapshot), len(biz_context))
 
     # ── Resolve voice ────────────────────────────────────────────────────
     raw_voice = (agent_cfg.get("voice") or "").strip()
