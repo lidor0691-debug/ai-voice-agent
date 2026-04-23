@@ -354,6 +354,7 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
     _last_injection_turn: int = 0
     _input_buffer: list[str] = []  # accumulates input transcript fragments per turn
     _output_buffer: list[str] = []  # accumulates output transcript fragments per turn
+    _user_approved_draft = False  # tracks if user approved message drafting this turn
 
     # ── Browser -> Gemini loop ───────────────────────────────────────────
     async def browser_to_gemini():
@@ -388,7 +389,7 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
 
     # ── Gemini -> Browser loop ───────────────────────────────────────────
     async def gemini_to_browser():
-        nonlocal _speaking, _turn_count, _last_injected_intent, _last_injection_time, _last_injection_turn
+        nonlocal _speaking, _turn_count, _last_injected_intent, _last_injection_time, _last_injection_turn, _user_approved_draft
 
         try:
             async for raw in gemini_ws:
@@ -418,6 +419,12 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
                     if not is_preview:
                         _input_buffer.append(input_t["text"])
                         combined_input = " ".join(_input_buffer)
+
+                        # Detect user approving a message draft
+                        _DRAFT_APPROVAL_KW = ("כן", "תכיני", "הכיני", "תנסחי", "נסחי", "הודעה", "תכתבי")
+                        if any(kw in combined_input for kw in _DRAFT_APPROVAL_KW):
+                            _user_approved_draft = True
+
                         detected = _detect_intent(combined_input)
                         if detected:
                             logger.info("[BROWSER-WS] Intent detected: %s from '%s'", detected, combined_input[:60])
@@ -545,6 +552,36 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
                                             "[BROWSER-WS] Sent ui_action: %s -> %s",
                                             ui.get("action"), ui.get("target"),
                                         )
+
+                    # ── Action proposal (draft message) ─────────────
+                    if not is_preview and _user_approved_draft and _output_buffer:
+                        full_out = " ".join(_output_buffer)
+                        # Look for drafted message content — Maya typically includes the message text
+                        # Extract lead name from recent transcript context
+                        _lead_name = ""
+                        for _tl in reversed(transcript_lines[-10:]):
+                            if "מאיה:" in _tl:
+                                for _aname_key in ("משה", "רחל", "יוסי", "דניאל", "שרה", "תמר", "לידור", "מאיה"):
+                                    if _aname_key in _tl:
+                                        _lead_name = _aname_key
+                                        break
+                            if _lead_name:
+                                break
+
+                        if len(full_out) > 20:  # Maya actually drafted something
+                            await browser_ws.send_json({
+                                "type": "action_proposal",
+                                "action": "prepare_followup_message",
+                                "status": "draft_only",
+                                "lead_name": _lead_name or "ליד",
+                                "channel": "whatsapp",
+                                "message": full_out.strip(),
+                            })
+                            logger.info(
+                                "[BROWSER-WS] Sent action_proposal: prepare_followup_message for '%s'",
+                                _lead_name or "unknown",
+                            )
+                        _user_approved_draft = False
 
                     _input_buffer.clear()
                     _output_buffer.clear()
