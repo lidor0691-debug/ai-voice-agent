@@ -10,7 +10,7 @@ HISTORY_LIMIT = int(os.getenv("AGENT_CONVERSATION_HISTORY_LIMIT", "20"))
 
 
 def _get_client() -> Client:
-    return create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_ANON_KEY"])
+    return create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_KEY"])
 
 
 class ConversationStore:

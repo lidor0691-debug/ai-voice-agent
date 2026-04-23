@@ -67,7 +67,7 @@ export function LeadInsightsCard({ insights }: Props) {
       })
       .reduce((sum, r) => sum + r.frequency_count, 0);
 
-  const RULES: { label: string; weight: number }[] = [
+  const SUGGESTION_RULES: { label: string; weight: number }[] = [
     {
       label: "לידים שואלים על מחיר — הוסף/הבהר מחיר מוקדם יותר בשיחה",
       weight: totalFreq(["מחיר", "עולה", "כמה", "תמחור"], ["question", "objection"]),
@@ -90,7 +90,7 @@ export function LeadInsightsCard({ insights }: Props) {
     },
   ];
 
-  const suggestions = RULES
+  const suggestions = SUGGESTION_RULES
     .filter((r) => r.weight > 0)
     .sort((a, b) => b.weight - a.weight)
     .slice(0, 3);

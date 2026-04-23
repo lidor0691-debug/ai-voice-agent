@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { getUserContext } from "@/lib/user-context";
 import { AgentConfig, CallLog } from "@/types/database";
 import { DashboardClientPage } from "./DashboardClientPage";
@@ -32,7 +33,8 @@ export default async function DashboardPage() {
         .limit(10)
     : { data: [] };
 
-  const knowledgeRes = await client.from("knowledge_items").select("id, is_active");
+  const admin = createSupabaseAdminClient();
+  const knowledgeRes = await admin.from("knowledge_items").select("id, is_active");
 
   const insightQuery = client
     .from("lead_intelligence_insights")

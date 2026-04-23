@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { getUserContext } from "@/lib/user-context";
 import { KnowledgeItem } from "@/types/database";
 
@@ -8,14 +9,16 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const client = await createSupabaseServerClient();
-  const { data: { user } } = await client.auth.getUser();
+  const authClient = await createSupabaseServerClient();
+  const { data: { user } } = await authClient.auth.getUser();
   const ctx = getUserContext(user);
   if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const body = (await req.json()) as Partial<KnowledgeItem>;
 
+  const admin = createSupabaseAdminClient();
+
   if (!ctx.isAdmin) {
-    const { data: existing, error: fetchError } = await client
+    const { data: existing, error: fetchError } = await admin
       .from("knowledge_items")
       .select("agents_config(client_id)")
       .eq("id", id)
@@ -27,7 +30,7 @@ export async function PATCH(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const { data, error } = await client
+  const { data, error } = await admin
     .from("knowledge_items")
     .update(body)
     .eq("id", id)
@@ -43,13 +46,15 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const client = await createSupabaseServerClient();
-  const { data: { user } } = await client.auth.getUser();
+  const authClient = await createSupabaseServerClient();
+  const { data: { user } } = await authClient.auth.getUser();
   const ctx = getUserContext(user);
   if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  const admin = createSupabaseAdminClient();
+
   if (!ctx.isAdmin) {
-    const { data: existing, error: fetchError } = await client
+    const { data: existing, error: fetchError } = await admin
       .from("knowledge_items")
       .select("agents_config(client_id)")
       .eq("id", id)
@@ -61,7 +66,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const { error } = await client
+  const { error } = await admin
     .from("knowledge_items")
     .delete()
     .eq("id", id);
