@@ -65,7 +65,7 @@ async def fetch_dashboard_snapshot(client_id: str | None) -> str:
 async def _snapshot_leads(client_id: str | None) -> str:
     """Top 5 recent leads with status."""
     params: dict = {
-        "select": "name,phone,status,last_call_topic,last_call_at",
+        "select": "name,phone,status,source,last_call_topic,last_call_at",
         "order": "last_call_at.desc.nullslast",
         "limit": "5",
     }
@@ -81,14 +81,17 @@ async def _snapshot_leads(client_id: str | None) -> str:
         resp.raise_for_status()
         rows = resp.json()
 
+    _SOURCE_LABELS = {"voice": "שיחה", "whatsapp": "וואטסאפ", "browser_voice": "דשבורד", "web": "אתר"}
     new_count = sum(1 for r in rows if r.get("status") == "new")
     lines = [f"לידים: {len(rows)} אחרונים, {new_count} חדשים"]
     for r in rows[:3]:
         name = r.get("name") or r.get("phone") or "ללא שם"
         topic = r.get("last_call_topic") or ""
         status = r.get("status") or ""
+        source = _SOURCE_LABELS.get(r.get("source", ""), r.get("source", ""))
         detail = f" — {topic}" if topic else ""
-        lines.append(f"  - {name} ({status}){detail}")
+        src = f", מקור: {source}" if source else ""
+        lines.append(f"  - {name} ({status}{src}){detail}")
 
     return "\n".join(lines)
 
@@ -150,7 +153,7 @@ async def fetch_leads_detail(client_id: str | None) -> str:
         return "אין חיבור לנתונים"
 
     params: dict = {
-        "select": "name,phone,status,last_call_topic,notes",
+        "select": "name,phone,status,source,last_call_topic,last_call_at,notes",
         "order": "last_call_at.desc.nullslast",
         "limit": "5",
     }
@@ -169,14 +172,17 @@ async def fetch_leads_detail(client_id: str | None) -> str:
     if not rows:
         return "אין לידים כרגע"
 
+    _SOURCE_LABELS = {"voice": "שיחה", "whatsapp": "וואטסאפ", "browser_voice": "דשבורד", "web": "אתר"}
     lines = ["=== לידים עדכניים ==="]
     for r in rows:
         name = r.get("name") or r.get("phone") or "ללא שם"
         status = r.get("status") or ""
+        source = _SOURCE_LABELS.get(r.get("source", ""), r.get("source", ""))
         topic = r.get("last_call_topic") or ""
         notes = r.get("notes") or ""
         detail = topic or notes
-        lines.append(f"- {name} ({status}): {detail[:60]}")
+        src = f", מקור: {source}" if source else ""
+        lines.append(f"- {name} ({status}{src}): {detail[:60]}")
     return "\n".join(lines)
 
 
