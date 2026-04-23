@@ -2,8 +2,15 @@
 
 import { LanguageProvider, useLanguage } from "@/context/language-context";
 import { Sidebar } from "@/components/layout/sidebar";
+import { DashboardAssistant } from "@/components/dashboard/dashboard-assistant";
 
-function ShellInner({ children, isAdmin }: { children: React.ReactNode; isAdmin: boolean }) {
+interface ShellProps {
+  children: React.ReactNode;
+  isAdmin: boolean;
+  defaultAgentId?: string | null;
+}
+
+function ShellInner({ children, isAdmin, defaultAgentId }: ShellProps) {
   const { lang } = useLanguage();
   return (
     <div
@@ -14,14 +21,15 @@ function ShellInner({ children, isAdmin }: { children: React.ReactNode; isAdmin:
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {children}
       </div>
+      <DashboardAssistant defaultAgentId={defaultAgentId ?? null} />
     </div>
   );
 }
 
-export function DashboardShell({ children, isAdmin }: { children: React.ReactNode; isAdmin: boolean }) {
+export function DashboardShell({ children, isAdmin, defaultAgentId }: ShellProps) {
   return (
     <LanguageProvider>
-      <ShellInner isAdmin={isAdmin}>{children}</ShellInner>
+      <ShellInner isAdmin={isAdmin} defaultAgentId={defaultAgentId}>{children}</ShellInner>
     </LanguageProvider>
   );
 }

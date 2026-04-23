@@ -14,6 +14,7 @@ import asyncio
 import logging
 from datetime import datetime
 
+import httpx
 import websockets
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
 
@@ -69,6 +70,10 @@ def _is_meaningful_transcript(lines: list[str]) -> bool:
 # ── Assistant mode ───────────────────────────────────────────────────────────
 
 _ASSISTANT_PROMPT = """\
+פתחי את השיחה תמיד עם ברכה קצרה וטבעית בסגנון עוזרת ניהולית, לדוגמה:
+"היי, מה נעשה היום?" או "אהלן, יש כמה דברים שכדאי לשים לב אליהם."
+אל תשתמש תמיד באותו משפט — תגוון.
+
 את מאיה, עוזרת ניהולית חכמה של בעל העסק.
 את מדברת בעברית טבעית, ישירה ומקצועית.
 
@@ -86,18 +91,36 @@ _ASSISTANT_PROMPT = """\
 - את לא סוכן מכירות — את עוזרת ניהולית
 - אל תמציאי נתונים. אם לא קיבלת data — תגידי שאין
 
+את יכולה לפתוח מסכים בדשבורד כשמבקשים ממך:
+- "תפתחי לידים" / "תראי לי את הלידים" → פותחת את מסך הלידים
+- "תפתחי שיחות" → פותחת את מסך השיחות
+- "תפתחי הגדרות" / "תראי את הנציגה" / "סוכנים" → פותחת את מסך הסוכנים
+- "תפתחי מאגר ידע" / "knowledge" → פותחת את מסך הידע
+- "תחזרי לדשבורד" / "מסך ראשי" → חוזרת למסך הראשי
+כשאת פותחת מסך, תגידי בקצרה מה פתחת.
+
+את מכירה את כל הסוכנים הפעילים במערכת (ראי רשימה למטה).
+כשמבקשים "הגדרות של X" — תזהי את הסוכן לפי שם ותפתחי את מסך הסוכנים.
+כשעונים על שאלות — תבחיני בין הסוכנים ותציני לאיזה סוכן מתייחסים.
+
 {snapshot}
 """
 
 _INTENT_KEYWORDS: dict[str, tuple[str, ...]] = {
-    "leads": ("לידים", "ליד", "חמים", "דחוף", "לקוחות", "פניות"),
-    "calls": ("שיחות", "שיחה", "טלפון", "התקשרו"),
+    "leads": ("לידים", "ליד", "חמים", "דחוף", "לקוחות", "פניות", "מסך הלידים"),
+    "calls": ("שיחות", "שיחה", "טלפון", "התקשרו", "מסך השיחות"),
     "summary": ("סיכום", "מה קרה", "מה המצב", "מה חדש", "עדכון"),
+    "agents": ("סוכנים", "סוכן", "נציגה", "נציג", "הגדרות", "מסך הסוכנים", "מסך ההגדרות"),
+    "dashboard": ("דשבורד", "מסך ראשי", "עמוד ראשי", "בית"),
+    "knowledge": ("ידע", "מאגר ידע", "knowledge", "בסיס ידע", "מסך הידע"),
 }
 
 _INTENT_UI_ACTIONS: dict[str, dict] = {
     "leads": {"action": "open_tab", "target": "leads"},
     "calls": {"action": "open_tab", "target": "calls"},
+    "agents": {"action": "open_tab", "target": "agents"},
+    "dashboard": {"action": "open_tab", "target": "dashboard"},
+    "knowledge": {"action": "open_tab", "target": "knowledge"},
 }
 
 _INJECTION_COOLDOWN_S = 10
@@ -144,6 +167,39 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
     webhook_url = agent_cfg.get("webhook_url", "")
     first_message = (agent_cfg.get("first_message") or "").strip()
 
+    # ── Load agent name→id map for assistant navigation ────────────────
+    _agent_name_map: dict[str, str] = {}  # lowercase name → agent_id
+    if not is_preview:
+        try:
+            _sb_url = os.getenv("SUPABASE_URL", "")
+            _sb_key = os.getenv("SUPABASE_SERVICE_KEY", "")
+            if _sb_url and _sb_key:
+                async with httpx.AsyncClient(timeout=5.0) as _c:
+                    _resp = await _c.get(
+                        f"{_sb_url}/rest/v1/agents_config",
+                        params={"select": "id,agent_name", "is_active": "eq.true"},
+                        headers={
+                            "apikey": _sb_key,
+                            "Authorization": f"Bearer {_sb_key}",
+                        },
+                    )
+                    for _row in _resp.json():
+                        _name = (_row.get("agent_name") or "").strip().lower()
+                        if _name:
+                            _agent_name_map[_name] = _row["id"]
+                # Also add partial name variants for matching
+                for _row in _resp.json():
+                    _name = (_row.get("agent_name") or "").strip()
+                    _id = _row["id"]
+                    # Add individual words as fallback (e.g. "bpm" → Maya BPM)
+                    for _word in _name.split():
+                        _w = _word.strip().lower()
+                        if _w and len(_w) > 2 and _w not in ("מאיה", "maya", "-"):
+                            _agent_name_map.setdefault(_w, _id)
+                logger.info("[BROWSER-WS] Agent map loaded: %s", list(_agent_name_map.keys()))
+        except Exception as exc:
+            logger.warning("[BROWSER-WS] Failed to load agent map: %s", exc)
+
     # ── Build system instruction ─────────────────────────────────────────
     if is_preview:
         # Preview mode: use agent's customer-facing prompt
@@ -156,9 +212,10 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
             )
     else:
         # Assistant mode: dashboard assistant prompt with live data snapshot
-        snapshot = await fetch_dashboard_snapshot(client_id)
+        # Pass None to get ALL agents/leads (not filtered by single client)
+        snapshot = await fetch_dashboard_snapshot(None)
         system_instruction = _ASSISTANT_PROMPT.replace("{snapshot}", snapshot)
-        first_message = ""  # assistant doesn't use agent's first_message
+        first_message = ""  # assistant doesn't use agent's first_message — greeting is in prompt
         logger.info("[BROWSER-WS] Assistant mode - snapshot loaded (%d chars)", len(snapshot))
 
     # ── Resolve voice ────────────────────────────────────────────────────
@@ -216,9 +273,11 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
         return
 
     # ── Trigger opening greeting ─────────────────────────────────────────
-    if first_message:
+    if first_message or not is_preview:
+        # Preview: trigger if agent has first_message
+        # Assistant: always trigger — greeting instruction is in prompt
         await gemini_ws.send(json.dumps({"realtime_input": {"text": "שלום"}}))
-        logger.info("[BROWSER-WS] Opening trigger sent")
+        logger.info("[BROWSER-WS] Opening trigger sent (mode=%s)", mode)
 
     await browser_ws.send_json({"type": "ready"})
     await browser_ws.send_json({"type": "state", "state": "listening"})
@@ -233,6 +292,8 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
     _last_injected_intent: str | None = None
     _last_injection_time: float = 0
     _last_injection_turn: int = 0
+    _input_buffer: list[str] = []  # accumulates input transcript fragments per turn
+    _output_buffer: list[str] = []  # accumulates output transcript fragments per turn
 
     # ── Browser -> Gemini loop ───────────────────────────────────────────
     async def browser_to_gemini():
@@ -286,6 +347,7 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
                 # Input transcript
                 input_t = server_content.get("inputTranscription", {})
                 if input_t.get("text"):
+                    logger.info("[BROWSER-WS] transcript_in: %s", input_t["text"][:60])
                     transcript_lines.append(f"לקוח: {input_t['text']}")
                     await browser_ws.send_json({
                         "type": "transcript_in",
@@ -294,7 +356,11 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
 
                     # ── Data injection (assistant mode only) ─────────
                     if not is_preview:
-                        detected = _detect_intent(input_t["text"])
+                        _input_buffer.append(input_t["text"])
+                        combined_input = " ".join(_input_buffer)
+                        detected = _detect_intent(combined_input)
+                        if detected:
+                            logger.info("[BROWSER-WS] Intent detected: %s from '%s'", detected, combined_input[:60])
                         now = asyncio.get_event_loop().time()
                         if (
                             detected
@@ -308,14 +374,13 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
                             _last_injection_time = now
                             _last_injection_turn = _turn_count
 
+                            injection = None
                             if detected == "leads":
                                 injection = await fetch_leads_detail(client_id)
                             elif detected == "calls":
                                 injection = await fetch_calls_detail(client_id)
                             elif detected == "summary":
                                 injection = await fetch_daily_summary(client_id)
-                            else:
-                                injection = None
 
                             if injection:
                                 await gemini_ws.send(json.dumps({
@@ -332,11 +397,20 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
                                     "type": "ui_action",
                                     **ui,
                                 })
+                                logger.info(
+                                    "[BROWSER-WS] Sent ui_action: %s -> %s",
+                                    ui.get("action"), ui.get("target"),
+                                )
 
                 # Output transcript
                 output_t = server_content.get("outputTranscription", {})
                 if output_t.get("text"):
+                    logger.info("[BROWSER-WS] transcript_out: %s", output_t["text"][:60])
                     transcript_lines.append(f"מאיה: {output_t['text']}")
+
+                    # Accumulate output for turn-level analysis
+                    if not is_preview:
+                        _output_buffer.append(output_t["text"])
                     await browser_ws.send_json({
                         "type": "transcript_out",
                         "text": output_t["text"],
@@ -365,6 +439,48 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
                 if server_content.get("turnComplete"):
                     _speaking = False
                     _turn_count += 1
+
+                    # ── Process accumulated output for UI actions ────
+                    if not is_preview and _output_buffer:
+                        full_output = " ".join(_output_buffer)
+                        if "פותחת" in full_output or "פתחתי" in full_output:
+                            now_out = asyncio.get_event_loop().time()
+                            if now_out - _last_injection_time > 3:
+                                # Check for specific agent name
+                                _agent_matched = False
+                                out_lower = full_output.lower()
+                                for _aname, _aid in _agent_name_map.items():
+                                    if _aname in out_lower:
+                                        _last_injection_time = now_out
+                                        await browser_ws.send_json({
+                                            "type": "ui_action",
+                                            "action": "open_agent",
+                                            "target": _aid,
+                                        })
+                                        logger.info(
+                                            "[BROWSER-WS] Sent ui_action: open_agent -> %s",
+                                            _aname,
+                                        )
+                                        _agent_matched = True
+                                        break
+
+                                # Fall back to generic tab
+                                if not _agent_matched:
+                                    out_detected = _detect_intent(full_output)
+                                    if out_detected and out_detected in _INTENT_UI_ACTIONS:
+                                        _last_injection_time = now_out
+                                        ui = _INTENT_UI_ACTIONS[out_detected]
+                                        await browser_ws.send_json({
+                                            "type": "ui_action",
+                                            **ui,
+                                        })
+                                        logger.info(
+                                            "[BROWSER-WS] Sent ui_action: %s -> %s",
+                                            ui.get("action"), ui.get("target"),
+                                        )
+
+                    _input_buffer.clear()
+                    _output_buffer.clear()
                     await browser_ws.send_json({"type": "turn_complete"})
                     await browser_ws.send_json({
                         "type": "state",
@@ -404,9 +520,9 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
     finally:
         logger.info("[BROWSER-WS] Session ended - cleanup")
 
-        # ── Lead extraction (skipped in preview mode) ───────────────────
-        if is_preview:
-            logger.info("[BROWSER-WS] Preview mode - skipping lead extraction/save/webhook")
+        # ── Lead extraction (skipped in preview and assistant modes) ────
+        if mode != "live":
+            logger.info("[BROWSER-WS] %s mode - skipping lead extraction/save/webhook", mode)
         elif _is_meaningful_transcript(transcript_lines):
             transcript_text = "\n".join(transcript_lines)
             logger.info(

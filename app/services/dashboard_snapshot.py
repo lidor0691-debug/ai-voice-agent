@@ -115,10 +115,11 @@ async def _snapshot_calls(client_id: str | None) -> str:
 
 
 async def _snapshot_agents(client_id: str | None) -> str:
-    """Active agent count."""
+    """Active agents with names and IDs."""
     params: dict = {
-        "select": "id",
+        "select": "id,agent_name,phone_number",
         "is_active": "eq.true",
+        "order": "created_at.desc",
     }
     if client_id:
         params["client_id"] = f"eq.{client_id}"
@@ -132,7 +133,13 @@ async def _snapshot_agents(client_id: str | None) -> str:
         resp.raise_for_status()
         rows = resp.json()
 
-    return f"סוכנים פעילים: {len(rows)}"
+    lines = [f"סוכנים פעילים: {len(rows)}"]
+    for r in rows:
+        name = r.get("agent_name") or "ללא שם"
+        agent_id = r.get("id") or ""
+        phone = r.get("phone_number") or ""
+        lines.append(f"  - {name} (id: {agent_id[:8]}..., טלפון: {phone})")
+    return "\n".join(lines)
 
 
 # ── Live data queries (for mid-conversation injection) ───────────────────────

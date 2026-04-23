@@ -75,6 +75,8 @@ export function LiveVoicePanel({ agentId, mode = "preview", onUiAction }: Props)
   const [state, setState] = useState<VoiceState>("disconnected");
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [showTranscript, setShowTranscript] = useState(false);
+  const onUiActionRef = useRef(onUiAction);
+  onUiActionRef.current = onUiAction;
 
   const wsRef = useRef<WebSocket | null>(null);
   const captureCtxRef = useRef<AudioContext | null>(null);
@@ -248,7 +250,8 @@ export function LiveVoicePanel({ agentId, mode = "preview", onUiAction }: Props)
             break;
 
           case "ui_action":
-            if (onUiAction) onUiAction(msg.action, msg.target);
+            console.log("[LiveVoice] ui_action received:", msg.action, msg.target);
+            if (onUiActionRef.current) onUiActionRef.current(msg.action, msg.target);
             break;
 
           case "error":
@@ -265,7 +268,7 @@ export function LiveVoicePanel({ agentId, mode = "preview", onUiAction }: Props)
       console.error("[LiveVoice] Start failed:", err);
       cleanup();
     }
-  }, [agentId, mode, cleanup, clearPlayback, playAudioChunk, onUiAction]);
+  }, [agentId, mode, cleanup, clearPlayback, playAudioChunk]);
 
   // ── End call ──────────────────────────────────────────────────────────
   const endCall = useCallback(() => {
