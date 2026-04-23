@@ -19,7 +19,7 @@ interface TranscriptEntry {
 interface Props {
   agentId: string;
   mode?: "preview" | "assistant";
-  onUiAction?: (action: string, target: string) => void;
+  onUiAction?: (action: string, target: string, extra?: Record<string, string>) => void;
 }
 
 const PREVIEW_LABELS: Record<VoiceState, string> = {
@@ -250,8 +250,8 @@ export function LiveVoicePanel({ agentId, mode = "preview", onUiAction }: Props)
             break;
 
           case "ui_action":
-            console.log("[LiveVoice] ui_action received:", msg.action, msg.target);
-            if (onUiActionRef.current) onUiActionRef.current(msg.action, msg.target);
+            console.log("[LiveVoice] ui_action received:", msg.action, msg.target, msg.tab);
+            if (onUiActionRef.current) onUiActionRef.current(msg.action, msg.target, msg);
             break;
 
           case "error":

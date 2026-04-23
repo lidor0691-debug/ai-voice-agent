@@ -23,17 +23,18 @@ export function DashboardAssistant({ defaultAgentId }: Props) {
   pathnameRef.current = pathname; // always up to date
 
   const handleUiAction = useCallback(
-    (action: string, target: string) => {
-      console.log("[Assistant] handleUiAction:", action, target, "current:", pathnameRef.current);
+    (action: string, target: string, extra?: Record<string, string>) => {
+      console.log("[Assistant] handleUiAction:", action, target, extra);
       if (action === "open_tab") {
         const path = ROUTES[target];
         if (path) {
-          console.log("[Assistant] Navigating to:", path);
           router.push(path);
         }
       } else if (action === "open_agent") {
-        const path = `/dashboard/agents/${target}`;
-        console.log("[Assistant] Opening agent:", path);
+        const tab = extra?.tab;
+        const path = tab && tab !== "settings"
+          ? `/dashboard/agents/${target}?tab=${tab}`
+          : `/dashboard/agents/${target}`;
         router.push(path);
       }
       // Future: open_section, scroll_to, highlight_metric
