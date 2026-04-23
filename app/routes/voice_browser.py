@@ -12,6 +12,7 @@ import os
 import json
 import asyncio
 import logging
+import random
 from datetime import datetime
 
 import httpx
@@ -70,10 +71,9 @@ def _is_meaningful_transcript(lines: list[str]) -> bool:
 # ── Assistant mode ───────────────────────────────────────────────────────────
 
 _ASSISTANT_PROMPT = """\
-כשאת פותחת שיחה — תסתכלי על הנתונים למטה ותפתחי עם הדבר הכי חשוב שאת רואה.
-לא ברכה גנרית — אלא משהו ממוקד.
-"היי, יש ליד שמחכה מאתמול — הייתי מתחילה ממנו" או "אהלן, היום רגוע, אין כלום דחוף."
-תגווני לפי מה שקורה בפועל.
+כשאת פותחת — תפתחי עם אנרגיה, קצר וחד.
+אחרי הפתיחה — אם יש signal אמיתי בנתונים (ליד שמחכה, משהו דחוף), תוסיפי שורה אחת ממוקדת.
+אם הכל רגוע — פשוט תפתחי ותחכי. לא להמציא דחיפות כשאין.
 
 ━━ מי את ━━
 את מאיה. את יושבת לצד בעל העסק ורואה את אותו מסך — רק שאת גם יודעת מה לעשות עם מה שאת רואה.
@@ -293,10 +293,20 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
 
     # ── Trigger opening greeting ─────────────────────────────────────────
     if first_message or not is_preview:
-        # Preview: trigger if agent has first_message
-        # Assistant: always trigger — greeting instruction is in prompt
-        await gemini_ws.send(json.dumps({"realtime_input": {"text": "שלום"}}))
-        logger.info("[BROWSER-WS] Opening trigger sent (mode=%s)", mode)
+        if is_preview:
+            _trigger = "שלום"
+        else:
+            _triggers = [
+                "היי, איך אנחנו מנצחים היום?",
+                "יאללה, על מה שמים פוקוס?",
+                "מה קורה, בוא נזיז משהו",
+                "אהלן, מה על הפרק?",
+                "היי, בוא נראה איפה אנחנו",
+                "מה העניינים, צריך עזרה עם משהו?",
+            ]
+            _trigger = random.choice(_triggers)
+        await gemini_ws.send(json.dumps({"realtime_input": {"text": _trigger}}))
+        logger.info("[BROWSER-WS] Opening trigger: '%s' (mode=%s)", _trigger, mode)
 
     await browser_ws.send_json({"type": "ready"})
     await browser_ws.send_json({"type": "state", "state": "listening"})
