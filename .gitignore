@@ -2,6 +2,7 @@
 venv/
 __pycache__/
 .env
+.env.local
 service_account.json
 *.pyc
 node_modules/
