@@ -402,6 +402,17 @@ async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: st
             "client_id": agent.get("client_id") or None,
         })
 
+    # ── Update last_whatsapp_inbound_at for 24h window tracking ──────────
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as _wc:
+            await _wc.patch(
+                f"{_SUPABASE_URL}/rest/v1/leads?phone=eq.{customer_phone}",
+                json={"last_whatsapp_inbound_at": datetime.utcnow().isoformat()},
+                headers={**_headers(), "Prefer": "return=minimal"},
+            )
+    except Exception as _exc:
+        logger.warning("[WHATSAPP] Failed to update last_whatsapp_inbound_at: %s", _exc)
+
     # ── 3b. First WhatsApp message after a phone call — inject call summary into history ──
     # Condition: no existing WhatsApp history AND last_call_summary exists in lead.
     # This permanently embeds the phone context into WhatsApp memory (not time-limited).
