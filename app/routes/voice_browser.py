@@ -617,12 +617,40 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
                                 if _lead_name:
                                     break
 
+                        # Try to find lead phone from Supabase
+                        _lead_phone = ""
+                        if _lead_name:
+                            try:
+                                _sb_url = os.getenv("SUPABASE_URL", "")
+                                _sb_key = os.getenv("SUPABASE_SERVICE_KEY", "")
+                                if _sb_url and _sb_key:
+                                    async with httpx.AsyncClient(timeout=3.0) as _hc:
+                                        _lr = await _hc.get(
+                                            f"{_sb_url}/rest/v1/leads",
+                                            params={
+                                                "name": f"ilike.%{_lead_name}%",
+                                                "select": "phone",
+                                                "limit": "1",
+                                            },
+                                            headers={
+                                                "apikey": _sb_key,
+                                                "Authorization": f"Bearer {_sb_key}",
+                                            },
+                                        )
+                                        _rows = _lr.json()
+                                        if _rows:
+                                            _lead_phone = _rows[0].get("phone", "")
+                            except Exception:
+                                pass
+
                         if len(_draft_message) > 10:
                             await browser_ws.send_json({
                                 "type": "action_proposal",
                                 "action": "prepare_followup_message",
                                 "status": "draft_only",
                                 "lead_name": _lead_name or "ליד",
+                                "lead_phone": _lead_phone,
+                                "agent_id": agent_id,
                                 "channel": "whatsapp",
                                 "message": _draft_message.strip(),
                             })
