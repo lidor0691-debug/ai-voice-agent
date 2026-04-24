@@ -58,19 +58,33 @@ async def _get_agent_sender(agent_id: str) -> str | None:
         return (rows[0].get("whatsapp_sender") or "").strip() or None
 
 
-async def _get_lead_phone(lead_id: str) -> str | None:
-    """Fetch phone from leads by lead_id."""
+async def _get_lead(lead_id: str) -> dict | None:
+    """Fetch phone + last_whatsapp_inbound_at from leads by lead_id."""
     async with httpx.AsyncClient(timeout=5.0) as client:
         resp = await client.get(
             f"{_SUPABASE_URL}/rest/v1/leads",
-            params={"id": f"eq.{lead_id}", "select": "phone", "limit": "1"},
+            params={"id": f"eq.{lead_id}", "select": "phone,last_whatsapp_inbound_at", "limit": "1"},
             headers=_sb_headers(),
         )
         resp.raise_for_status()
         rows = resp.json()
         if not rows:
             return None
-        return (rows[0].get("phone") or "").strip() or None
+        return rows[0]
+
+
+def _is_window_open(last_inbound: str | None) -> bool:
+    """Check if 24h WhatsApp conversation window is open."""
+    if not last_inbound:
+        return False
+    try:
+        from datetime import datetime, timezone, timedelta
+        ts = datetime.fromisoformat(last_inbound.replace("Z", "+00:00"))
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - ts) < timedelta(hours=24)
+    except Exception:
+        return False
 
 
 def _validate_phone(phone: str) -> str:
@@ -113,20 +127,35 @@ async def send_whatsapp(req: SendWhatsAppRequest):
             detail="WhatsApp sender not configured for this agent",
         )
 
-    # ── Resolve phone from lead ──────────────────────────────────────────
+    # ── Resolve lead ──────────────────────────────────────────────────────
     try:
-        lead_phone = await _get_lead_phone(req.lead_id)
+        lead = await _get_lead(req.lead_id)
     except Exception as exc:
         logger.error("[ACTION] Failed to lookup lead: %s", exc)
         raise HTTPException(status_code=500, detail="Failed to lookup lead")
 
+    if not lead:
+        raise HTTPException(status_code=400, detail="Lead not found")
+
+    lead_phone = (lead.get("phone") or "").strip()
     if not lead_phone:
-        raise HTTPException(status_code=400, detail="Lead not found or has no phone number")
+        raise HTTPException(status_code=400, detail="Lead has no phone number")
 
     try:
         phone = _validate_phone(lead_phone)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+    # ── Check 24h conversation window ────────────────────────────────────
+    if not _is_window_open(lead.get("last_whatsapp_inbound_at")):
+        logger.info(
+            "[ACTION] 24h window closed for lead=%s (last_inbound=%s)",
+            req.lead_id[:8], lead.get("last_whatsapp_inbound_at"),
+        )
+        return SendWhatsAppResponse(
+            status="failed",
+            error="24h WhatsApp window closed — template required",
+        )
 
     # ── Send via Twilio ──────────────────────────────────────────────────
     logger.info(
