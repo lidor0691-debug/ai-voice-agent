@@ -96,9 +96,12 @@ app.include_router(maya_stt_router)
 app.include_router(voice_browser_router)
 app.include_router(action_api_router)
 
-# Serve mockup files for development
-from fastapi.staticfiles import StaticFiles
-app.mount("/mockup", StaticFiles(directory=".superpowers/brainstorm/142-1776577129/content", html=True), name="mockup")
+# Serve mockup files for development (skip if directory doesn't exist, e.g. Railway)
+import pathlib
+_mockup_dir = ".superpowers/brainstorm/142-1776577129/content"
+if pathlib.Path(_mockup_dir).is_dir():
+    from fastapi.staticfiles import StaticFiles
+    app.mount("/mockup", StaticFiles(directory=_mockup_dir, html=True), name="mockup")
 
 @app.get("/")
 def root():
