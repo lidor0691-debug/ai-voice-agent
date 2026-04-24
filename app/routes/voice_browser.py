@@ -354,7 +354,8 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
     _last_injection_turn: int = 0
     _input_buffer: list[str] = []  # accumulates input transcript fragments per turn
     _output_buffer: list[str] = []  # accumulates output transcript fragments per turn
-    _user_approved_draft = False  # tracks if user approved message drafting this turn
+    _user_approved_draft = False  # tracks if user approved message drafting
+    _draft_pending = False  # True = approval detected, waiting for next turn with the actual draft
 
     # ── Browser -> Gemini loop ───────────────────────────────────────────
     async def browser_to_gemini():
@@ -389,7 +390,7 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
 
     # ── Gemini -> Browser loop ───────────────────────────────────────────
     async def gemini_to_browser():
-        nonlocal _speaking, _turn_count, _last_injected_intent, _last_injection_time, _last_injection_turn, _user_approved_draft
+        nonlocal _speaking, _turn_count, _last_injected_intent, _last_injection_time, _last_injection_turn, _user_approved_draft, _draft_pending
 
         try:
             async for raw in gemini_ws:
@@ -563,7 +564,16 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
                                         )
 
                     # ── Action proposal (draft message) ─────────────
-                    if not is_preview and _user_approved_draft and _output_buffer:
+                    # Two-turn flow:
+                    # Turn N: user says "כן תכיני" → _user_approved_draft = True → set _draft_pending
+                    # Turn N+1: Maya drafts the message → send action_proposal with this turn's output
+                    if not is_preview and _user_approved_draft and not _draft_pending:
+                        # Approval just detected — wait for next turn
+                        _draft_pending = True
+                        _user_approved_draft = False
+                        logger.info("[BROWSER-WS] Draft approved — waiting for next turn with message")
+
+                    if not is_preview and _draft_pending and _output_buffer and not _user_approved_draft:
                         full_out = " ".join(_output_buffer)
 
                         # Extract the actual message from Maya's output.
@@ -630,6 +640,7 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
                                 _lead_name or "unknown",
                                 _draft_message[:60],
                             )
+                        _draft_pending = False
                         _user_approved_draft = False
 
                     _input_buffer.clear()
