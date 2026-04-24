@@ -354,6 +354,7 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
     _output_buffer: list[str] = []  # accumulates output transcript fragments per turn
     _user_approved_draft = False  # tracks if user approved message drafting
     _draft_pending = False  # True = approval detected, waiting for next turn with the actual draft
+    _session_leads: list[dict] = []  # [{id, name, status, topic}] — loaded from data injection
 
     # ── Browser -> Gemini loop ───────────────────────────────────────────
     async def browser_to_gemini():
@@ -440,21 +441,27 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
                             _last_injection_time = now
                             _last_injection_turn = _turn_count
 
-                            injection = None
+                            injection_text = None
                             if detected == "leads":
-                                injection = await fetch_leads_detail(client_id)
+                                injection_text, _leads_data = await fetch_leads_detail(client_id)
+                                if _leads_data:
+                                    _session_leads = _leads_data
+                                    logger.info("[BROWSER-WS] Session leads updated: %d leads", len(_leads_data))
                             elif detected == "calls":
-                                injection = await fetch_calls_detail(client_id)
+                                injection_text = await fetch_calls_detail(client_id)
                             elif detected == "summary":
-                                injection = await fetch_daily_summary(client_id)
+                                injection_text, _leads_data = await fetch_daily_summary(client_id)
+                                if _leads_data:
+                                    _session_leads = _leads_data
+                                    logger.info("[BROWSER-WS] Session leads updated: %d leads", len(_leads_data))
 
-                            if injection:
+                            if injection_text:
                                 await gemini_ws.send(json.dumps({
-                                    "realtime_input": {"text": injection}
+                                    "realtime_input": {"text": injection_text}
                                 }))
                                 logger.info(
                                     "[BROWSER-WS] Injected %s data (%d chars)",
-                                    detected, len(injection),
+                                    detected, len(injection_text),
                                 )
 
                             ui = _INTENT_UI_ACTIONS.get(detected)
@@ -589,66 +596,44 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
                                 if len(_quoted) > 10:
                                     _draft_message = _quoted
 
-                        # Find lead name from draft or transcript
-                        import re
-                        _lead_name = ""
-                        _name_match = re.search(r'היי\s+([א-ת]+)', _draft_message)
-                        if _name_match:
-                            _lead_name = _name_match.group(1)
-                        if not _lead_name:
-                            for _tl in reversed(transcript_lines[-10:]):
-                                _nm = re.search(r'היי\s+([א-ת]+)', _tl)
-                                if _nm:
-                                    _lead_name = _nm.group(1)
-                                    break
+                        # Match lead from session context (not Supabase lookup)
+                        _matched_lead = None
+                        if _session_leads:
+                            # Search for lead name in draft message or recent transcript
+                            _search_text = (full_out + " " + " ".join(transcript_lines[-10:])).lower()
+                            _candidates = []
+                            for _sl in _session_leads:
+                                _sl_name = (_sl.get("name") or "").strip()
+                                if _sl_name and _sl_name.lower() in _search_text:
+                                    _candidates.append(_sl)
+                            # Only match if exactly 1 candidate — avoid ambiguity
+                            if len(_candidates) == 1:
+                                _matched_lead = _candidates[0]
+                            elif len(_candidates) > 1:
+                                logger.warning(
+                                    "[BROWSER-WS] Multiple lead matches (%d) — skipping action_proposal",
+                                    len(_candidates),
+                                )
 
-                        # Lookup lead_id from Supabase by name
-                        _lead_id = ""
-                        _lead_display = _lead_name or "ליד"
-                        if _lead_name:
-                            try:
-                                _sb_url = os.getenv("SUPABASE_URL", "")
-                                _sb_key = os.getenv("SUPABASE_SERVICE_KEY", "")
-                                if _sb_url and _sb_key:
-                                    async with httpx.AsyncClient(timeout=3.0) as _hc:
-                                        _lr = await _hc.get(
-                                            f"{_sb_url}/rest/v1/leads",
-                                            params={
-                                                "name": f"ilike.%{_lead_name}%",
-                                                "select": "id,name",
-                                                "limit": "1",
-                                            },
-                                            headers={
-                                                "apikey": _sb_key,
-                                                "Authorization": f"Bearer {_sb_key}",
-                                            },
-                                        )
-                                        _rows = _lr.json()
-                                        if _rows:
-                                            _lead_id = _rows[0].get("id", "")
-                                            _lead_display = _rows[0].get("name") or _lead_name
-                            except Exception as _exc:
-                                logger.warning("[BROWSER-WS] Lead lookup failed: %s", _exc)
-
-                        if len(_draft_message) > 10 and _lead_id:
+                        if len(_draft_message) > 10 and _matched_lead:
                             await browser_ws.send_json({
                                 "type": "action_proposal",
                                 "action": "prepare_followup_message",
                                 "status": "draft_only",
                                 "agent_id": agent_id,
-                                "lead_id": _lead_id,
-                                "lead_name": _lead_display,
+                                "lead_id": _matched_lead["id"],
+                                "lead_name": _matched_lead.get("name") or "ליד",
                                 "channel": "whatsapp",
                                 "message": _draft_message.strip(),
                             })
                             logger.info(
                                 "[BROWSER-WS] Sent action_proposal: lead=%s (%s)",
-                                _lead_display, _lead_id[:8],
+                                _matched_lead.get("name"), _matched_lead["id"][:8],
                             )
                         elif len(_draft_message) > 10:
                             logger.warning(
-                                "[BROWSER-WS] Draft ready but no lead_id found for '%s' — skipping action_proposal",
-                                _lead_name,
+                                "[BROWSER-WS] Draft ready but no unique lead match in session — skipping action_proposal (session has %d leads)",
+                                len(_session_leads),
                             )
                         _user_approved_draft = False
 

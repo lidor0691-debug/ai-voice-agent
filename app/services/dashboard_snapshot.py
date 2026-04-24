@@ -201,13 +201,17 @@ async def fetch_business_context(agent_ids: list[str]) -> str:
 
 # ── Live data queries (for mid-conversation injection) ───────────────────────
 
-async def fetch_leads_detail(client_id: str | None) -> str:
-    """Top 5 leads with details — injected when user asks about leads."""
+async def fetch_leads_detail(client_id: str | None) -> tuple[str, list[dict]]:
+    """
+    Top 5 leads with details.
+    Returns (text_for_injection, structured_leads).
+    structured_leads = [{id, name, status, topic}, ...] for session context.
+    """
     if not _is_configured():
-        return "אין חיבור לנתונים"
+        return "אין חיבור לנתונים", []
 
     params: dict = {
-        "select": "name,phone,status,source,last_call_topic,last_call_at,notes",
+        "select": "id,name,phone,status,source,last_call_topic,last_call_at,notes",
         "order": "last_call_at.desc.nullslast",
         "limit": "5",
     }
@@ -224,7 +228,18 @@ async def fetch_leads_detail(client_id: str | None) -> str:
         rows = resp.json()
 
     if not rows:
-        return "אין לידים כרגע"
+        return "אין לידים כרגע", []
+
+    # Structured data for session context (no phone — stays server-side)
+    structured = [
+        {
+            "id": r.get("id", ""),
+            "name": r.get("name") or r.get("phone") or "",
+            "status": r.get("status") or "",
+            "topic": r.get("last_call_topic") or "",
+        }
+        for r in rows
+    ]
 
     _SOURCE_LABELS = {"voice": "שיחה", "whatsapp": "וואטסאפ", "browser_voice": "דשבורד", "web": "אתר"}
     lines = ["=== לידים עדכניים ==="]
@@ -237,7 +252,7 @@ async def fetch_leads_detail(client_id: str | None) -> str:
         detail = topic or notes
         src = f", מקור: {source}" if source else ""
         lines.append(f"- {name} ({status}{src}): {detail[:60]}")
-    return "\n".join(lines)
+    return "\n".join(lines), structured
 
 
 async def fetch_calls_detail(client_id: str | None) -> str:
@@ -269,8 +284,8 @@ async def fetch_calls_detail(client_id: str | None) -> str:
     return f"=== שיחות היום ===\nסה\"כ: {total}, הושלמו: {completed}"
 
 
-async def fetch_daily_summary(client_id: str | None) -> str:
-    """Combined leads + calls — for 'what happened today' questions."""
-    leads = await fetch_leads_detail(client_id)
+async def fetch_daily_summary(client_id: str | None) -> tuple[str, list[dict]]:
+    """Combined leads + calls. Returns (text, structured_leads)."""
+    leads_text, leads_data = await fetch_leads_detail(client_id)
     calls = await fetch_calls_detail(client_id)
-    return f"{leads}\n\n{calls}"
+    return f"{leads_text}\n\n{calls}", leads_data
