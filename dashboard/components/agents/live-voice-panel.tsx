@@ -19,6 +19,8 @@ interface TranscriptEntry {
 interface ActionProposalData {
   action: string;
   status: string;
+  agent_id: string;
+  lead_id: string;
   lead_name: string;
   channel: string;
   message: string;

@@ -6,11 +6,11 @@ import { Check, X, Pencil, MessageSquare, Send, Loader2 } from "lucide-react";
 export interface ActionProposal {
   action: string;
   status: string;
-  lead_name: string;
+  agent_id: string;
+  lead_id: string;
+  lead_name: string;  // display only — not sent to backend
   channel: string;
   message: string;
-  lead_phone?: string;
-  agent_id?: string;
 }
 
 type CardState = "pending" | "editing" | "sending" | "sent" | "failed" | "cancelled";
@@ -49,10 +49,9 @@ export function ActionCard({ proposal, onDismiss }: Props) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          phone: proposal.lead_phone || "",
+          agent_id: proposal.agent_id,
+          lead_id: proposal.lead_id,
           message: editedMessage || proposal.message,
-          lead_name: proposal.lead_name,
-          agent_id: proposal.agent_id || "",
         }),
       });
 
