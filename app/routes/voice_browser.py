@@ -478,6 +478,11 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
                     # Accumulate output for turn-level analysis
                     if not is_preview:
                         _output_buffer.append(output_t["text"])
+                        # Detect draft approval from Maya's output
+                        # (fallback when input transcript is in wrong language)
+                        _DRAFT_OUTPUT_MARKERS = ("הנה הודעה", "הנה ההודעה", "אנסח", "הייתי שולחת", "אפשר לשלוח", "הנה טיוטה", "הנה:")
+                        if any(m in output_t["text"] for m in _DRAFT_OUTPUT_MARKERS):
+                            _user_approved_draft = True
                     await browser_ws.send_json({
                         "type": "transcript_out",
                         "text": output_t["text"],
