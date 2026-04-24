@@ -74,8 +74,11 @@ async def _get_lead_phone(lead_id: str) -> str | None:
 
 
 def _validate_phone(phone: str) -> str:
-    """Validate E.164 format. Raises ValueError if invalid."""
+    """Validate and normalize to E.164 format. Raises ValueError if invalid."""
     cleaned = re.sub(r"[^\d+]", "", phone.strip())
+    # Auto-add + if starts with country code digits
+    if not cleaned.startswith("+") and len(cleaned) >= 10:
+        cleaned = f"+{cleaned}"
     if not cleaned.startswith("+"):
         raise ValueError(f"Phone must start with +, got: {phone}")
     if len(cleaned) < 10 or len(cleaned) > 16:
