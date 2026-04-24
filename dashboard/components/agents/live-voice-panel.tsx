@@ -332,8 +332,8 @@ export function LiveVoicePanel({ agentId, mode = "preview", onUiAction, onAction
           </p>
         )}
 
-        {/* Transcript (collapsed by default) */}
-        {transcript.length > 0 && (
+        {/* Transcript (preview mode only — assistant mode doesn't need it) */}
+        {mode === "preview" && transcript.length > 0 && (
           <div className="mt-6 border border-border rounded-xl overflow-hidden">
             <button
               onClick={() => setShowTranscript(!showTranscript)}
