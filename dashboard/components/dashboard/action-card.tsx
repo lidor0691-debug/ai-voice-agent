@@ -13,7 +13,7 @@ export interface ActionProposal {
   message: string;
 }
 
-type CardState = "pending" | "editing" | "sending" | "sent" | "failed" | "cancelled";
+type CardState = "pending" | "editing" | "sending" | "sent" | "failed" | "window_closed" | "cancelled";
 
 interface Props {
   proposal: ActionProposal;
@@ -59,6 +59,8 @@ export function ActionCard({ proposal, onDismiss }: Props) {
 
       if (data.status === "sent") {
         setCardState("sent");
+      } else if (data.error?.includes("window closed")) {
+        setCardState("window_closed");
       } else {
         setCardState("failed");
         setSendError(data.error || data.detail || "שליחה נכשלה");
@@ -106,6 +108,15 @@ export function ActionCard({ proposal, onDismiss }: Props) {
           <div className="flex items-center gap-1.5 text-green-400 text-[11px]">
             <Check className="w-3.5 h-3.5" />
             <span>נשלח בהצלחה</span>
+          </div>
+        ) : cardState === "window_closed" ? (
+          <div className="flex flex-col gap-1.5 w-full">
+            <span className="text-yellow-400 text-[11px]">
+              חלון ה-WhatsApp סגור. הלקוח לא שלח הודעה ב-24 השעות האחרונות.
+            </span>
+            <span className="text-gray-500 text-[10px]">
+              כדי לשלוח הודעה יזומה צריך תבנית מאושרת (בקרוב).
+            </span>
           </div>
         ) : cardState === "failed" ? (
           <div className="flex items-center gap-2 w-full">
