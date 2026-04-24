@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useRef } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { LiveVoicePanel } from "../agents/live-voice-panel";
+import { ActionCard, type ActionProposal } from "./action-card";
 
 const ROUTES: Record<string, string> = {
   dashboard: "/dashboard",
@@ -20,7 +21,15 @@ export function DashboardAssistant({ defaultAgentId }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const pathnameRef = useRef(pathname);
-  pathnameRef.current = pathname; // always up to date
+  pathnameRef.current = pathname;
+  const [activeProposal, setActiveProposal] = useState<ActionProposal | null>(null);
+
+  const handleActionProposal = useCallback(
+    (proposal: ActionProposal) => {
+      setActiveProposal(proposal);
+    },
+    [],
+  );
 
   const handleUiAction = useCallback(
     (action: string, target: string, extra?: Record<string, string>) => {
@@ -50,7 +59,14 @@ export function DashboardAssistant({ defaultAgentId }: Props) {
         agentId={defaultAgentId}
         mode="assistant"
         onUiAction={handleUiAction}
+        onActionProposal={handleActionProposal}
       />
+      {activeProposal && (
+        <ActionCard
+          proposal={activeProposal}
+          onDismiss={() => setActiveProposal(null)}
+        />
+      )}
     </div>
   );
 }

@@ -16,10 +16,19 @@ interface TranscriptEntry {
   text: string;
 }
 
+interface ActionProposalData {
+  action: string;
+  status: string;
+  lead_name: string;
+  channel: string;
+  message: string;
+}
+
 interface Props {
   agentId: string;
   mode?: "preview" | "assistant";
   onUiAction?: (action: string, target: string, extra?: Record<string, string>) => void;
+  onActionProposal?: (proposal: ActionProposalData) => void;
 }
 
 const PREVIEW_LABELS: Record<VoiceState, string> = {
@@ -70,13 +79,15 @@ function buildWsUrl(agentId: string, mode: string): string {
 }
 
 // ── Component ───────────────────────────────────────────────────────────────
-export function LiveVoicePanel({ agentId, mode = "preview", onUiAction }: Props) {
+export function LiveVoicePanel({ agentId, mode = "preview", onUiAction, onActionProposal }: Props) {
   const stateLabels = mode === "assistant" ? ASSISTANT_LABELS : PREVIEW_LABELS;
   const [state, setState] = useState<VoiceState>("disconnected");
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [showTranscript, setShowTranscript] = useState(false);
   const onUiActionRef = useRef(onUiAction);
   onUiActionRef.current = onUiAction;
+  const onActionProposalRef = useRef(onActionProposal);
+  onActionProposalRef.current = onActionProposal;
 
   const wsRef = useRef<WebSocket | null>(null);
   const captureCtxRef = useRef<AudioContext | null>(null);
@@ -252,6 +263,11 @@ export function LiveVoicePanel({ agentId, mode = "preview", onUiAction }: Props)
           case "ui_action":
             console.log("[LiveVoice] ui_action received:", msg.action, msg.target, msg.tab);
             if (onUiActionRef.current) onUiActionRef.current(msg.action, msg.target, msg);
+            break;
+
+          case "action_proposal":
+            console.log("[LiveVoice] action_proposal received:", msg.action, msg.lead_name);
+            if (onActionProposalRef.current) onActionProposalRef.current(msg as ActionProposalData);
             break;
 
           case "error":
