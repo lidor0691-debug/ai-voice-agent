@@ -589,34 +589,22 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
                                 if len(_quoted) > 10:
                                     _draft_message = _quoted
 
-                        # Extract lead name from recent transcript
-                        _lead_name = ""
-                        _all_text = full_out + " " + " ".join(transcript_lines[-10:])
-                        for _tl in reversed(transcript_lines[-10:]):
-                            for _word in _tl.split():
-                                _w = _word.strip(".,!?\"׳'")
-                                if len(_w) > 1 and _w[0].isupper() or any(c in "אבגדהוזחטיכלמנסעפצקרשת" for c in _w):
-                                    # Simple heuristic: Hebrew names in lead context
-                                    pass
-                            break
-
-                        # Try to find a name mentioned by Maya (e.g. "היי משה")
+                        # Find lead name from draft or transcript
                         import re
+                        _lead_name = ""
                         _name_match = re.search(r'היי\s+([א-ת]+)', _draft_message)
                         if _name_match:
                             _lead_name = _name_match.group(1)
                         if not _lead_name:
-                            # Fallback: scan recent transcript for lead names
                             for _tl in reversed(transcript_lines[-10:]):
-                                for _known in ("משה", "רחל", "יוסי", "דניאל", "שרה", "תמר", "לידור"):
-                                    if _known in _tl:
-                                        _lead_name = _known
-                                        break
-                                if _lead_name:
+                                _nm = re.search(r'היי\s+([א-ת]+)', _tl)
+                                if _nm:
+                                    _lead_name = _nm.group(1)
                                     break
 
-                        # Try to find lead phone from Supabase
-                        _lead_phone = ""
+                        # Lookup lead_id from Supabase by name
+                        _lead_id = ""
+                        _lead_display = _lead_name or "ליד"
                         if _lead_name:
                             try:
                                 _sb_url = os.getenv("SUPABASE_URL", "")
@@ -627,7 +615,7 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
                                             f"{_sb_url}/rest/v1/leads",
                                             params={
                                                 "name": f"ilike.%{_lead_name}%",
-                                                "select": "phone",
+                                                "select": "id,name",
                                                 "limit": "1",
                                             },
                                             headers={
@@ -637,25 +625,30 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
                                         )
                                         _rows = _lr.json()
                                         if _rows:
-                                            _lead_phone = _rows[0].get("phone", "")
-                            except Exception:
-                                pass
+                                            _lead_id = _rows[0].get("id", "")
+                                            _lead_display = _rows[0].get("name") or _lead_name
+                            except Exception as _exc:
+                                logger.warning("[BROWSER-WS] Lead lookup failed: %s", _exc)
 
-                        if len(_draft_message) > 10:
+                        if len(_draft_message) > 10 and _lead_id:
                             await browser_ws.send_json({
                                 "type": "action_proposal",
                                 "action": "prepare_followup_message",
                                 "status": "draft_only",
-                                "lead_name": _lead_name or "ליד",
-                                "lead_phone": _lead_phone,
                                 "agent_id": agent_id,
+                                "lead_id": _lead_id,
+                                "lead_name": _lead_display,
                                 "channel": "whatsapp",
                                 "message": _draft_message.strip(),
                             })
                             logger.info(
-                                "[BROWSER-WS] Sent action_proposal for '%s': %s",
-                                _lead_name or "unknown",
-                                _draft_message[:60],
+                                "[BROWSER-WS] Sent action_proposal: lead=%s (%s)",
+                                _lead_display, _lead_id[:8],
+                            )
+                        elif len(_draft_message) > 10:
+                            logger.warning(
+                                "[BROWSER-WS] Draft ready but no lead_id found for '%s' — skipping action_proposal",
+                                _lead_name,
                             )
                         _user_approved_draft = False
 
