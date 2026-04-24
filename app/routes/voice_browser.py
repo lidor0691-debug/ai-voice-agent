@@ -480,7 +480,11 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
                         _output_buffer.append(output_t["text"])
                         # Detect draft approval from Maya's output
                         # (fallback when input transcript is in wrong language)
-                        _DRAFT_OUTPUT_MARKERS = ("הנה הודעה", "הנה ההודעה", "אנסח", "הייתי שולחת", "אפשר לשלוח", "הנה טיוטה", "הנה:")
+                        _DRAFT_OUTPUT_MARKERS = (
+                            "הנה", "הודעה", "טיוטה", "אנסח", "ניסוח",
+                            "הייתי שולחת", "אפשר לשלוח", "אפשר לכתוב",
+                            "הייתי כותבת", "מוכנה", "לשלוח",
+                        )
                         if any(m in output_t["text"] for m in _DRAFT_OUTPUT_MARKERS):
                             _user_approved_draft = True
                     await browser_ws.send_json({
@@ -565,10 +569,13 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
                         # Extract the actual message from Maya's output.
                         # Maya typically says: "הנה הודעה: היי משה..." or "אפשר לשלוח: ..."
                         _MESSAGE_MARKERS = (
-                            "הנה:", "הנה הודעה:", "הנה ההודעה:",
+                            "הנה הודעה:", "הנה ההודעה:", "הנה טיוטה:",
+                            "הנה הטיוטה,", "הנה הטיוטה:",
                             "אפשר לשלוח:", "הייתי שולחת:",
                             "נוסח אפשרי:", "הודעה:", "טיוטה:",
                             "אפשר לכתוב:", "הייתי כותבת:",
+                            "הנה,", "הנה:",
+                            "אוקיי, הנה", "אוקיי הנה",
                         )
                         _draft_message = full_out  # fallback: full output
                         for _marker in _MESSAGE_MARKERS:
