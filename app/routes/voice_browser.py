@@ -481,12 +481,10 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
                         _output_buffer.append(output_t["text"])
                         # Detect draft approval from Maya's output
                         # (fallback when input transcript is in wrong language)
-                        _DRAFT_OUTPUT_MARKERS = (
-                            "הנה", "הודעה", "טיוטה", "אנסח", "ניסוח",
-                            "הייתי שולחת", "אפשר לשלוח", "אפשר לכתוב",
-                            "הייתי כותבת", "מוכנה", "לשלוח",
-                        )
-                        if any(m in output_t["text"] for m in _DRAFT_OUTPUT_MARKERS):
+                        # Detect when Maya is actually drafting (not just offering)
+                        # "היי משה" = real draft. "רוצה שאכין הודעה?" = just offering.
+                        _DRAFT_CONTENT_SIGNALS = ("היי ", "שלום ", "הי ", "בוקר טוב", "ערב טוב")
+                        if any(s in output_t["text"] for s in _DRAFT_CONTENT_SIGNALS):
                             _user_approved_draft = True
                     await browser_ws.send_json({
                         "type": "transcript_out",
@@ -564,16 +562,9 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
                                         )
 
                     # ── Action proposal (draft message) ─────────────
-                    # Two-turn flow:
-                    # Turn N: user says "כן תכיני" → _user_approved_draft = True → set _draft_pending
-                    # Turn N+1: Maya drafts the message → send action_proposal with this turn's output
-                    if not is_preview and _user_approved_draft and not _draft_pending:
-                        # Approval just detected — wait for next turn
-                        _draft_pending = True
-                        _user_approved_draft = False
-                        logger.info("[BROWSER-WS] Draft approved — waiting for next turn with message")
-
-                    if not is_preview and _draft_pending and _output_buffer and not _user_approved_draft:
+                    # Triggered when Maya's output contains actual draft content
+                    # (detected by "היי [name]" pattern, not by keywords like "הודעה")
+                    if not is_preview and _user_approved_draft and _output_buffer:
                         full_out = " ".join(_output_buffer)
 
                         # Extract the actual message from Maya's output.
@@ -640,7 +631,6 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
                                 _lead_name or "unknown",
                                 _draft_message[:60],
                             )
-                        _draft_pending = False
                         _user_approved_draft = False
 
                     _input_buffer.clear()
