@@ -556,30 +556,67 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
                     # ── Action proposal (draft message) ─────────────
                     if not is_preview and _user_approved_draft and _output_buffer:
                         full_out = " ".join(_output_buffer)
-                        # Look for drafted message content — Maya typically includes the message text
-                        # Extract lead name from recent transcript context
-                        _lead_name = ""
-                        for _tl in reversed(transcript_lines[-10:]):
-                            if "מאיה:" in _tl:
-                                for _aname_key in ("משה", "רחל", "יוסי", "דניאל", "שרה", "תמר", "לידור", "מאיה"):
-                                    if _aname_key in _tl:
-                                        _lead_name = _aname_key
-                                        break
-                            if _lead_name:
-                                break
 
-                        if len(full_out) > 20:  # Maya actually drafted something
+                        # Extract the actual message from Maya's output.
+                        # Maya typically says: "הנה הודעה: היי משה..." or "אפשר לשלוח: ..."
+                        _MESSAGE_MARKERS = (
+                            "הנה:", "הנה הודעה:", "הנה ההודעה:",
+                            "אפשר לשלוח:", "הייתי שולחת:",
+                            "נוסח אפשרי:", "הודעה:", "טיוטה:",
+                            "אפשר לכתוב:", "הייתי כותבת:",
+                        )
+                        _draft_message = full_out  # fallback: full output
+                        for _marker in _MESSAGE_MARKERS:
+                            if _marker in full_out:
+                                _draft_message = full_out.split(_marker, 1)[1].strip()
+                                break
+                        # Also try splitting on quotation marks (היי "משה...")
+                        if _draft_message == full_out and '"' in full_out:
+                            _parts = full_out.split('"')
+                            if len(_parts) >= 2:
+                                _quoted = _parts[1].strip()
+                                if len(_quoted) > 10:
+                                    _draft_message = _quoted
+
+                        # Extract lead name from recent transcript
+                        _lead_name = ""
+                        _all_text = full_out + " " + " ".join(transcript_lines[-10:])
+                        for _tl in reversed(transcript_lines[-10:]):
+                            for _word in _tl.split():
+                                _w = _word.strip(".,!?\"׳'")
+                                if len(_w) > 1 and _w[0].isupper() or any(c in "אבגדהוזחטיכלמנסעפצקרשת" for c in _w):
+                                    # Simple heuristic: Hebrew names in lead context
+                                    pass
+                            break
+
+                        # Try to find a name mentioned by Maya (e.g. "היי משה")
+                        import re
+                        _name_match = re.search(r'היי\s+([א-ת]+)', _draft_message)
+                        if _name_match:
+                            _lead_name = _name_match.group(1)
+                        if not _lead_name:
+                            # Fallback: scan recent transcript for lead names
+                            for _tl in reversed(transcript_lines[-10:]):
+                                for _known in ("משה", "רחל", "יוסי", "דניאל", "שרה", "תמר", "לידור"):
+                                    if _known in _tl:
+                                        _lead_name = _known
+                                        break
+                                if _lead_name:
+                                    break
+
+                        if len(_draft_message) > 10:
                             await browser_ws.send_json({
                                 "type": "action_proposal",
                                 "action": "prepare_followup_message",
                                 "status": "draft_only",
                                 "lead_name": _lead_name or "ליד",
                                 "channel": "whatsapp",
-                                "message": full_out.strip(),
+                                "message": _draft_message.strip(),
                             })
                             logger.info(
-                                "[BROWSER-WS] Sent action_proposal: prepare_followup_message for '%s'",
+                                "[BROWSER-WS] Sent action_proposal for '%s': %s",
                                 _lead_name or "unknown",
+                                _draft_message[:60],
                             )
                         _user_approved_draft = False
 
