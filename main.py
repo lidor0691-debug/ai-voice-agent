@@ -66,6 +66,7 @@ from app.routes.maya_nlu import router as maya_nlu_router
 from app.routes.maya_insight import router as maya_insight_router
 from app.routes.maya_stt import router as maya_stt_router
 from app.routes.voice_browser import router as voice_browser_router
+from app.routes.action_api import router as action_api_router
 
 app = FastAPI()
 
@@ -93,6 +94,7 @@ app.include_router(maya_nlu_router)
 app.include_router(maya_insight_router)
 app.include_router(maya_stt_router)
 app.include_router(voice_browser_router)
+app.include_router(action_api_router)
 
 # Serve mockup files for development
 from fastapi.staticfiles import StaticFiles
