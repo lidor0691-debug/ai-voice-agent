@@ -24,6 +24,7 @@ export default async function AgentsPage() {
     <AgentsClientPage
       agents={data as AgentConfig[] | null}
       error={error?.message ?? null}
+      isAdmin={ctx.isAdmin}
     />
   );
 }

@@ -41,11 +41,25 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const authClient = await createSupabaseServerClient();
   const { data: { user } } = await authClient.auth.getUser();
-  if (!getUserContext(user)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const ctx = getUserContext(user);
+  if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await req.json();
-
   const admin = createSupabaseAdminClient();
+
+  // Non-admin: verify the target agent belongs to their client
+  if (!ctx.isAdmin) {
+    if (!body.agent_id) return NextResponse.json({ error: "agent_id required" }, { status: 400 });
+    const { data: agent, error: agentErr } = await admin
+      .from("agents_config")
+      .select("client_id")
+      .eq("id", body.agent_id)
+      .single();
+    if (agentErr || !agent) return NextResponse.json({ error: "Agent not found" }, { status: 404 });
+    if (agent.client_id !== ctx.clientId)
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const { data, error } = await admin
     .from("knowledge_items")
     .insert(body)

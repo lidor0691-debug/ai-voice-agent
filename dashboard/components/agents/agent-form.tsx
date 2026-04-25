@@ -23,6 +23,7 @@ type FormData = Omit<AgentConfig, "id" | "created_at" | "updated_at">;
 interface Props {
   initial?: Partial<FormData>;
   agentId?: string;
+  isAdmin?: boolean;
 }
 
 // ── Steps (built dynamically inside component from t.*) ───────────────────────
@@ -142,21 +143,26 @@ function StepIndicator({
 
 // ── Main form ─────────────────────────────────────────────────────────────────
 
-export function AgentForm({ initial, agentId }: Props) {
+export function AgentForm({ initial, agentId, isAdmin = false }: Props) {
   // Safety guard: in edit mode, block the form entirely if initial data is missing.
   // This prevents a blank form from overwriting an existing agent row on save.
   const isEditMode = Boolean(agentId);
   const initialLoaded = !isEditMode || (initial != null && Object.keys(initial).length > 0);
 
   const { t } = useLanguage();
-  const steps = [
+
+  // Admin sees all 6 steps; clients skip leads (4) and WhatsApp config (5)
+  const allSteps = [
     { number: 1, label: t.step_business },
     { number: 2, label: t.step_voice },
     { number: 3, label: t.step_calls },
-    { number: 4, label: t.step_leads },
-    { number: 5, label: t.step_whatsapp },
+    { number: 4, label: t.step_leads, adminOnly: true },
+    { number: 5, label: t.step_whatsapp, adminOnly: true },
     { number: 6, label: t.step_activation },
   ];
+  const steps = isAdmin
+    ? allSteps
+    : allSteps.filter((s) => !s.adminOnly);
 
   const router = useRouter();
   const [step, setStep] = useState(1);
@@ -247,6 +253,10 @@ export function AgentForm({ initial, agentId }: Props) {
     }
   };
 
+  const stepNumbers = steps.map((s) => s.number);
+  const lastStep = stepNumbers[stepNumbers.length - 1];
+  const firstStep = stepNumbers[0];
+
   const goNext = () => {
     if (step === 1) {
       if (!form.agent_name?.trim()) {
@@ -254,21 +264,25 @@ export function AgentForm({ initial, agentId }: Props) {
         return;
       }
       const normalizedPhone = normalizePhone(form.phone_number ?? "");
-      if (!normalizedPhone) {
+      if (!normalizedPhone && isAdmin) {
         setPhoneError(t.af_phone_required);
         return;
       }
-      if (!isValidPhone(normalizedPhone)) {
+      if (normalizedPhone && !isValidPhone(normalizedPhone)) {
         setPhoneError(t.af_phone_invalid);
         return;
       }
     }
     setError(null);
     setPhoneError(null);
-    setStep((s) => Math.min(s + 1, 6));
+    const curIdx = stepNumbers.indexOf(step);
+    if (curIdx < stepNumbers.length - 1) setStep(stepNumbers[curIdx + 1]);
   };
 
-  const goBack = () => setStep((s) => Math.max(s - 1, 1));
+  const goBack = () => {
+    const curIdx = stepNumbers.indexOf(step);
+    if (curIdx > 0) setStep(stepNumbers[curIdx - 1]);
+  };
 
   const handleSubmit = async () => {
     if (!initialLoaded) {
@@ -402,23 +416,25 @@ export function AgentForm({ initial, agentId }: Props) {
               </Field>
             </div>
 
-            <Field
-              label={t.af_phone_label}
-              hint={t.af_phone_hint}
-              required
-            >
-              <Input
-                placeholder={t.af_phone_placeholder}
-                value={form.phone_number ?? ""}
-                onChange={(e) => {
-                  set("phone_number", normalizePhone(e.target.value));
-                  setPhoneError(null);
-                }}
-              />
-              {phoneError && (
-                <p className="text-xs text-red-400 mt-1">{phoneError}</p>
-              )}
-            </Field>
+            {isAdmin && (
+              <Field
+                label={t.af_phone_label}
+                hint={t.af_phone_hint}
+                required
+              >
+                <Input
+                  placeholder={t.af_phone_placeholder}
+                  value={form.phone_number ?? ""}
+                  onChange={(e) => {
+                    set("phone_number", normalizePhone(e.target.value));
+                    setPhoneError(null);
+                  }}
+                />
+                {phoneError && (
+                  <p className="text-xs text-red-400 mt-1">{phoneError}</p>
+                )}
+              </Field>
+            )}
 
             <div className="grid grid-cols-2 gap-4">
               <Field
@@ -506,8 +522,8 @@ export function AgentForm({ initial, agentId }: Props) {
                 </div>
               </div>
             </Field>
-            {/* ── Test Call ── */}
-            {agentId && (
+            {/* ── Test Call (admin only) ── */}
+            {isAdmin && agentId && (
               <div className="pt-2 border-t border-border space-y-2">
                 <label className="block text-sm text-gray-400">{t.af_test_call_label}</label>
                 <div className="flex gap-2">
@@ -564,17 +580,19 @@ export function AgentForm({ initial, agentId }: Props) {
               />
             </Field>
 
-            <Field
-              label={t.af_system_prompt_label}
-              hint={t.af_system_prompt_hint}
-            >
-              <Textarea
-                rows={10}
-                placeholder={t.af_system_prompt_placeholder}
-                value={form.system_prompt ?? ""}
-                onChange={(e) => set("system_prompt", e.target.value)}
-              />
-            </Field>
+            {isAdmin && (
+              <Field
+                label={t.af_system_prompt_label}
+                hint={t.af_system_prompt_hint}
+              >
+                <Textarea
+                  rows={10}
+                  placeholder={t.af_system_prompt_placeholder}
+                  value={form.system_prompt ?? ""}
+                  onChange={(e) => set("system_prompt", e.target.value)}
+                />
+              </Field>
+            )}
           </div>
         )}
 
@@ -886,7 +904,7 @@ export function AgentForm({ initial, agentId }: Props) {
                 {[
                   { label: t.af_business_name_label, value: form.business_name || "—" },
                   { label: t.af_agent_name_label, value: form.agent_name || "—" },
-                  { label: t.af_phone_label, value: form.phone_number || "—" },
+                  isAdmin && { label: t.af_phone_label, value: form.phone_number || "—" },
                   {
                     label: t.af_call_language_label,
                     value:
@@ -896,39 +914,42 @@ export function AgentForm({ initial, agentId }: Props) {
                         ? t.af_lang_en
                         : (form.language ?? "—"),
                   },
-                  {
+                  isAdmin && {
                     label: t.af_lead_method_label,
                     value:
                       deliveryLabel[form.lead_delivery_method ?? "webhook"] ??
                       form.lead_delivery_method ??
                       "—",
                   },
-                  {
+                  isAdmin && {
                     label: t.af_lead_webhook_label,
                     value: form.lead_delivery_target?.trim()
                       ? t.af_configured
                       : t.af_not_configured,
                     warn: !form.lead_delivery_target?.trim(),
                   },
-                  {
+                  isAdmin && {
                     label: t.af_wa_enable_label,
                     value: form.whatsapp_enabled ? t.af_configured : t.af_not_configured,
                   },
-                ].map(({ label, value, warn }) => (
-                  <div
-                    key={label}
-                    className="flex justify-between items-center py-2.5 border-b border-border/50 last:border-0"
-                  >
-                    <span className="text-gray-500 text-sm">{label}</span>
-                    <span
-                      className={`text-sm font-medium ${
-                        warn ? "text-amber-400" : "text-white"
-                      }`}
+                ].filter(Boolean).map((item) => {
+                  const { label, value, warn } = item as { label: string; value: string; warn?: boolean };
+                  return (
+                    <div
+                      key={label}
+                      className="flex justify-between items-center py-2.5 border-b border-border/50 last:border-0"
                     >
-                      {value}
-                    </span>
-                  </div>
-                ))}
+                      <span className="text-gray-500 text-sm">{label}</span>
+                      <span
+                        className={`text-sm font-medium ${
+                          warn ? "text-amber-400" : "text-white"
+                        }`}
+                      >
+                        {value}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
@@ -984,7 +1005,7 @@ export function AgentForm({ initial, agentId }: Props) {
 
         {/* ניווט */}
         <div className="flex justify-between mt-8">
-          {step > 1 ? (
+          {step > firstStep ? (
             <button
               onClick={goBack}
               className="flex items-center gap-2 text-gray-400 hover:text-white text-sm px-5 py-2.5 rounded-lg border border-border hover:bg-surface-3 transition-colors"
@@ -995,7 +1016,7 @@ export function AgentForm({ initial, agentId }: Props) {
           ) : (
             <div />
           )}
-          {step < 6 && (
+          {step < lastStep && (
             <button
               onClick={goNext}
               className="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-6 py-2.5 rounded-lg transition-colors"

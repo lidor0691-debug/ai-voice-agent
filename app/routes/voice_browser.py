@@ -181,7 +181,7 @@ def _detect_intent(text: str) -> str | None:
 # ── WebSocket endpoint ───────────────────────────────────────────────────────
 
 @router.websocket("/ws/voice-browser")
-async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""), mode: str = Query(default="preview")):
+async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""), mode: str = Query(default="preview"), token: str = Query(default="")):
     """
     Proxy WebSocket: Browser <-> Gemini Live.
     Accepts PCM16 16kHz from browser, forwards to Gemini, returns PCM16 24kHz.
@@ -205,6 +205,49 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
     agent_cfg = await fetch_agent_config_by_id(agent_id)
     if agent_cfg.get("fallback_used"):
         logger.warning("[BROWSER-WS] No agent found for id=%s - using fallback", agent_id)
+
+    # ── Ownership validation via Supabase JWT (fail-closed) ────────────
+    _sb_url = os.getenv("SUPABASE_URL", "")
+    _sb_key = os.getenv("SUPABASE_SERVICE_KEY", "")
+    if not token or not _sb_url or not _sb_key:
+        logger.warning("[BROWSER-WS] Missing token or Supabase config — rejecting")
+        await browser_ws.send_json({"type": "error", "message": "Unauthorized"})
+        await browser_ws.close()
+        return
+
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as _c:
+            _user_resp = await _c.get(
+                f"{_sb_url}/auth/v1/user",
+                headers={
+                    "apikey": _sb_key,
+                    "Authorization": f"Bearer {token}",
+                },
+            )
+            if _user_resp.status_code != 200:
+                logger.warning("[BROWSER-WS] Token validation failed: %d", _user_resp.status_code)
+                await browser_ws.send_json({"type": "error", "message": "Unauthorized"})
+                await browser_ws.close()
+                return
+
+            _user_data = _user_resp.json()
+            _meta = _user_data.get("user_metadata", {})
+            _is_admin = _meta.get("role") == "admin"
+            if not _is_admin:
+                _user_client_id = _meta.get("client_id")
+                _agent_client_id = agent_cfg.get("client_id")
+                if not _user_client_id or _user_client_id != _agent_client_id:
+                    logger.warning("[BROWSER-WS] Ownership mismatch - user_client=%s agent_client=%s", _user_client_id, _agent_client_id)
+                    await browser_ws.send_json({"type": "error", "message": "Forbidden"})
+                    await browser_ws.close()
+                    return
+    except Exception as exc:
+        logger.warning("[BROWSER-WS] Token validation error: %s — rejecting", exc)
+        await browser_ws.send_json({"type": "error", "message": "Unauthorized"})
+        await browser_ws.close()
+        return
+
+    logger.info("[BROWSER-WS] Auth passed - admin=%s", _is_admin)
 
     client_name = agent_cfg.get("client_name", "")
     client_id = agent_cfg.get("client_id") or None

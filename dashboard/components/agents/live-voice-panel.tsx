@@ -72,12 +72,17 @@ function base64ToInt16(base64: string): Int16Array {
   return new Int16Array(bytes.buffer);
 }
 
-function buildWsUrl(agentId: string, mode: string): string {
+async function buildWsUrl(agentId: string, mode: string): Promise<string> {
   const apiBase =
     process.env.NEXT_PUBLIC_API_BASE_URL ||
     "http://localhost:8000";
   const wsBase = apiBase.replace(/^http/, "ws");
-  return `${wsBase}/ws/voice-browser?agent_id=${agentId}&mode=${mode}`;
+  // Pass auth token for server-side ownership validation
+  const { createSupabaseBrowserClient } = await import("@/lib/supabase-browser");
+  const sb = createSupabaseBrowserClient();
+  const { data: { session } } = await sb.auth.getSession();
+  const token = session?.access_token ?? "";
+  return `${wsBase}/ws/voice-browser?agent_id=${agentId}&mode=${mode}&token=${encodeURIComponent(token)}`;
 }
 
 // ── Component ───────────────────────────────────────────────────────────────
@@ -210,7 +215,7 @@ export function LiveVoicePanel({ agentId, mode = "preview", onUiAction, onAction
       // workletNode intentionally not connected to destination (no local echo)
 
       // 5. Connect WebSocket
-      const wsUrl = buildWsUrl(agentId, mode);
+      const wsUrl = await buildWsUrl(agentId, mode);
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 

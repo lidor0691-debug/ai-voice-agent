@@ -11,11 +11,12 @@ import { useLanguage } from "@/context/language-context";
 
 interface Props {
   agent: AgentConfig;
+  isAdmin?: boolean;
 }
 
 type Tab = "settings" | "assets" | "voice";
 
-export function AgentPageTabs({ agent }: Props) {
+export function AgentPageTabs({ agent, isAdmin = false }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>("settings");
   const [archiving, setArchiving] = useState(false);
   const { t } = useLanguage();
@@ -63,7 +64,7 @@ export function AgentPageTabs({ agent }: Props) {
                   : "text-gray-500 border-transparent hover:text-gray-300"
               }`}
             >
-              Live Voice
+              Agent Preview
             </button>
           </div>
           <button
@@ -79,7 +80,7 @@ export function AgentPageTabs({ agent }: Props) {
 
       {/* Tab content */}
       {activeTab === "settings" && (
-        <AgentForm agentId={agent.id} initial={agent} />
+        <AgentForm agentId={agent.id} initial={agent} isAdmin={isAdmin} />
       )}
       {activeTab === "assets" && (
         <ClientAssetsTab clientId={agent.client_id ?? ""} />
