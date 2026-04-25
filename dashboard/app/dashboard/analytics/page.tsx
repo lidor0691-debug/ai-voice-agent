@@ -1,5 +1,8 @@
 export const dynamic = "force-dynamic";
 
+import { redirect } from "next/navigation";
+import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { getUserContext } from "@/lib/user-context";
 import { Header } from "@/components/layout/header";
 import { ActivityChart } from "@/components/dashboard/activity-chart";
 import { fetchLeads } from "@/lib/api";
@@ -8,6 +11,10 @@ import { computeStats } from "@/lib/utils";
 import { Card, CardHeader, CardContent } from "@/components/ui/card";
 
 export default async function AnalyticsPage() {
+  const client = await createSupabaseServerClient();
+  const { data: { user } } = await client.auth.getUser();
+  const ctx = getUserContext(user);
+  if (!ctx?.isAdmin) redirect("/dashboard");
   let leads = MOCK_LEADS;
   try {
     leads = await fetchLeads();

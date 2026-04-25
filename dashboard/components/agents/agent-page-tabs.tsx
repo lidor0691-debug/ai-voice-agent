@@ -67,14 +67,16 @@ export function AgentPageTabs({ agent, isAdmin = false }: Props) {
               Agent Preview
             </button>
           </div>
-          <button
-            onClick={handleArchive}
-            disabled={archiving}
-            className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-red-400 px-3 py-1.5 rounded-lg hover:bg-red-500/10 transition-colors disabled:opacity-40"
-          >
-            <Archive className="w-3.5 h-3.5" />
-            {archiving ? "..." : t.archive_agent_btn}
-          </button>
+          {isAdmin && (
+            <button
+              onClick={handleArchive}
+              disabled={archiving}
+              className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-red-400 px-3 py-1.5 rounded-lg hover:bg-red-500/10 transition-colors disabled:opacity-40"
+            >
+              <Archive className="w-3.5 h-3.5" />
+              {archiving ? "..." : t.archive_agent_btn}
+            </button>
+          )}
         </div>
       </div>
 
