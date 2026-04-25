@@ -432,7 +432,7 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
 
     # ── Gemini -> Browser loop ───────────────────────────────────────────
     async def gemini_to_browser():
-        nonlocal _speaking, _turn_count, _last_injected_intent, _last_injection_time, _last_injection_turn, _user_approved_draft, _draft_pending
+        nonlocal _speaking, _turn_count, _last_injected_intent, _last_injection_time, _last_injection_turn, _user_approved_draft, _draft_pending, _session_leads
 
         try:
             async for raw in gemini_ws:
