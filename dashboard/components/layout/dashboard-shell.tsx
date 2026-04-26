@@ -38,7 +38,7 @@ function ShellInner({ children, isAdmin, defaultAgentId }: ShellProps) {
 
         {/* Mobile drawer */}
         <div className={`sidebar-drawer md:hidden bg-surface-1 border-e border-border ${open ? "open" : ""}`}>
-          <Sidebar isAdmin={isAdmin} onNavigate={close} />
+          <Sidebar isAdmin={isAdmin} onNavigate={close} compact />
         </div>
 
         {/* Backdrop */}

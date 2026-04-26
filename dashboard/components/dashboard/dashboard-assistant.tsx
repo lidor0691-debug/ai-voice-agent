@@ -54,7 +54,7 @@ export function DashboardAssistant({ defaultAgentId }: Props) {
   if (!defaultAgentId) return null;
 
   return (
-    <div className="fixed bottom-6 left-6 z-50 w-80 card p-4 shadow-2xl border border-border/50 rounded-2xl bg-surface-1/95 backdrop-blur">
+    <div className="fixed bottom-6 left-6 z-50 w-80 card p-4 shadow-2xl border border-border/50 rounded-2xl bg-surface-1/95 backdrop-blur hidden md:block">
       <LiveVoicePanel
         agentId={defaultAgentId}
         mode="assistant"

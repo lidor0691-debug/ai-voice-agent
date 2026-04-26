@@ -10,6 +10,7 @@ import { WinSignalsCard } from "@/components/dashboard/win-signals-card";
 import { ActionQueueCard } from "@/components/dashboard/action-queue-card";
 import { useLanguage } from "@/context/language-context";
 import type { AgentConfig, CallLog } from "@/types/database";
+import { MobileDashboard } from "@/components/mobile/mobile-dashboard";
 
 interface Props {
   agents: Pick<AgentConfig, "id" | "agent_name" | "is_active" | "system_prompt" | "first_message" | "phone_number">[] | null;
@@ -72,6 +73,17 @@ export function DashboardClientPage({ agents, calls, knowledgeCount, insights, i
     <div className="flex-1 overflow-y-auto">
       <Header title={t.page_dashboard_title} subtitle={t.page_dashboard_subtitle} />
 
+      {/* Mobile operator cockpit */}
+      <div className="md:hidden">
+        <MobileDashboard
+          agents={agents}
+          calls={calls}
+          defaultAgentId={agents?.[0]?.id ?? null}
+        />
+      </div>
+
+      {/* Desktop dashboard — unchanged */}
+      <div className="hidden md:block">
       <div className="p-5 space-y-4 bg-surface-0 min-h-full">
 
         {/* KPI Row */}
@@ -287,6 +299,7 @@ export function DashboardClientPage({ agents, calls, knowledgeCount, insights, i
         </div>
 
       </div>
+      </div>{/* end hidden md:block */}
     </div>
   );
 }

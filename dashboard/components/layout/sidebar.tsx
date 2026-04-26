@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 import { useLanguage } from "@/context/language-context";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
 
-export function Sidebar({ isAdmin = false, onNavigate }: { isAdmin?: boolean; onNavigate?: () => void }) {
+export function Sidebar({ isAdmin = false, onNavigate, compact = false }: { isAdmin?: boolean; onNavigate?: () => void; compact?: boolean }) {
   const pathname = usePathname();
   const router = useRouter();
   const { t } = useLanguage();
@@ -38,6 +38,9 @@ export function Sidebar({ isAdmin = false, onNavigate }: { isAdmin?: boolean; on
     { href: "/dashboard/settings",  label: t.nav_settings,  icon: Settings },
   ];
 
+  const MOBILE_HREFS = ["/dashboard", "/dashboard/agents", "/dashboard/calls", "/dashboard/leads"];
+  const visibleItems = compact ? NAV_ITEMS.filter((item) => MOBILE_HREFS.includes(item.href)) : NAV_ITEMS;
+
   return (
     <aside className="w-56 h-full bg-surface-1 border-e border-border flex flex-col flex-shrink-0">
       {/* Brand */}
@@ -55,7 +58,7 @@ export function Sidebar({ isAdmin = false, onNavigate }: { isAdmin?: boolean; on
 
       {/* Nav */}
       <nav className="flex-1 px-2 py-3 space-y-0.5">
-        {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
+        {visibleItems.map(({ href, label, icon: Icon }) => {
           const active =
             href === "/dashboard"
               ? pathname === "/dashboard"
