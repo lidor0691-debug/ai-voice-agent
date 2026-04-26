@@ -127,9 +127,18 @@ _ASSISTANT_PROMPT = """\
 - "הייתי חוזרת אליו. רוצה שאכין לך טיוטה?"
 
 אם המשתמש אומר כן — את מנסחת הודעה מלאה, מוכנה לשליחה.
-חשוב מאוד: את אומרת רק את ההודעה עצמה, בלי הקדמה.
-לא "הנה ההודעה:" ולא "אני מנסחת:" — פשוט את הטקסט של ההודעה כמו שהוא.
-הודעה קצרה, אישית, עם שם הליד. כמו הודעה שבנאדם אמיתי שולח.
+
+חשוב מאוד — פורמט ההודעה:
+את חייבת לסמן את ההודעה ללקוח בצורה הבאה בדיוק:
+
+הודעה ללקוח:
+[כאן הטקסט המדויק של ההודעה ללקוח, בלי הסברים]
+
+אחרי הסימון, את כותבת רק את ההודעה עצמה — בלי תגובות אליי, בלי "אתה יכול לשלוח", בלי "הכרטיס מופיע".
+ההודעה קצרה, אישית, עם שם הליד. כמו הודעה שבנאדם אמיתי שולח.
+
+אם רוצה להגיד לי משהו אחרי, תגידי "סיימתי" ואז תוסיפי את ההערה.
+המערכת מזהה רק את הטקסט אחרי "הודעה ללקוח:" ולפני "סיימתי" או סוף הדיבור.
 
 ההודעה תוצג למשתמש בכרטיס על המסך, והוא יוכל לערוך ולשלוח אותה ישירות ב-WhatsApp.
 את לא שולחת בעצמך — את מנסחת, והמשתמש שולח דרך הכפתור.
@@ -180,50 +189,62 @@ def _detect_intent(text: str) -> str | None:
 
 # ── Draft message extraction ─────────────────────────────────────────────────
 
-_DRAFT_START_MARKERS = (
-    "הנה הודעה:", "הנה ההודעה:", "הנה טיוטה:",
-    "הנה הטיוטה,", "הנה הטיוטה:",
-    "אפשר לשלוח:", "הייתי שולחת:",
-    "נוסח אפשרי:", "הודעה:", "טיוטה:",
-    "אפשר לכתוב:", "הייתי כותבת:",
-    "הנה,", "הנה:",
-    "אוקיי, הנה", "אוקיי הנה",
-)
+# Strict marker — Maya is instructed to use exactly this before customer messages
+_DRAFT_STRICT_MARKER = "הודעה ללקוח:"
 
+# Commentary markers that terminate the draft
 _DRAFT_END_MARKERS = (
+    "סיימתי",
     "זה מוכן", "אתה יכול", "את יכולה",
     "רוצה שאשלח", "רוצה לשלוח", "שלח מ",
     "הכרטיס מופיע", "הכרטיס כבר", "מופיע על המסך",
     "לחץ על", "לחצי על", "אפשר לשלוח ישירות",
     "שלח ישירות", "מכפתור", "דרך הכפתור",
     "אני לא יכולה לשלוח", "אני לא שולחת",
+    "בוא ניגש", "ראיתי שאת", "רוצה שנבדוק",
 )
 
 
-def _extract_draft_message(full_out: str) -> str:
-    """Extract only the customer-facing draft from Maya's output, stripping commentary."""
-    # 1. Try quoted text first (strongest signal)
-    if '"' in full_out:
-        parts = full_out.split('"')
-        # Take the longest quoted segment
-        quoted = [p.strip() for p in parts[1::2] if len(p.strip()) > 10]
-        if quoted:
-            return max(quoted, key=len)
+def _extract_draft_message(full_out: str) -> str | None:
+    """
+    Extract customer-facing draft from Maya's output.
+    Returns None if no clear draft is found — caller should skip the proposal.
 
-    # 2. Split after start marker
-    draft = full_out
-    for marker in _DRAFT_START_MARKERS:
-        if marker in full_out:
-            draft = full_out.split(marker, 1)[1].strip()
-            break
+    Priority:
+    1. Text after the strict marker "הודעה ללקוח:"
+    2. Long quoted text (>= 20 chars) inside straight or curly quotes
+    3. None — do not guess
+    """
+    # 1. Strict marker — most reliable
+    if _DRAFT_STRICT_MARKER in full_out:
+        draft = full_out.split(_DRAFT_STRICT_MARKER, 1)[1].strip()
+        for end_marker in _DRAFT_END_MARKERS:
+            idx = draft.find(end_marker)
+            if idx > 5:
+                draft = draft[:idx].rstrip(" .,!؟\n")
+        draft = draft.strip()
+        if len(draft) >= 10:
+            return draft
+        return None
 
-    # 3. Truncate before end/commentary markers
-    for end_marker in _DRAFT_END_MARKERS:
-        idx = draft.find(end_marker)
-        if idx > 10:  # keep at least some content
-            draft = draft[:idx].rstrip(" .,!؟\n")
+    # 2. Quoted text — accept only long quotes (likely a real message, not a phrase)
+    for open_q, close_q in (('"', '"'), ('“', '”'), ('"', '"'), ("'", "'")):
+        if open_q in full_out and close_q in full_out:
+            parts = full_out.split(open_q)
+            # Pick segments at odd indices (between quotes)
+            quoted = []
+            for i in range(1, len(parts)):
+                seg = parts[i]
+                if close_q in seg and open_q != close_q:
+                    seg = seg.split(close_q, 1)[0]
+                seg = seg.strip()
+                if len(seg) >= 20:
+                    quoted.append(seg)
+            if quoted:
+                return max(quoted, key=len)
 
-    return draft.strip() or full_out
+    # 3. No reliable draft — caller should skip proposal
+    return None
 
 
 # ── WebSocket endpoint ───────────────────────────────────────────────────────
@@ -563,16 +584,37 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
                                     detected, len(injection_text),
                                 )
 
-                            ui = _INTENT_UI_ACTIONS.get(detected)
-                            if ui:
-                                await browser_ws.send_json({
-                                    "type": "ui_action",
-                                    **ui,
-                                })
-                                logger.info(
-                                    "[BROWSER-WS] Sent ui_action: %s -> %s",
-                                    ui.get("action"), ui.get("target"),
-                                )
+                            # Specific agent name detection — e.g. "תפתחי את BPM"
+                            _agent_ui_sent = False
+                            _input_lower = combined_input.lower()
+                            for _aname, _aid in _agent_name_map.items():
+                                if _aname in _input_lower:
+                                    _sub = "settings"
+                                    if any(w in _input_lower for w in ("נכסים", "assets", "חומרים")):
+                                        _sub = "assets"
+                                    elif any(w in _input_lower for w in ("בדיקה", "preview", "בדוק")):
+                                        _sub = "voice"
+                                    await browser_ws.send_json({
+                                        "type": "ui_action",
+                                        "action": "open_agent",
+                                        "target": _aid,
+                                        "tab": _sub,
+                                    })
+                                    logger.info("[BROWSER-WS] Sent ui_action: open_agent -> %s (tab=%s)", _aname, _sub)
+                                    _agent_ui_sent = True
+                                    break
+
+                            if not _agent_ui_sent:
+                                ui = _INTENT_UI_ACTIONS.get(detected)
+                                if ui:
+                                    await browser_ws.send_json({
+                                        "type": "ui_action",
+                                        **ui,
+                                    })
+                                    logger.info(
+                                        "[BROWSER-WS] Sent ui_action: %s -> %s",
+                                        ui.get("action"), ui.get("target"),
+                                    )
 
                 # Output transcript
                 output_t = server_content.get("outputTranscription", {})
@@ -619,51 +661,9 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
                     _speaking = False
                     _turn_count += 1
 
-                    # ── Process accumulated output for UI actions ────
-                    if not is_preview and _output_buffer:
-                        full_output = " ".join(_output_buffer)
-                        if "פותחת" in full_output or "פתחתי" in full_output:
-                            now_out = asyncio.get_event_loop().time()
-                            if now_out - _last_injection_time > 3:
-                                # Check for specific agent name
-                                _agent_matched = False
-                                out_lower = full_output.lower()
-                                for _aname, _aid in _agent_name_map.items():
-                                    if _aname in out_lower:
-                                        _last_injection_time = now_out
-                                        # Detect sub-tab (assets / preview)
-                                        _sub = "settings"
-                                        if any(w in out_lower for w in ("נכסים", "assets", "חומרים")):
-                                            _sub = "assets"
-                                        elif any(w in out_lower for w in ("בדיקה", "preview", "בדוק")):
-                                            _sub = "voice"
-                                        await browser_ws.send_json({
-                                            "type": "ui_action",
-                                            "action": "open_agent",
-                                            "target": _aid,
-                                            "tab": _sub,
-                                        })
-                                        logger.info(
-                                            "[BROWSER-WS] Sent ui_action: open_agent -> %s (tab=%s)",
-                                            _aname, _sub,
-                                        )
-                                        _agent_matched = True
-                                        break
-
-                                # Fall back to generic tab
-                                if not _agent_matched:
-                                    out_detected = _detect_intent(full_output)
-                                    if out_detected and out_detected in _INTENT_UI_ACTIONS:
-                                        _last_injection_time = now_out
-                                        ui = _INTENT_UI_ACTIONS[out_detected]
-                                        await browser_ws.send_json({
-                                            "type": "ui_action",
-                                            **ui,
-                                        })
-                                        logger.info(
-                                            "[BROWSER-WS] Sent ui_action: %s -> %s",
-                                            ui.get("action"), ui.get("target"),
-                                        )
+                    # ui_action is now fired from user input intent detection
+                    # (see input_t handler above) — output-based detection was unreliable
+                    # because it depended on Maya saying "פותחת" exactly.
 
                     # Snapshot output before clearing
                     _pending_draft = None
@@ -684,6 +684,9 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
                     # ── Action proposal (after turn_complete) ─────────
                     if _pending_draft:
                         _draft_message = _extract_draft_message(_pending_draft)
+                        if not _draft_message:
+                            logger.info("[BROWSER-WS] No clear draft marker/quote found — skipping proposal")
+                            continue
 
                         # Auto-fetch leads if session has none
                         if not _session_leads:
@@ -712,33 +715,32 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
                                     len(_candidates),
                                 )
 
-                        if len(_draft_message) > 10:
-                            _lead_name = (_matched_lead.get("name") or "ליד") if _matched_lead else "ליד"
-                            _last_draft = {"message": _draft_message.strip(), "lead_name": _lead_name}
+                        _lead_name = (_matched_lead.get("name") or "ליד") if _matched_lead else "ליד"
+                        _last_draft = {"message": _draft_message.strip(), "lead_name": _lead_name}
 
-                            if _matched_lead:
-                                await browser_ws.send_json({
-                                    "type": "action_proposal",
-                                    "action": "prepare_followup_message",
-                                    "status": "draft_only",
-                                    "agent_id": agent_id,
-                                    "lead_id": _matched_lead["id"],
-                                    "lead_name": _lead_name,
-                                    "channel": "whatsapp",
-                                    "message": _draft_message.strip(),
-                                })
-                                logger.info("[BROWSER-WS] Sent action_proposal: lead=%s (%s)", _lead_name, _matched_lead["id"][:8])
-                            else:
-                                await browser_ws.send_json({
-                                    "type": "action_proposal",
-                                    "action": "draft_message",
-                                    "status": "draft_only",
-                                    "agent_id": agent_id,
-                                    "lead_name": _lead_name,
-                                    "channel": "whatsapp",
-                                    "message": _draft_message.strip(),
-                                })
-                                logger.info("[BROWSER-WS] Sent draft_message proposal (no lead match, %d leads)", len(_session_leads))
+                        if _matched_lead:
+                            await browser_ws.send_json({
+                                "type": "action_proposal",
+                                "action": "prepare_followup_message",
+                                "status": "draft_only",
+                                "agent_id": agent_id,
+                                "lead_id": _matched_lead["id"],
+                                "lead_name": _lead_name,
+                                "channel": "whatsapp",
+                                "message": _draft_message.strip(),
+                            })
+                            logger.info("[BROWSER-WS] Sent action_proposal: lead=%s (%s)", _lead_name, _matched_lead["id"][:8])
+                        else:
+                            await browser_ws.send_json({
+                                "type": "action_proposal",
+                                "action": "draft_message",
+                                "status": "draft_only",
+                                "agent_id": agent_id,
+                                "lead_name": _lead_name,
+                                "channel": "whatsapp",
+                                "message": _draft_message.strip(),
+                            })
+                            logger.info("[BROWSER-WS] Sent draft_message proposal (no lead match, %d leads)", len(_session_leads))
 
         except Exception as e:
             logger.warning("[BROWSER-WS] Gemini receiver error: %s", e)
