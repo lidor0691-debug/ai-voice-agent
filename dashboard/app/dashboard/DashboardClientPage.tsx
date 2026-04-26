@@ -7,6 +7,7 @@ import { TestAgent } from "@/components/dashboard/test-agent";
 import { LeadInsightsCard } from "@/components/dashboard/lead-insights-card";
 import { InjectionEventsCard } from "@/components/dashboard/injection-events-card";
 import { WinSignalsCard } from "@/components/dashboard/win-signals-card";
+import { ActionQueueCard } from "@/components/dashboard/action-queue-card";
 import { useLanguage } from "@/context/language-context";
 import type { AgentConfig, CallLog } from "@/types/database";
 
@@ -274,6 +275,9 @@ export function DashboardClientPage({ agents, calls, knowledgeCount, insights, i
           </div>
 
         </div>
+
+        {/* Action Queue — Daily Priorities */}
+        <ActionQueueCard agentId={agents?.[0]?.id} />
 
         {/* Lead Intelligence */}
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
