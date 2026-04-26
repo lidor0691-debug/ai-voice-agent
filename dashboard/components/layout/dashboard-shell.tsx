@@ -29,14 +29,29 @@ function ShellInner({ children, isAdmin, defaultAgentId }: ShellProps) {
     <SidebarContext.Provider value={{ open, toggle, close }}>
       <div
         dir={lang === "he" ? "rtl" : "ltr"}
-        className="flex h-screen overflow-hidden bg-surface-0"
+        className="h-screen overflow-hidden bg-surface-0"
       >
-        {/* Desktop sidebar */}
-        <div className="hidden md:block">
-          <Sidebar isAdmin={isAdmin} />
+        {/*
+          Outer wrapper: on desktop (md+) this is a flex-row with sidebar.
+          On mobile (<md) this is a plain block — no flex-row, no sidebar in flow.
+          The sidebar is display:none on mobile via the inner hidden class.
+        */}
+        <div className="h-full flex flex-col md:flex-row">
+          {/* Desktop sidebar — display:none below md */}
+          <aside className="hidden md:flex md:flex-col md:w-56 md:flex-shrink-0">
+            <Sidebar isAdmin={isAdmin} />
+          </aside>
+
+          {/* Main content — always rendered */}
+          <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+            {children}
+          </div>
+
+          {/* Desktop assistant — display:none below md */}
+          <DashboardAssistant defaultAgentId={defaultAgentId ?? null} />
         </div>
 
-        {/* Mobile drawer */}
+        {/* Mobile drawer — fixed overlay, NEVER in document flow */}
         <div className={`sidebar-drawer md:hidden bg-surface-1 border-e border-border ${open ? "open" : ""}`}>
           <Sidebar isAdmin={isAdmin} onNavigate={close} compact />
         </div>
@@ -45,11 +60,6 @@ function ShellInner({ children, isAdmin, defaultAgentId }: ShellProps) {
         {open && (
           <div className="sidebar-backdrop md:hidden" onClick={close} />
         )}
-
-        <div className="flex-1 flex flex-col min-w-0 overflow-hidden w-full md:w-auto">
-          {children}
-        </div>
-        <DashboardAssistant defaultAgentId={defaultAgentId ?? null} />
       </div>
     </SidebarContext.Provider>
   );
