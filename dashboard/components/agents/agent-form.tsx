@@ -395,7 +395,7 @@ export function AgentForm({ initial, agentId, isAdmin = false }: Props) {
               <p className="text-gray-500 text-sm mt-1">{t.af_s1_subtitle}</p>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Field label={t.af_business_name_label} hint={t.af_business_name_hint}>
                 <Input
                   placeholder={t.af_business_name_placeholder}
@@ -436,7 +436,7 @@ export function AgentForm({ initial, agentId, isAdmin = false }: Props) {
               </Field>
             )}
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Field
                 label={t.af_call_language_label}
                 hint={t.af_call_language_hint}

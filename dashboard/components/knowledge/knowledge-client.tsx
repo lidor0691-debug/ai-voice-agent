@@ -212,7 +212,7 @@ export function KnowledgeClient({ agents, initialItems }: Props) {
               </p>
             )}
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="text-xs text-gray-400 block mb-1">{t.field_agent}</label>
                 <Select
@@ -251,7 +251,7 @@ export function KnowledgeClient({ agents, initialItems }: Props) {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4 items-end">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
               <div>
                 <label className="text-xs text-gray-400 block mb-1">
                   {t.field_priority}

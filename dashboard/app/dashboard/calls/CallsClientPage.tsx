@@ -62,7 +62,7 @@ export function CallsClientPage({ calls, error }: Props) {
         )}
 
         {/* KPI Row */}
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {[
             { label: t.kpi_total_calls, value: total,     icon: Phone,       colorText: "text-brand-400",   colorBg: "bg-brand-500/10",   glow: "kpi-glow-violet" },
             { label: t.kpi_completed,   value: completed, icon: CheckCircle, colorText: "text-emerald-400", colorBg: "bg-emerald-500/10", glow: "kpi-glow-green" },

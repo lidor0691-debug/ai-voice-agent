@@ -151,7 +151,7 @@ export function ClientAssetsTab({ clientId }: Props) {
         <div className="bg-surface-2 border border-border rounded-xl p-5 mb-6 space-y-4">
           <h3 className="text-white font-medium text-sm">{t.ca_new_title}</h3>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-medium text-gray-400 mb-1.5">{t.ca_name_label}</label>
               <input

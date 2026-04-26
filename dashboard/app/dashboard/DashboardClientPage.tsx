@@ -75,7 +75,7 @@ export function DashboardClientPage({ agents, calls, knowledgeCount, insights, i
       <div className="p-5 space-y-4 bg-surface-0 min-h-full">
 
         {/* KPI Row */}
-        <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {kpiCards.map(({ label, value, icon: Icon, color, bg, glow, delta, up }) => (
             <div
               key={label}
@@ -111,10 +111,10 @@ export function DashboardClientPage({ agents, calls, knowledgeCount, insights, i
         </div>
 
         {/* Main 3-column grid */}
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4" style={{ minHeight: 0 }}>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4" style={{ minHeight: 0 }}>
 
           {/* Col 1: Voice Activity Chart */}
-          <div className="card p-4 flex flex-col">
+          <div className="card p-4 hidden md:flex flex-col">
             <div className="flex items-center justify-between mb-3">
               <div>
                 <p className="text-white text-[13px] font-semibold">פעילות קולית — 24 שעות</p>
@@ -208,7 +208,7 @@ export function DashboardClientPage({ agents, calls, knowledgeCount, insights, i
           <div className="flex flex-col gap-4">
 
             {/* Test Agent chat */}
-            <div className="card overflow-hidden flex-1">
+            <div className="card overflow-hidden flex-1 hidden md:block">
               <TestAgent
                 agents={
                   agents?.map((a) => ({
@@ -280,7 +280,7 @@ export function DashboardClientPage({ agents, calls, knowledgeCount, insights, i
         <ActionQueueCard agentId={agents?.[0]?.id} />
 
         {/* Lead Intelligence */}
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           <LeadInsightsCard insights={insights} />
           <InjectionEventsCard events={injectionEvents} />
           <WinSignalsCard signals={winSignals} />
