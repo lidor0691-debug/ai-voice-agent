@@ -219,6 +219,13 @@ _DRAFT_END_MARKERS = (
     "שלח ישירות", "מכפתור", "דרך הכפתור",
     "אני לא יכולה לשלוח", "אני לא שולחת",
     "בוא ניגש", "ראיתי שאת", "רוצה שנבדוק",
+    # Operator-facing questions (cut here)
+    "נשלח?", "נשלח ", "נשלח.",
+    "או שנעבור", "או שנמשיך", "או שנעשה",
+    "מה דעתך", "מה את חושב", "מה אתה חושב",
+    "רוצה שא", "רוצה לעבור", "רוצה לראות",
+    "מתאים לך", "טוב לך", "נראה לך",
+    "ממשיכים", "נמשיך",
 )
 
 
@@ -235,11 +242,31 @@ def _extract_draft_message(full_out: str) -> str | None:
     # 1. Strict marker — most reliable
     if _DRAFT_STRICT_MARKER in full_out:
         draft = full_out.split(_DRAFT_STRICT_MARKER, 1)[1].strip()
+
+        # Stop at first paragraph break (\n\n or double space-period)
+        for sep in ("\n\n", "\n"):
+            if sep in draft:
+                draft = draft.split(sep, 1)[0]
+                break
+
+        # Truncate before any commentary marker
         for end_marker in _DRAFT_END_MARKERS:
             idx = draft.find(end_marker)
             if idx > 5:
-                draft = draft[:idx].rstrip(" .,!؟\n")
-        draft = draft.strip()
+                draft = draft[:idx]
+
+        # Truncate at first '?' that is followed by another sentence
+        # (operator question like "נשלח?" comes after the customer message)
+        q_idx = draft.find("?")
+        if q_idx > 10 and q_idx < len(draft) - 2:
+            # If there's content after '?', the '?' likely starts operator commentary
+            # — but only if the question is short (< 30 chars from prev punctuation)
+            # to avoid cutting legitimate customer-facing questions
+            prev_break = max(draft.rfind(".", 0, q_idx), draft.rfind("\n", 0, q_idx), 0)
+            if q_idx - prev_break < 30 and any(w in draft[prev_break:q_idx + 1] for w in ("נשלח", "נעבור", "נמשיך", "נעשה")):
+                draft = draft[:prev_break + 1] if prev_break > 0 else draft[:q_idx]
+
+        draft = draft.strip(" .,!؟\n")
         if len(draft) >= 10:
             return draft
         return None
@@ -565,6 +592,40 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
                         detected = _detect_intent(combined_input)
                         if detected:
                             logger.info("[BROWSER-WS] Intent detected: %s from '%s'", detected, combined_input[:60])
+
+                        # ── ui_action: fires whenever user uses an open verb,
+                        #    regardless of data-injection cooldown ─────────────
+                        _input_lower = combined_input.lower()
+                        _has_open_verb = any(v in _input_lower for v in _OPEN_VERBS)
+                        if _has_open_verb:
+                            _agent_ui_sent = False
+                            for _aname, _aid in _agent_name_map.items():
+                                if _aname in _input_lower:
+                                    _sub = "settings"
+                                    if any(w in _input_lower for w in ("נכסים", "assets", "חומרים")):
+                                        _sub = "assets"
+                                    elif any(w in _input_lower for w in ("בדיקה", "preview", "בדוק")):
+                                        _sub = "voice"
+                                    await browser_ws.send_json({
+                                        "type": "ui_action",
+                                        "action": "open_agent",
+                                        "target": _aid,
+                                        "tab": _sub,
+                                    })
+                                    logger.info("[BROWSER-WS] Sent ui_action: open_agent -> %s (tab=%s)", _aname, _sub)
+                                    _agent_ui_sent = True
+                                    break
+
+                            if not _agent_ui_sent and detected:
+                                ui = _INTENT_UI_ACTIONS.get(detected)
+                                if ui:
+                                    await browser_ws.send_json({
+                                        "type": "ui_action",
+                                        **ui,
+                                    })
+                                    logger.info("[BROWSER-WS] Sent ui_action: %s -> %s", ui.get("action"), ui.get("target"))
+
+                        # ── Data injection: gated by cooldown to avoid spam ──
                         now = asyncio.get_event_loop().time()
                         if (
                             detected
@@ -596,47 +657,7 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
                                 await gemini_ws.send(json.dumps({
                                     "realtime_input": {"text": injection_text}
                                 }))
-                                logger.info(
-                                    "[BROWSER-WS] Injected %s data (%d chars)",
-                                    detected, len(injection_text),
-                                )
-
-                            # ui_action only fires if user explicitly asked to open
-                            _input_lower = combined_input.lower()
-                            _has_open_verb = any(v in _input_lower for v in _OPEN_VERBS)
-
-                            if _has_open_verb:
-                                _agent_ui_sent = False
-                                for _aname, _aid in _agent_name_map.items():
-                                    if _aname in _input_lower:
-                                        _sub = "settings"
-                                        if any(w in _input_lower for w in ("נכסים", "assets", "חומרים")):
-                                            _sub = "assets"
-                                        elif any(w in _input_lower for w in ("בדיקה", "preview", "בדוק")):
-                                            _sub = "voice"
-                                        await browser_ws.send_json({
-                                            "type": "ui_action",
-                                            "action": "open_agent",
-                                            "target": _aid,
-                                            "tab": _sub,
-                                        })
-                                        logger.info("[BROWSER-WS] Sent ui_action: open_agent -> %s (tab=%s)", _aname, _sub)
-                                        _agent_ui_sent = True
-                                        break
-
-                                if not _agent_ui_sent:
-                                    ui = _INTENT_UI_ACTIONS.get(detected)
-                                    if ui:
-                                        await browser_ws.send_json({
-                                            "type": "ui_action",
-                                            **ui,
-                                        })
-                                        logger.info(
-                                            "[BROWSER-WS] Sent ui_action: %s -> %s",
-                                            ui.get("action"), ui.get("target"),
-                                        )
-                            else:
-                                logger.debug("[BROWSER-WS] Intent=%s but no open verb — skipping ui_action", detected)
+                                logger.info("[BROWSER-WS] Injected %s data (%d chars)", detected, len(injection_text))
 
                 # Output transcript
                 output_t = server_content.get("outputTranscription", {})
@@ -647,13 +668,6 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
                     # Accumulate output for turn-level analysis
                     if not is_preview:
                         _output_buffer.append(output_t["text"])
-                        # Detect draft approval from Maya's output
-                        # (fallback when input transcript is in wrong language)
-                        # Detect when Maya is actually drafting (not just offering)
-                        # "היי משה" = real draft. "רוצה שאכין הודעה?" = just offering.
-                        _DRAFT_CONTENT_SIGNALS = ("היי ", "שלום ", "הי ", "בוקר טוב", "ערב טוב")
-                        if any(s in output_t["text"] for s in _DRAFT_CONTENT_SIGNALS):
-                            _user_approved_draft = True
                     await browser_ws.send_json({
                         "type": "transcript_out",
                         "text": output_t["text"],
@@ -687,11 +701,15 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
                     # (see input_t handler above) — output-based detection was unreliable
                     # because it depended on Maya saying "פותחת" exactly.
 
-                    # Snapshot output before clearing
+                    # Snapshot output before clearing.
+                    # Marker presence in output = deterministic proposal trigger.
+                    # _user_approved_draft is a fallback for legacy flows without marker.
                     _pending_draft = None
-                    if not is_preview and _user_approved_draft and _output_buffer:
-                        _pending_draft = " ".join(_output_buffer)
-                        _user_approved_draft = False
+                    if not is_preview and _output_buffer:
+                        _full_out_check = " ".join(_output_buffer)
+                        if _DRAFT_STRICT_MARKER in _full_out_check or _user_approved_draft:
+                            _pending_draft = _full_out_check
+                            _user_approved_draft = False
 
                     _input_buffer.clear()
                     _output_buffer.clear()
