@@ -665,13 +665,25 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
                                             ui.get("action"), ui.get("target"),
                                         )
 
-                    # ── Action proposal (draft message) ─────────────
-                    # Triggered when Maya's output contains actual draft content
+                    # Snapshot output before clearing
+                    _pending_draft = None
                     if not is_preview and _user_approved_draft and _output_buffer:
-                        full_out = " ".join(_output_buffer)
+                        _pending_draft = " ".join(_output_buffer)
+                        _user_approved_draft = False
 
-                        # Extract the actual message from Maya's output
-                        _draft_message = _extract_draft_message(full_out)
+                    _input_buffer.clear()
+                    _output_buffer.clear()
+
+                    # Send turn_complete FIRST — unblocks browser audio pipeline
+                    await browser_ws.send_json({"type": "turn_complete"})
+                    await browser_ws.send_json({
+                        "type": "state",
+                        "state": "listening",
+                    })
+
+                    # ── Action proposal (after turn_complete) ─────────
+                    if _pending_draft:
+                        _draft_message = _extract_draft_message(_pending_draft)
 
                         # Auto-fetch leads if session has none
                         if not _session_leads:
@@ -686,7 +698,7 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
                         # Match lead from session context
                         _matched_lead = None
                         if _session_leads:
-                            _search_text = (full_out + " " + " ".join(transcript_lines[-10:])).lower()
+                            _search_text = (_pending_draft + " " + " ".join(transcript_lines[-10:])).lower()
                             _candidates = []
                             for _sl in _session_leads:
                                 _sl_name = (_sl.get("name") or "").strip()
@@ -702,12 +714,9 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
 
                         if len(_draft_message) > 10:
                             _lead_name = (_matched_lead.get("name") or "ליד") if _matched_lead else "ליד"
-
-                            # Save draft for Gemini recall
                             _last_draft = {"message": _draft_message.strip(), "lead_name": _lead_name}
 
                             if _matched_lead:
-                                # Full action proposal — with send button
                                 await browser_ws.send_json({
                                     "type": "action_proposal",
                                     "action": "prepare_followup_message",
@@ -718,12 +727,8 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
                                     "channel": "whatsapp",
                                     "message": _draft_message.strip(),
                                 })
-                                logger.info(
-                                    "[BROWSER-WS] Sent action_proposal: lead=%s (%s)",
-                                    _lead_name, _matched_lead["id"][:8],
-                                )
+                                logger.info("[BROWSER-WS] Sent action_proposal: lead=%s (%s)", _lead_name, _matched_lead["id"][:8])
                             else:
-                                # Draft-only proposal — no send, display only
                                 await browser_ws.send_json({
                                     "type": "action_proposal",
                                     "action": "draft_message",
@@ -733,19 +738,7 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
                                     "channel": "whatsapp",
                                     "message": _draft_message.strip(),
                                 })
-                                logger.info(
-                                    "[BROWSER-WS] Sent draft_message proposal (no lead match, session has %d leads)",
-                                    len(_session_leads),
-                                )
-                        _user_approved_draft = False
-
-                    _input_buffer.clear()
-                    _output_buffer.clear()
-                    await browser_ws.send_json({"type": "turn_complete"})
-                    await browser_ws.send_json({
-                        "type": "state",
-                        "state": "listening",
-                    })
+                                logger.info("[BROWSER-WS] Sent draft_message proposal (no lead match, %d leads)", len(_session_leads))
 
         except Exception as e:
             logger.warning("[BROWSER-WS] Gemini receiver error: %s", e)
