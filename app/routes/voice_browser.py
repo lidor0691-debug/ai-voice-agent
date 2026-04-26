@@ -140,8 +140,12 @@ _ASSISTANT_PROMPT = """\
 אם רוצה להגיד לי משהו אחרי, תגידי "סיימתי" ואז תוסיפי את ההערה.
 המערכת מזהה רק את הטקסט אחרי "הודעה ללקוח:" ולפני "סיימתי" או סוף הדיבור.
 
-ההודעה תוצג למשתמש בכרטיס על המסך, והוא יוכל לערוך ולשלוח אותה ישירות ב-WhatsApp.
-את לא שולחת בעצמך — את מנסחת, והמשתמש שולח דרך הכפתור.
+חוקים חשובים על מה לא להגיד:
+- אל תזכירי "כפתור וואטסאפ", "כפתור שליחה", "לחץ על", "תלחץ".
+- אל תגידי שיש כפתור או פעולה אם לא השתמשת ב-"הודעה ללקוח:".
+- אם השתמשת ב-"הודעה ללקוח:" — תגידי בקצרה: "הכנתי לך טיוטה, היא מופיעה בכרטיס לאישור." ולא יותר.
+- אם המשתמש לא ביקש לנסח, אל תציעי להכין טיוטה כל הזמן — רק כשמתאים.
+- את לא שולחת בעצמך, והמשתמש לא צריך הוראות שליחה ממך — הכרטיס מטפל בזה.
 
 ━━ הכרת העסק ━━
 את מכירה את העסקים שאת עובדת איתם (ראי למטה).
@@ -150,7 +154,8 @@ _ASSISTANT_PROMPT = """\
 אם אין לך מידע ספציפי על עסק — תתייחסי באופן כללי.
 
 ━━ ניווט ━━
-כשמבקשים לראות משהו — תגידי "פותחת" ותפתחי.
+תגידי "פותחת" רק כשהמשתמש ביקש במפורש לפתוח/לעבור/לראות משהו (פתחי, תראי לי, תעברי ל..., קחי אותי ל...).
+אם הוא רק שאל שאלה על נתונים — תעני בקצרה, אל תפתחי טאב, ואל תגידי "פותחת".
 מה שזמין: לידים, שיחות, סוכנים, הגדרות של סוכן ספציפי, נכסים, בדיקה, מאגר ידע, דשבורד.
 את מכירה את כל הסוכנים (ראי למטה). אם לא ברור למי מתכוונים — תשאלי.
 
@@ -177,6 +182,18 @@ _INTENT_UI_ACTIONS: dict[str, dict] = {
 }
 
 _INJECTION_COOLDOWN_S = 10
+
+# User must use one of these verbs for ui_action to fire (data injection still
+# fires on keywords alone). Prevents tab switches when user merely discusses a topic.
+_OPEN_VERBS: tuple[str, ...] = (
+    "פתחי", "פתח", "תפתחי", "תפתח", "פתחו",
+    "תראי", "תראה", "הראי", "הראה", "תראי לי", "תראה לי",
+    "תעברי", "תעבור", "עברי", "עבור",
+    "תציגי", "הציגי", "תציג", "הצג",
+    "קחי אותי", "קח אותי",
+    "תני לראות", "תן לראות",
+    "open", "show", "go to", "take me",
+)
 
 
 def _detect_intent(text: str) -> str | None:
@@ -584,37 +601,42 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
                                     detected, len(injection_text),
                                 )
 
-                            # Specific agent name detection — e.g. "תפתחי את BPM"
-                            _agent_ui_sent = False
+                            # ui_action only fires if user explicitly asked to open
                             _input_lower = combined_input.lower()
-                            for _aname, _aid in _agent_name_map.items():
-                                if _aname in _input_lower:
-                                    _sub = "settings"
-                                    if any(w in _input_lower for w in ("נכסים", "assets", "חומרים")):
-                                        _sub = "assets"
-                                    elif any(w in _input_lower for w in ("בדיקה", "preview", "בדוק")):
-                                        _sub = "voice"
-                                    await browser_ws.send_json({
-                                        "type": "ui_action",
-                                        "action": "open_agent",
-                                        "target": _aid,
-                                        "tab": _sub,
-                                    })
-                                    logger.info("[BROWSER-WS] Sent ui_action: open_agent -> %s (tab=%s)", _aname, _sub)
-                                    _agent_ui_sent = True
-                                    break
+                            _has_open_verb = any(v in _input_lower for v in _OPEN_VERBS)
 
-                            if not _agent_ui_sent:
-                                ui = _INTENT_UI_ACTIONS.get(detected)
-                                if ui:
-                                    await browser_ws.send_json({
-                                        "type": "ui_action",
-                                        **ui,
-                                    })
-                                    logger.info(
-                                        "[BROWSER-WS] Sent ui_action: %s -> %s",
-                                        ui.get("action"), ui.get("target"),
-                                    )
+                            if _has_open_verb:
+                                _agent_ui_sent = False
+                                for _aname, _aid in _agent_name_map.items():
+                                    if _aname in _input_lower:
+                                        _sub = "settings"
+                                        if any(w in _input_lower for w in ("נכסים", "assets", "חומרים")):
+                                            _sub = "assets"
+                                        elif any(w in _input_lower for w in ("בדיקה", "preview", "בדוק")):
+                                            _sub = "voice"
+                                        await browser_ws.send_json({
+                                            "type": "ui_action",
+                                            "action": "open_agent",
+                                            "target": _aid,
+                                            "tab": _sub,
+                                        })
+                                        logger.info("[BROWSER-WS] Sent ui_action: open_agent -> %s (tab=%s)", _aname, _sub)
+                                        _agent_ui_sent = True
+                                        break
+
+                                if not _agent_ui_sent:
+                                    ui = _INTENT_UI_ACTIONS.get(detected)
+                                    if ui:
+                                        await browser_ws.send_json({
+                                            "type": "ui_action",
+                                            **ui,
+                                        })
+                                        logger.info(
+                                            "[BROWSER-WS] Sent ui_action: %s -> %s",
+                                            ui.get("action"), ui.get("target"),
+                                        )
+                            else:
+                                logger.debug("[BROWSER-WS] Intent=%s but no open verb — skipping ui_action", detected)
 
                 # Output transcript
                 output_t = server_content.get("outputTranscription", {})
