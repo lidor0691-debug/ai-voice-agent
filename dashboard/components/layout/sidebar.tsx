@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 import { useLanguage } from "@/context/language-context";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
 
-export function Sidebar({ isAdmin = false }: { isAdmin?: boolean }) {
+export function Sidebar({ isAdmin = false, onNavigate }: { isAdmin?: boolean; onNavigate?: () => void }) {
   const pathname = usePathname();
   const router = useRouter();
   const { t } = useLanguage();
@@ -65,6 +65,7 @@ export function Sidebar({ isAdmin = false }: { isAdmin?: boolean }) {
             <Link
               key={href}
               href={href}
+              onClick={onNavigate}
               className={cn(
                 "relative flex items-center gap-2.5 px-3 py-2 rounded-xl text-[13px] font-medium transition-all",
                 active
@@ -87,6 +88,7 @@ export function Sidebar({ isAdmin = false }: { isAdmin?: boolean }) {
         <div className="px-2 pb-2">
           <Link
             href="/admin"
+            onClick={onNavigate}
             className={cn(
               "relative flex items-center gap-2.5 px-3 py-2 rounded-xl text-[13px] font-medium transition-all",
               pathname.startsWith("/admin")

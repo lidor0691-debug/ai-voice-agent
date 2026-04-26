@@ -80,4 +80,25 @@
     position: absolute; inset: 0; border-radius: 14px; pointer-events: none;
     background: radial-gradient(ellipse at top right, rgba(245,158,11,0.08) 0%, transparent 60%);
   }
+
+  /* Mobile sidebar drawer */
+  .sidebar-drawer {
+    @apply fixed inset-y-0 start-0 z-40 w-56;
+    transition: transform 200ms ease-in-out;
+    transform: translateX(-100%);
+  }
+  .sidebar-drawer.open {
+    transform: translateX(0);
+  }
+  [dir="rtl"] .sidebar-drawer {
+    @apply start-auto end-0;
+    transform: translateX(100%);
+  }
+  [dir="rtl"] .sidebar-drawer.open {
+    transform: translateX(0);
+  }
+
+  .sidebar-backdrop {
+    @apply fixed inset-0 z-30 bg-black/50;
+  }
 }

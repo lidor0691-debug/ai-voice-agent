@@ -1,9 +1,10 @@
 "use client";
 
-import { Search, LogOut } from "lucide-react";
+import { Search, LogOut, Menu } from "lucide-react";
 import { useLanguage } from "@/context/language-context";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
+import { useSidebar } from "@/components/layout/dashboard-shell";
 
 interface Props {
   title: string;
@@ -15,6 +16,7 @@ export function Header({ title, subtitle, action }: Props) {
   const { lang, setLang, t } = useLanguage();
   const router = useRouter();
   const supabase = createSupabaseBrowserClient();
+  const { toggle } = useSidebar();
 
   async function handleLogout() {
     await supabase.auth.signOut();
@@ -22,7 +24,16 @@ export function Header({ title, subtitle, action }: Props) {
   }
 
   return (
-    <div className="h-14 border-b border-border flex items-center justify-between px-6 flex-shrink-0 bg-surface-1">
+    <div className="h-14 border-b border-border flex items-center justify-between px-3 md:px-6 flex-shrink-0 bg-surface-1">
+      {/* Mobile hamburger */}
+      <button
+        onClick={toggle}
+        className="md:hidden flex items-center justify-center w-10 h-10 -ms-1 rounded-lg text-gray-400 hover:text-white hover:bg-surface-3 transition-colors"
+        aria-label="Toggle menu"
+      >
+        <Menu className="w-5 h-5" />
+      </button>
+
       {/* Page info */}
       <div>
         <h1 className="text-white font-semibold text-sm tracking-tight">{title}</h1>
@@ -31,7 +42,7 @@ export function Header({ title, subtitle, action }: Props) {
 
       <div className="flex items-center gap-2.5">
         {/* Search */}
-        <div className="relative">
+        <div className="relative hidden md:block">
           <Search className="absolute top-1/2 -translate-y-1/2 start-3 w-3.5 h-3.5 text-gray-600" />
           <input
             placeholder={t.search_placeholder}
@@ -69,7 +80,7 @@ export function Header({ title, subtitle, action }: Props) {
         {/* Logout */}
         <button
           onClick={handleLogout}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium text-gray-500 hover:text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/20 transition-colors"
+          className="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium text-gray-500 hover:text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/20 transition-colors"
         >
           <LogOut className="w-3.5 h-3.5" />
           {t.logout ?? "Logout"}
