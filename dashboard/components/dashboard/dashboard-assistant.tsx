@@ -34,24 +34,25 @@ export function DashboardAssistant({ defaultAgentId }: Props) {
   const handleUiAction = useCallback(
     (action: string, target: string, extra?: Record<string, string>) => {
       console.log("[NAV-TRACE] Assistant.handleUiAction:", { action, target, extra, currentPath: pathnameRef.current });
+      let path: string | null = null;
       if (action === "open_tab") {
-        const path = ROUTES[target];
-        if (path) {
-          console.log("[NAV-TRACE] router.push ->", path, "(was at", pathnameRef.current, ")");
-          router.push(path);
-        } else {
-          console.warn("[NAV-TRACE] No ROUTES mapping for target:", target, "available:", Object.keys(ROUTES));
-        }
+        path = ROUTES[target] ?? null;
       } else if (action === "open_agent") {
         const tab = extra?.tab;
-        const path = tab && tab !== "settings"
+        path = tab && tab !== "settings"
           ? `/dashboard/agents/${target}?tab=${tab}`
           : `/dashboard/agents/${target}`;
-        console.log("[NAV-TRACE] open_agent router.push ->", path);
-        router.push(path);
-      } else {
-        console.warn("[NAV-TRACE] Unknown action:", action);
       }
+      if (!path) {
+        console.warn("[NAV-TRACE] Assistant no path for", action, target);
+        return;
+      }
+      if (path === pathnameRef.current) {
+        console.log("[NAV-TRACE] Assistant already at", path, "— skipping push");
+        return;
+      }
+      console.log("[NAV-TRACE] Assistant router.push ->", path);
+      router.push(path);
     },
     [router],
   );

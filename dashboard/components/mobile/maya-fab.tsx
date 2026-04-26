@@ -1,21 +1,61 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
+import { useRouter, usePathname } from "next/navigation";
 import { Mic, X } from "lucide-react";
 import { LiveVoicePanel } from "@/components/agents/live-voice-panel";
 import { ActionCard, type ActionProposal } from "@/components/dashboard/action-card";
+
+const ROUTES: Record<string, string> = {
+  dashboard: "/dashboard",
+  leads: "/dashboard/leads",
+  calls: "/dashboard/calls",
+  agents: "/dashboard/agents",
+  knowledge: "/dashboard/knowledge",
+};
 
 interface Props {
   agentId: string | null;
 }
 
 export function MayaFab({ agentId }: Props) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const pathnameRef = useRef(pathname);
+  pathnameRef.current = pathname;
+
   const [sheetOpen, setSheetOpen] = useState(false);
   const [activeProposal, setActiveProposal] = useState<ActionProposal | null>(null);
 
   const handleActionProposal = useCallback((proposal: ActionProposal) => {
     setActiveProposal(proposal);
   }, []);
+
+  const handleUiAction = useCallback(
+    (action: string, target: string, extra?: Record<string, string>) => {
+      console.log("[NAV-TRACE] MayaFab.handleUiAction:", { action, target, extra, currentPath: pathnameRef.current });
+      let path: string | null = null;
+      if (action === "open_tab") {
+        path = ROUTES[target] ?? null;
+      } else if (action === "open_agent") {
+        const tab = extra?.tab;
+        path = tab && tab !== "settings"
+          ? `/dashboard/agents/${target}?tab=${tab}`
+          : `/dashboard/agents/${target}`;
+      }
+      if (!path) {
+        console.warn("[NAV-TRACE] MayaFab no path for", action, target);
+        return;
+      }
+      if (path === pathnameRef.current) {
+        console.log("[NAV-TRACE] MayaFab already at", path, "— skipping push");
+        return;
+      }
+      console.log("[NAV-TRACE] MayaFab router.push ->", path);
+      router.push(path);
+    },
+    [router],
+  );
 
   if (!agentId) return null;
 
@@ -66,6 +106,7 @@ export function MayaFab({ agentId }: Props) {
               <LiveVoicePanel
                 agentId={agentId}
                 mode="assistant"
+                onUiAction={handleUiAction}
                 onActionProposal={handleActionProposal}
               />
             </div>
