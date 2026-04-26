@@ -453,8 +453,8 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
             },
             "realtime_input_config": {
                 "automatic_activity_detection": {
-                    "silence_duration_ms": 300,
-                    "start_of_speech_sensitivity": "START_SENSITIVITY_HIGH",
+                    "silence_duration_ms": 500,
+                    "start_of_speech_sensitivity": "START_SENSITIVITY_LOW",
                 },
             },
             "input_audio_transcription": {},
@@ -557,6 +557,7 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
 
                 # Interrupted (barge-in)
                 if server_content.get("interrupted"):
+                    logger.info("[BROWSER-WS] interrupted (turn=%d, speaking=%s)", _turn_count, _speaking)
                     _speaking = False
                     await browser_ws.send_json({"type": "interrupted"})
                     await browser_ws.send_json({"type": "state", "state": "listening"})

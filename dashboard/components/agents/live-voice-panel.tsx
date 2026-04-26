@@ -197,7 +197,13 @@ export function LiveVoicePanel({ agentId, mode = "preview", onUiAction, onAction
       playbackCtxRef.current = new AudioContext({ sampleRate: PLAYBACK_SAMPLE_RATE });
 
       // 2. Request microphone
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
       micStreamRef.current = stream;
 
       // 3. Create capture context at target sample rate
