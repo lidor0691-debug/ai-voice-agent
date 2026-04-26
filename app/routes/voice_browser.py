@@ -398,6 +398,7 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
     _user_approved_draft = False  # tracks if user approved message drafting
     _draft_pending = False  # True = approval detected, waiting for next turn with the actual draft
     _session_leads: list[dict] = []  # [{id, name, status, topic}] — loaded from data injection
+    _last_draft: dict | None = None  # {message, lead_name} — persisted for Gemini recall
 
     # ── Browser -> Gemini loop ───────────────────────────────────────────
     async def browser_to_gemini():
@@ -432,7 +433,7 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
 
     # ── Gemini -> Browser loop ───────────────────────────────────────────
     async def gemini_to_browser():
-        nonlocal _speaking, _turn_count, _last_injected_intent, _last_injection_time, _last_injection_turn, _user_approved_draft, _draft_pending, _session_leads
+        nonlocal _speaking, _turn_count, _last_injected_intent, _last_injection_time, _last_injection_turn, _user_approved_draft, _draft_pending, _session_leads, _last_draft
 
         try:
             async for raw in gemini_ws:
@@ -467,6 +468,13 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
                         _DRAFT_APPROVAL_KW = ("כן", "תכיני", "הכיני", "תנסחי", "נסחי", "הודעה", "תכתבי")
                         if any(kw in combined_input for kw in _DRAFT_APPROVAL_KW):
                             _user_approved_draft = True
+
+                        # Inject last draft context when user asks about it
+                        _DRAFT_RECALL_KW = ("מה כתבת", "מה ניסחת", "מה הכנת", "מה ההודעה", "מה שלחת", "תראי לי", "את ההודעה")
+                        if _last_draft and any(kw in combined_input for kw in _DRAFT_RECALL_KW):
+                            _recall = f'[הטיוטה האחרונה שניסחת: "{_last_draft["message"]}" ללקוח {_last_draft["lead_name"]}]'
+                            await gemini_ws.send(json.dumps({"realtime_input": {"text": _recall}}))
+                            logger.info("[BROWSER-WS] Injected last draft recall (%d chars)", len(_recall))
 
                         detected = _detect_intent(combined_input)
                         if detected:
@@ -611,12 +619,10 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
 
                     # ── Action proposal (draft message) ─────────────
                     # Triggered when Maya's output contains actual draft content
-                    # (detected by "היי [name]" pattern, not by keywords like "הודעה")
                     if not is_preview and _user_approved_draft and _output_buffer:
                         full_out = " ".join(_output_buffer)
 
-                        # Extract the actual message from Maya's output.
-                        # Maya typically says: "הנה הודעה: היי משה..." or "אפשר לשלוח: ..."
+                        # Extract the actual message from Maya's output
                         _MESSAGE_MARKERS = (
                             "הנה הודעה:", "הנה ההודעה:", "הנה טיוטה:",
                             "הנה הטיוטה,", "הנה הטיוטה:",
@@ -631,7 +637,6 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
                             if _marker in full_out:
                                 _draft_message = full_out.split(_marker, 1)[1].strip()
                                 break
-                        # Also try splitting on quotation marks (היי "משה...")
                         if _draft_message == full_out and '"' in full_out:
                             _parts = full_out.split('"')
                             if len(_parts) >= 2:
@@ -639,45 +644,70 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
                                 if len(_quoted) > 10:
                                     _draft_message = _quoted
 
-                        # Match lead from session context (not Supabase lookup)
+                        # Auto-fetch leads if session has none
+                        if not _session_leads:
+                            try:
+                                _auto_text, _auto_leads = await fetch_leads_detail(client_id)
+                                if _auto_leads:
+                                    _session_leads = _auto_leads
+                                    logger.info("[BROWSER-WS] Auto-fetched %d leads for draft matching", len(_auto_leads))
+                            except Exception as _e:
+                                logger.warning("[BROWSER-WS] Auto-fetch leads failed: %s", _e)
+
+                        # Match lead from session context
                         _matched_lead = None
                         if _session_leads:
-                            # Search for lead name in draft message or recent transcript
                             _search_text = (full_out + " " + " ".join(transcript_lines[-10:])).lower()
                             _candidates = []
                             for _sl in _session_leads:
                                 _sl_name = (_sl.get("name") or "").strip()
                                 if _sl_name and _sl_name.lower() in _search_text:
                                     _candidates.append(_sl)
-                            # Only match if exactly 1 candidate — avoid ambiguity
                             if len(_candidates) == 1:
                                 _matched_lead = _candidates[0]
                             elif len(_candidates) > 1:
                                 logger.warning(
-                                    "[BROWSER-WS] Multiple lead matches (%d) — skipping action_proposal",
+                                    "[BROWSER-WS] Multiple lead matches (%d) — falling back to draft_message",
                                     len(_candidates),
                                 )
 
-                        if len(_draft_message) > 10 and _matched_lead:
-                            await browser_ws.send_json({
-                                "type": "action_proposal",
-                                "action": "prepare_followup_message",
-                                "status": "draft_only",
-                                "agent_id": agent_id,
-                                "lead_id": _matched_lead["id"],
-                                "lead_name": _matched_lead.get("name") or "ליד",
-                                "channel": "whatsapp",
-                                "message": _draft_message.strip(),
-                            })
-                            logger.info(
-                                "[BROWSER-WS] Sent action_proposal: lead=%s (%s)",
-                                _matched_lead.get("name"), _matched_lead["id"][:8],
-                            )
-                        elif len(_draft_message) > 10:
-                            logger.warning(
-                                "[BROWSER-WS] Draft ready but no unique lead match in session — skipping action_proposal (session has %d leads)",
-                                len(_session_leads),
-                            )
+                        if len(_draft_message) > 10:
+                            _lead_name = (_matched_lead.get("name") or "ליד") if _matched_lead else "ליד"
+
+                            # Save draft for Gemini recall
+                            _last_draft = {"message": _draft_message.strip(), "lead_name": _lead_name}
+
+                            if _matched_lead:
+                                # Full action proposal — with send button
+                                await browser_ws.send_json({
+                                    "type": "action_proposal",
+                                    "action": "prepare_followup_message",
+                                    "status": "draft_only",
+                                    "agent_id": agent_id,
+                                    "lead_id": _matched_lead["id"],
+                                    "lead_name": _lead_name,
+                                    "channel": "whatsapp",
+                                    "message": _draft_message.strip(),
+                                })
+                                logger.info(
+                                    "[BROWSER-WS] Sent action_proposal: lead=%s (%s)",
+                                    _lead_name, _matched_lead["id"][:8],
+                                )
+                            else:
+                                # Draft-only proposal — no send, display only
+                                await browser_ws.send_json({
+                                    "type": "action_proposal",
+                                    "action": "draft_message",
+                                    "status": "draft_only",
+                                    "agent_id": agent_id,
+                                    "lead_name": _lead_name,
+                                    "channel": "whatsapp",
+                                    "message": _draft_message.strip(),
+                                })
+                                logger.info(
+                                    "[BROWSER-WS] Sent draft_message proposal (no lead match, session has %d leads)",
+                                    len(_session_leads),
+                                )
                         _user_approved_draft = False
 
                     _input_buffer.clear()

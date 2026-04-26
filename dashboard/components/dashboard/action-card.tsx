@@ -1,13 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { Check, X, Pencil, MessageSquare, Send, Loader2 } from "lucide-react";
+import { Check, X, Pencil, MessageSquare, Send, Loader2, Copy } from "lucide-react";
 
 export interface ActionProposal {
   action: string;
   status: string;
   agent_id: string;
-  lead_id: string;
+  lead_id?: string;
   lead_name: string;  // display only — not sent to backend
   channel: string;
   message: string;
@@ -21,9 +21,11 @@ interface Props {
 }
 
 export function ActionCard({ proposal, onDismiss }: Props) {
+  const isDraftOnly = !proposal.lead_id;
   const [cardState, setCardState] = useState<CardState>("pending");
   const [editedMessage, setEditedMessage] = useState(proposal.message);
   const [sendError, setSendError] = useState("");
+  const [copied, setCopied] = useState(false);
 
   const currentMessage = cardState === "pending" ? proposal.message : editedMessage;
 
@@ -79,7 +81,7 @@ export function ActionCard({ proposal, onDismiss }: Props) {
       <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border/50">
         <MessageSquare className="w-4 h-4 text-brand-400" />
         <span className="text-[12px] font-medium text-white">
-          הודעת follow-up — {proposal.lead_name}
+          {isDraftOnly ? "טיוטת הודעה" : `הודעת follow-up — ${proposal.lead_name}`}
         </span>
         <span className="text-[10px] text-gray-500 mr-auto">
           {proposal.channel}
@@ -147,6 +149,34 @@ export function ActionCard({ proposal, onDismiss }: Props) {
               className="text-gray-500 hover:text-gray-300 text-[11px] px-2 py-1.5 transition-colors"
             >
               ביטול
+            </button>
+          </>
+        ) : isDraftOnly ? (
+          <>
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText(currentMessage);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+              }}
+              className="flex items-center gap-1 px-3 py-1.5 bg-brand-600 hover:bg-brand-500 text-white text-[11px] rounded-lg transition-colors"
+            >
+              {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+              {copied ? "הועתק" : "העתק"}
+            </button>
+            <button
+              onClick={handleEdit}
+              className="flex items-center gap-1 px-3 py-1.5 text-gray-400 hover:text-white text-[11px] rounded-lg hover:bg-surface-0 transition-colors"
+            >
+              <Pencil className="w-3 h-3" />
+              ערוך
+            </button>
+            <button
+              onClick={handleCancel}
+              className="flex items-center gap-1 px-3 py-1.5 text-gray-500 hover:text-red-400 text-[11px] rounded-lg hover:bg-red-500/10 transition-colors"
+            >
+              <X className="w-3 h-3" />
+              בטל
             </button>
           </>
         ) : (

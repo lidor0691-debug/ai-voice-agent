@@ -120,7 +120,7 @@ async def _snapshot_calls(client_id: str | None) -> str:
 async def _snapshot_agents(client_id: str | None) -> str:
     """Active agents with names and IDs."""
     params: dict = {
-        "select": "id,agent_name,phone_number",
+        "select": "id,agent_name",
         "is_active": "eq.true",
         "order": "created_at.desc",
     }
@@ -140,8 +140,7 @@ async def _snapshot_agents(client_id: str | None) -> str:
     for r in rows:
         name = r.get("agent_name") or "ללא שם"
         agent_id = r.get("id") or ""
-        phone = r.get("phone_number") or ""
-        lines.append(f"  - {name} (id: {agent_id[:8]}..., טלפון: {phone})")
+        lines.append(f"  - {name} (id: {agent_id[:8]}...)")
     return "\n".join(lines)
 
 
