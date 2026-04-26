@@ -42,3 +42,16 @@ DROP TRIGGER IF EXISTS trg_cls_updated_at ON public.conversion_leak_signals;
 CREATE TRIGGER trg_cls_updated_at
     BEFORE UPDATE ON public.conversion_leak_signals
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- RLS: admin sees all, client sees own rows only.
+-- Scanner writes via service key (bypasses RLS).
+-- Dashboard reads via anon key + JWT (respects RLS).
+ALTER TABLE public.conversion_leak_signals ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY cls_admin_all ON public.conversion_leak_signals
+    FOR ALL
+    USING (((auth.jwt() -> 'user_metadata') ->> 'role') = 'admin');
+
+CREATE POLICY cls_client_own ON public.conversion_leak_signals
+    FOR ALL
+    USING ((client_id)::text = ((auth.jwt() -> 'user_metadata') ->> 'client_id'));

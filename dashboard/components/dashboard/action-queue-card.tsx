@@ -95,6 +95,7 @@ export function ActionQueueCard({ agentId }: Props) {
 
   const handleAct = (signal: Signal) => {
     if (!agentId) return;
+    setSignals((prev) => prev.filter((s) => s.id !== signal.id));
     setActiveProposal({
       action: "whatsapp_followup",
       status: "pending",
