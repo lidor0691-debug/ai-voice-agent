@@ -598,6 +598,11 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
                         #    regardless of data-injection cooldown ─────────────
                         _input_lower = combined_input.lower()
                         _has_open_verb = any(v in _input_lower for v in _OPEN_VERBS)
+                        _matched_verb = next((v for v in _OPEN_VERBS if v in _input_lower), None)
+                        logger.info(
+                            "[NAV-TRACE] input='%s' detected=%s has_open_verb=%s matched_verb=%s",
+                            combined_input[:80], detected, _has_open_verb, _matched_verb,
+                        )
                         if _has_open_verb:
                             _agent_ui_sent = False
                             for _aname, _aid in _agent_name_map.items():
@@ -619,12 +624,17 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
 
                             if not _agent_ui_sent and detected:
                                 ui = _INTENT_UI_ACTIONS.get(detected)
+                                logger.info("[NAV-TRACE] generic lookup: detected=%s ui=%s", detected, ui)
                                 if ui:
                                     await browser_ws.send_json({
                                         "type": "ui_action",
                                         **ui,
                                     })
                                     logger.info("[BROWSER-WS] Sent ui_action: %s -> %s", ui.get("action"), ui.get("target"))
+                                else:
+                                    logger.warning("[NAV-TRACE] No UI action mapping for intent=%s", detected)
+                            elif not _agent_ui_sent:
+                                logger.warning("[NAV-TRACE] open verb present but no detected intent — combined='%s'", combined_input[:80])
 
                         # ── Data injection: gated by cooldown to avoid spam ──
                         now = asyncio.get_event_loop().time()

@@ -274,8 +274,12 @@ export function LiveVoicePanel({ agentId, mode = "preview", onUiAction, onAction
             break;
 
           case "ui_action":
-            console.log("[LiveVoice] ui_action received:", msg.action, msg.target, msg.tab);
-            if (onUiActionRef.current) onUiActionRef.current(msg.action, msg.target, msg);
+            console.log("[NAV-TRACE] LiveVoice received ui_action:", msg.action, msg.target, msg.tab, "handler bound?", !!onUiActionRef.current);
+            if (onUiActionRef.current) {
+              onUiActionRef.current(msg.action, msg.target, msg);
+            } else {
+              console.warn("[NAV-TRACE] ui_action dropped — no onUiAction handler bound (likely mobile MayaFab)");
+            }
             break;
 
           case "action_proposal":
