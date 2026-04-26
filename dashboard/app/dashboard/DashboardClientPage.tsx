@@ -70,7 +70,7 @@ export function DashboardClientPage({ agents, calls, knowledgeCount, insights, i
   ];
 
   return (
-    <div className="flex-1 overflow-y-auto">
+    <div className="flex-1 overflow-y-auto overflow-x-hidden">
       <Header title={t.page_dashboard_title} subtitle={t.page_dashboard_subtitle} />
 
       {/* Mobile operator cockpit */}

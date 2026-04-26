@@ -46,7 +46,7 @@ function ShellInner({ children, isAdmin, defaultAgentId }: ShellProps) {
           <div className="sidebar-backdrop md:hidden" onClick={close} />
         )}
 
-        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <div className="flex-1 flex flex-col min-w-0 overflow-hidden w-full md:w-auto">
           {children}
         </div>
         <DashboardAssistant defaultAgentId={defaultAgentId ?? null} />
