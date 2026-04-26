@@ -178,6 +178,54 @@ def _detect_intent(text: str) -> str | None:
     return None
 
 
+# ── Draft message extraction ─────────────────────────────────────────────────
+
+_DRAFT_START_MARKERS = (
+    "הנה הודעה:", "הנה ההודעה:", "הנה טיוטה:",
+    "הנה הטיוטה,", "הנה הטיוטה:",
+    "אפשר לשלוח:", "הייתי שולחת:",
+    "נוסח אפשרי:", "הודעה:", "טיוטה:",
+    "אפשר לכתוב:", "הייתי כותבת:",
+    "הנה,", "הנה:",
+    "אוקיי, הנה", "אוקיי הנה",
+)
+
+_DRAFT_END_MARKERS = (
+    "זה מוכן", "אתה יכול", "את יכולה",
+    "רוצה שאשלח", "רוצה לשלוח", "שלח מ",
+    "הכרטיס מופיע", "הכרטיס כבר", "מופיע על המסך",
+    "לחץ על", "לחצי על", "אפשר לשלוח ישירות",
+    "שלח ישירות", "מכפתור", "דרך הכפתור",
+    "אני לא יכולה לשלוח", "אני לא שולחת",
+)
+
+
+def _extract_draft_message(full_out: str) -> str:
+    """Extract only the customer-facing draft from Maya's output, stripping commentary."""
+    # 1. Try quoted text first (strongest signal)
+    if '"' in full_out:
+        parts = full_out.split('"')
+        # Take the longest quoted segment
+        quoted = [p.strip() for p in parts[1::2] if len(p.strip()) > 10]
+        if quoted:
+            return max(quoted, key=len)
+
+    # 2. Split after start marker
+    draft = full_out
+    for marker in _DRAFT_START_MARKERS:
+        if marker in full_out:
+            draft = full_out.split(marker, 1)[1].strip()
+            break
+
+    # 3. Truncate before end/commentary markers
+    for end_marker in _DRAFT_END_MARKERS:
+        idx = draft.find(end_marker)
+        if idx > 10:  # keep at least some content
+            draft = draft[:idx].rstrip(" .,!؟\n")
+
+    return draft.strip() or full_out
+
+
 # ── WebSocket endpoint ───────────────────────────────────────────────────────
 
 @router.websocket("/ws/voice-browser")
@@ -623,26 +671,7 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
                         full_out = " ".join(_output_buffer)
 
                         # Extract the actual message from Maya's output
-                        _MESSAGE_MARKERS = (
-                            "הנה הודעה:", "הנה ההודעה:", "הנה טיוטה:",
-                            "הנה הטיוטה,", "הנה הטיוטה:",
-                            "אפשר לשלוח:", "הייתי שולחת:",
-                            "נוסח אפשרי:", "הודעה:", "טיוטה:",
-                            "אפשר לכתוב:", "הייתי כותבת:",
-                            "הנה,", "הנה:",
-                            "אוקיי, הנה", "אוקיי הנה",
-                        )
-                        _draft_message = full_out  # fallback: full output
-                        for _marker in _MESSAGE_MARKERS:
-                            if _marker in full_out:
-                                _draft_message = full_out.split(_marker, 1)[1].strip()
-                                break
-                        if _draft_message == full_out and '"' in full_out:
-                            _parts = full_out.split('"')
-                            if len(_parts) >= 2:
-                                _quoted = _parts[1].strip()
-                                if len(_quoted) > 10:
-                                    _draft_message = _quoted
+                        _draft_message = _extract_draft_message(full_out)
 
                         # Auto-fetch leads if session has none
                         if not _session_leads:
