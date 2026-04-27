@@ -160,31 +160,45 @@ export function LiveVoicePanel({ agentId, mode = "preview", onUiAction, onAction
   // ── Play a PCM16 24kHz audio chunk ────────────────────────────────────
   const playAudioChunk = useCallback((base64Data: string) => {
     const ctx = playbackCtxRef.current;
-    if (!ctx) return;
-
-    const int16 = base64ToInt16(base64Data);
-    const float32 = new Float32Array(int16.length);
-    for (let i = 0; i < int16.length; i++) {
-      float32[i] = int16[i] / 32768;
+    if (!ctx) {
+      console.warn("[DIAG-AUDIO] dropped: no playbackCtx");
+      return;
     }
 
-    const audioBuffer = ctx.createBuffer(1, float32.length, PLAYBACK_SAMPLE_RATE);
-    audioBuffer.copyToChannel(float32, 0);
+    // Resume suspended context (mobile autoplay policies)
+    if (ctx.state === "suspended") {
+      console.warn("[DIAG-AUDIO] ctx is suspended — calling resume()");
+      ctx.resume().catch((err) => console.error("[DIAG-AUDIO] resume failed:", err));
+    }
 
-    const source = ctx.createBufferSource();
-    source.buffer = audioBuffer;
-    source.connect(ctx.destination);
+    try {
+      const int16 = base64ToInt16(base64Data);
+      const float32 = new Float32Array(int16.length);
+      for (let i = 0; i < int16.length; i++) {
+        float32[i] = int16[i] / 32768;
+      }
 
-    // Schedule with jitter buffer for gapless playback
-    const now = ctx.currentTime + JITTER_BUFFER_MS;
-    const startTime = Math.max(now, nextPlayTimeRef.current);
-    nextPlayTimeRef.current = startTime + audioBuffer.duration;
+      const audioBuffer = ctx.createBuffer(1, float32.length, PLAYBACK_SAMPLE_RATE);
+      audioBuffer.copyToChannel(float32, 0);
 
-    source.start(startTime);
-    scheduledSourcesRef.current.push(source);
-    source.onended = () => {
-      scheduledSourcesRef.current = scheduledSourcesRef.current.filter((s) => s !== source);
-    };
+      const source = ctx.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(ctx.destination);
+
+      const now = ctx.currentTime + JITTER_BUFFER_MS;
+      const startTime = Math.max(now, nextPlayTimeRef.current);
+      nextPlayTimeRef.current = startTime + audioBuffer.duration;
+
+      source.start(startTime);
+      scheduledSourcesRef.current.push(source);
+      source.onended = () => {
+        scheduledSourcesRef.current = scheduledSourcesRef.current.filter((s) => s !== source);
+      };
+      console.log("[DIAG-AUDIO] scheduled chunk dur=", audioBuffer.duration.toFixed(3),
+                  "startTime=", startTime.toFixed(3), "ctx.state=", ctx.state);
+    } catch (err) {
+      console.error("[DIAG-AUDIO] decode/play error:", err);
+    }
   }, []);
 
   // ── Start call ────────────────────────────────────────────────────────
@@ -226,6 +240,8 @@ export function LiveVoicePanel({ agentId, mode = "preview", onUiAction, onAction
       wsRef.current = ws;
 
       ws.onopen = () => {
+        console.log("[DIAG-WS] open. playbackCtx.state=",
+          playbackCtxRef.current?.state, "captureCtx.state=", captureCtxRef.current?.state);
         // Wire worklet output to WebSocket
         workletNode.port.onmessage = (e: MessageEvent) => {
           if (ws.readyState === WebSocket.OPEN) {
@@ -238,9 +254,18 @@ export function LiveVoicePanel({ agentId, mode = "preview", onUiAction, onAction
       ws.onmessage = (e: MessageEvent) => {
         const msg = JSON.parse(e.data);
 
+        // [DIAG] log every incoming type (truncated for audio noise)
+        if (msg.type === "audio") {
+          console.log("[DIAG-WS] in: audio chunk len=", msg.data?.length ?? 0,
+                      "ctx.state=", playbackCtxRef.current?.state ?? "null",
+                      "ctx.currentTime=", playbackCtxRef.current?.currentTime ?? "null");
+        } else {
+          console.log("[DIAG-WS] in:", msg.type, msg.text ? msg.text.slice(0, 40) : (msg.state ?? msg.action ?? ""));
+        }
+
         switch (msg.type) {
           case "ready":
-            // Server ready — state transitions via "state" messages
+            console.log("[DIAG-WS] server ready received");
             break;
 
           case "state":
@@ -294,8 +319,14 @@ export function LiveVoicePanel({ agentId, mode = "preview", onUiAction, onAction
         }
       };
 
-      ws.onclose = () => cleanup();
-      ws.onerror = () => cleanup();
+      ws.onclose = (ev) => {
+        console.log("[DIAG-WS] close code=", ev.code, "reason=", ev.reason, "wasClean=", ev.wasClean);
+        cleanup();
+      };
+      ws.onerror = (ev) => {
+        console.error("[DIAG-WS] error:", ev);
+        cleanup();
+      };
 
     } catch (err) {
       console.error("[LiveVoice] Start failed:", err);
