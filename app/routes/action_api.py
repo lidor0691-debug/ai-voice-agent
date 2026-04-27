@@ -3,7 +3,7 @@ Action API — execute approved user actions (WhatsApp send, etc.)
 
 All actions require explicit API call — nothing is auto-triggered.
 Sender and lead phone are resolved server-side from Supabase.
-No global env fallback — each agent must have whatsapp_sender configured.
+No global env fallback — each agent must have whatsapp_number configured.
 """
 
 import os
@@ -44,18 +44,18 @@ class SendWhatsAppResponse(BaseModel):
 
 
 async def _get_agent_sender(agent_id: str) -> str | None:
-    """Fetch whatsapp_sender from agents_config by agent_id."""
+    """Fetch whatsapp_number from agents_config by agent_id."""
     async with httpx.AsyncClient(timeout=5.0) as client:
         resp = await client.get(
             f"{_SUPABASE_URL}/rest/v1/agents_config",
-            params={"id": f"eq.{agent_id}", "select": "whatsapp_sender", "limit": "1"},
+            params={"id": f"eq.{agent_id}", "select": "whatsapp_number", "limit": "1"},
             headers=_sb_headers(),
         )
         resp.raise_for_status()
         rows = resp.json()
         if not rows:
             return None
-        return (rows[0].get("whatsapp_sender") or "").strip() or None
+        return (rows[0].get("whatsapp_number") or "").strip() or None
 
 
 async def _get_lead(lead_id: str) -> dict | None:
