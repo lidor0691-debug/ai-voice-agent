@@ -29,8 +29,11 @@ Logging tags:
     [MRI-SCORE] score_error
 """
 
+import asyncio
+import json
 import logging
 import os
+import urllib.request
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -46,7 +49,70 @@ _T_SCANS = "mri_scans"
 _REST_TIMEOUT = 10.0
 
 SCORING_VERSION = "v1"
+SCORING_VERSION_V2 = "v2"
 SUPPORTED_PROBE_TYPES = ("P1_wa_offhours", "P2_call_peak")
+
+# ─────────────────────────────────────────────────────────────
+# V2 LLM-rubric config (used only when reply text exists for P1)
+# ─────────────────────────────────────────────────────────────
+
+_OPENAI_API_KEY = (
+    os.getenv("OPENAI_API_KEY", "")
+    .strip()
+    .replace("", "")
+    .replace("", "")
+    .replace("\r", "")
+    .replace("\n", "")
+)
+_OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions"
+_LLM_MODEL = "gpt-4o"
+_LLM_TIMEOUT_SEC = 30
+
+_LLM_RUBRIC_SYSTEM_PROMPT = """\
+You are an expert clinical-funnel auditor. You will read a WhatsApp
+interaction between a prospective implant patient (the "prospect") and a
+boutique premium dental clinic. Score the CLINIC's responses on three
+dimensions, each 0-20.
+
+Replies may be in English, Hebrew, or other languages — score the substance,
+not the language.
+
+Dimensions:
+- qualification_quality (0-20): Did the clinic ask qualifying questions
+  about case complexity, budget, treatment readiness, or medical history?
+  Did they show genuine intent-handling rather than canned response?
+- booking_conversion (0-20): Did the clinic actively close toward a
+  committed next step? Use this calibration:
+    LOW (0-6):       "contact us" / generic invitation / no next step.
+    MODERATE (7-13): mentioning availability alone, e.g. "we have Tuesday
+                     slots" or "the doctor is in on Mondays" — informative
+                     but the clinic has not yet closed or advanced.
+    HIGH (14-20):    explicit consult-closing or advancing to a COMMITTED
+                     next step, e.g. "I'm booking you for Tuesday 10am,
+                     please confirm", "send your X-rays here so we can
+                     schedule", "the doctor will call you at 14:00",
+                     "click this link to confirm the slot".
+- warmth (0-20): Human tone, empathy, professional politeness, attentive
+  reading of what the prospect said. Personal vs. canned/robotic.
+
+Be conservative: weak or absent evidence → low score. Do NOT invent
+strengths the text does not show.
+
+evidence_quotes: 0-4 short verbatim quotes (under 100 chars) from the
+clinic reply that justify your scores. Each quote points to one dimension
+and explains why it supports that score. Use empty list if no quote-worthy
+evidence.
+
+Return STRICT JSON ONLY (no prose, no markdown, no commentary):
+{
+  "qualification_quality": {"score": <int 0-20>, "reason": "<short>"},
+  "booking_conversion":    {"score": <int 0-20>, "reason": "<short>"},
+  "warmth":                {"score": <int 0-20>, "reason": "<short>"},
+  "evidence_quotes": [
+    {"dimension": "...", "quote": "...", "why_it_matters": "..."}
+  ]
+}
+"""
 
 
 class RubricScorerError(Exception):
@@ -268,6 +334,180 @@ def _score_p2(probe: dict) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────
+# V2 — LLM rubric for P1 with captured reply text
+# ─────────────────────────────────────────────────────────────
+
+def _has_reply_text(probe: dict) -> bool:
+    md = probe.get("metadata_json") or {}
+    replies = md.get("reply_messages")
+    if not isinstance(replies, list) or not replies:
+        return False
+    return any(
+        isinstance(r, dict) and (r.get("body") or "").strip()
+        for r in replies
+    )
+
+
+def _clamp_int(v, lo: int, hi: int) -> int:
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        return lo
+    return int(round(max(lo, min(hi, x))))
+
+
+def _build_llm_user_prompt(probe: dict) -> str:
+    md = probe.get("metadata_json") or {}
+    persona_name = md.get("persona_name") or "the prospect"
+    outbound = (md.get("outbound_body") or "(outbound body not captured)").strip()
+    replies = [
+        r for r in (md.get("reply_messages") or [])
+        if isinstance(r, dict) and (r.get("body") or "").strip()
+    ]
+
+    parts: list[str] = [
+        f"OUTBOUND MESSAGE FROM {persona_name} (a prospective implant patient):",
+        outbound,
+        "",
+        f"CLINIC REPLIES ({len(replies)} message(s)):",
+    ]
+    for i, r in enumerate(replies, 1):
+        parts.append(f"--- Reply {i} ---")
+        parts.append((r.get("body") or "").strip())
+    parts.append("")
+    parts.append("Score now. Return JSON only.")
+    return "\n".join(parts)
+
+
+def _call_openai_rubric_sync(system: str, user: str) -> str:
+    """Sync OpenAI chat completion for rubric scoring. Caller wraps in to_thread."""
+    payload = {
+        "model": _LLM_MODEL,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        "response_format": {"type": "json_object"},
+        "temperature": 0.1,
+    }
+    body = json.dumps(payload, ensure_ascii=True).encode("ascii", errors="ignore")
+    req = urllib.request.Request(
+        _OPENAI_CHAT_URL,
+        data=body,
+        headers={
+            "Authorization": f"Bearer {_OPENAI_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=_LLM_TIMEOUT_SEC) as resp:
+        raw = resp.read()
+    data = json.loads(raw)
+    return data["choices"][0]["message"]["content"]
+
+
+async def _llm_score_p1(probe: dict) -> Optional[dict]:
+    """
+    Call the LLM to score the three rubric dimensions for a P1 probe with
+    captured replies. Returns the parsed rubric dict on success, or None
+    on any failure (caller falls back to v1 deterministic-only).
+    Never raises.
+    """
+    if not _OPENAI_API_KEY:
+        logger.warning(
+            "[MRI-SCORE] llm_score_skipped probe_id=%s reason=no_openai_api_key",
+            probe.get("id"),
+        )
+        return None
+
+    logger.info("[MRI-SCORE] llm_score_start probe_id=%s", probe.get("id"))
+
+    user_prompt = _build_llm_user_prompt(probe)
+
+    try:
+        content = await asyncio.to_thread(
+            _call_openai_rubric_sync, _LLM_RUBRIC_SYSTEM_PROMPT, user_prompt,
+        )
+        rubric = json.loads(content)
+    except Exception as exc:
+        logger.error(
+            "[MRI-SCORE] llm_score_error probe_id=%s error=%s",
+            probe.get("id"), exc,
+        )
+        return None
+
+    required_dims = ("qualification_quality", "booking_conversion", "warmth")
+    for d in required_dims:
+        if not isinstance(rubric.get(d), dict) or "score" not in rubric[d]:
+            logger.error(
+                "[MRI-SCORE] llm_score_error probe_id=%s reason=bad_shape missing=%s",
+                probe.get("id"), d,
+            )
+            return None
+
+    if not isinstance(rubric.get("evidence_quotes"), list):
+        rubric["evidence_quotes"] = []
+
+    for d in required_dims:
+        rubric[d]["score"] = _clamp_int(rubric[d].get("score"), 0, 20)
+        reason = rubric[d].get("reason")
+        rubric[d]["reason"] = (reason if isinstance(reason, str) else "")[:300]
+
+    logger.info(
+        "[MRI-SCORE] llm_score_complete probe_id=%s qq=%s bc=%s w=%s evidence=%d",
+        probe.get("id"),
+        rubric["qualification_quality"]["score"],
+        rubric["booking_conversion"]["score"],
+        rubric["warmth"]["score"],
+        len(rubric["evidence_quotes"]),
+    )
+    return rubric
+
+
+def _merge_v2_p1(deterministic_rubric: dict, llm_rubric: dict) -> dict:
+    """
+    Blend the LLM-scored dimensions into the v1 deterministic rubric and
+    update headline numbers + confidence + scoring_version.
+    """
+    out = dict(deterministic_rubric)
+    dims = dict(out.get("dimensions") or {})
+
+    for d in ("qualification_quality", "booking_conversion", "warmth"):
+        score = _clamp_int(llm_rubric[d].get("score"), 0, 20)
+        reason = llm_rubric[d].get("reason") or ""
+        dims[d] = {
+            "score":  score,
+            "max":    20,
+            "source": "llm",
+            "reason": reason,
+        }
+    out["dimensions"] = dims
+
+    llm_total = sum(
+        dims[d]["score"]
+        for d in ("qualification_quality", "booking_conversion", "warmth")
+    )
+    llm_score = round((llm_total / 60) * 100)
+    out["llm_score"] = llm_score
+
+    deterministic_score = out.get("deterministic_score")
+    if deterministic_score is None:
+        out["signal_integrity_score"] = llm_score
+    else:
+        out["signal_integrity_score"] = round(
+            0.4 * deterministic_score + 0.6 * llm_score
+        )
+
+    evidence_count = len(llm_rubric.get("evidence_quotes") or [])
+    out["diagnostic_confidence"] = "high" if evidence_count >= 2 else "medium"
+
+    out["analysis_limitations"] = []
+    out["scoring_version"] = SCORING_VERSION_V2
+
+    return out
+
+
+# ─────────────────────────────────────────────────────────────
 # Persist
 # ─────────────────────────────────────────────────────────────
 
@@ -283,7 +523,7 @@ async def _persist_score(
     new_md = {
         **existing_md,
         "scored_at":        scored_at,
-        "scoring_version":  SCORING_VERSION,
+        "scoring_version":  rubric.get("scoring_version") or SCORING_VERSION,
     }
 
     body = {
@@ -356,9 +596,17 @@ async def score_probe(probe_id: str) -> dict:
         )
         raise RubricScorerError(f"scoring computation failed: {exc}") from exc
 
-    # Evidence quotes intentionally empty: no real conversation text exists yet.
-    # The limitation is already declared in rubric.analysis_limitations.
     evidence_quotes: list = []
+
+    # V2 — LLM rubric scoring for P1 with captured reply text.
+    # On any failure (no API key, network, bad shape), _llm_score_p1
+    # returns None and we fall through with the v1 deterministic-only
+    # rubric — partial result is better than no result.
+    if probe_type == "P1_wa_offhours" and _has_reply_text(probe):
+        llm_rubric = await _llm_score_p1(probe)
+        if llm_rubric is not None:
+            rubric = _merge_v2_p1(rubric, llm_rubric)
+            evidence_quotes = llm_rubric.get("evidence_quotes") or []
 
     updated = await _persist_score(probe, rubric, evidence_quotes)
 
