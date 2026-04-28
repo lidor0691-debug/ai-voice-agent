@@ -35,6 +35,10 @@ from app.services.mri_probe_runner import (
     SUPPORTED_PROBE_TYPES,
     run_probe,
 )
+from app.services.mri_rubric_scorer import (
+    RubricScorerError,
+    score_probe,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -371,6 +375,29 @@ async def run_probe_endpoint(probe_id: str):
         raise HTTPException(status_code=409, detail=str(exc))
     except ProbeRunnerError as exc:
         logger.error("[MRI-PROBE] probe_error probe_id=%s error=%s", probe_id, exc)
+        raise HTTPException(status_code=400, detail=str(exc))
+    return result
+
+
+@router.post("/mri/probes/{probe_id}/score")
+async def score_probe_endpoint(probe_id: str):
+    """
+    Score an executed probe and persist rubric_scores_json +
+    evidence_quotes_json + metadata_json.scored_at + scoring_version.
+
+    Re-scoring is allowed: existing rubric is overwritten and scored_at
+    is refreshed.
+
+    Returns 400 if:
+      - probe not yet executed
+      - probe_type unsupported by the scorer
+      - Supabase / DB validation errors
+    """
+    _ensure_supabase_configured()
+    try:
+        result = await score_probe(probe_id)
+    except RubricScorerError as exc:
+        logger.error("[MRI-SCORE] score_error probe_id=%s error=%s", probe_id, exc)
         raise HTTPException(status_code=400, detail=str(exc))
     return result
 
