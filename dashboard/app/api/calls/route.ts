@@ -17,7 +17,23 @@ export async function GET(req: NextRequest) {
     .order("created_at", { ascending: false })
     .limit(limit);
 
-  if (agentId) query = query.eq("agent_id", agentId);
+  if (!ctx.isAdmin) {
+    const { data: agents } = await client
+      .from("agents_config")
+      .select("id")
+      .eq("client_id", ctx.clientId);
+    const ownedIds = (agents ?? []).map((a: { id: string }) => a.id);
+    if (ownedIds.length === 0) return NextResponse.json([]);
+    if (agentId) {
+      if (!ownedIds.includes(agentId))
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      query = query.eq("agent_id", agentId);
+    } else {
+      query = query.in("agent_id", ownedIds);
+    }
+  } else if (agentId) {
+    query = query.eq("agent_id", agentId);
+  }
 
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -31,6 +47,19 @@ export async function POST(req: NextRequest) {
   if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await req.json();
+
+  if (!ctx.isAdmin) {
+    const targetAgentId = body?.agent_id;
+    if (!targetAgentId) return NextResponse.json({ error: "agent_id required" }, { status: 400 });
+    const { data: agent, error: agentErr } = await client
+      .from("agents_config")
+      .select("client_id")
+      .eq("id", targetAgentId)
+      .single();
+    if (agentErr || !agent) return NextResponse.json({ error: "Agent not found" }, { status: 404 });
+    if (agent.client_id !== ctx.clientId)
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   const { data, error } = await client
     .from("call_logs")

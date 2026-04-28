@@ -72,88 +72,10 @@ _GEMINI_WS_URL = (
     "?key={api_key}"
 )
 
-# ── Hebrew demo system instruction for Maya ───────────────────────────────────
-
-_SYSTEM_INSTRUCTION = """\
-את מאיה, נציגת שירות של סטודיו לריקוד. את ישראלית לחלוטין — תדברי עם מבטא ישראלי מההתחלה ועד סוף השיחה, ללא שום השפעה אנגלית.
-
-המטרה שלך היא לנהל שיחה טבעית עם לקוחות, להבין אם הם מחפשים:
-1. ריקוד לבת מצווה
-2. שיעור ניסיון לסטודיו
-
-תמיד תשאלי קודם על בת מצווה ורק אחר כך על שיעור ניסיון.
-
-חוקים חשובים:
-* דברי בעברית טבעית, לא רשמית מדי
-* תדברי כמו בן אדם, עם זרימה
-* אל תתני תשובות ארוכות מדי
-* תמיד תשאלי שאלה אחת כל פעם
-* אם הלקוח מתבלבל או קוטע — תזרמי ותמשיכי
-* אם את צריכה שנייה לחשוב — תוסיפי מילת גישור טבעית כמו "אממ", "רגע", "אוקיי" לפני שאת ממשיכה. זה גורם לשיחה להישמע אנושית יותר
-
-מידע על הסטודיו:
-* מתקיימים שיעורים בימי ראשון ורביעי בלבד
-
-חלוקה לפי גיל:
-* גילאי 6–8: בשעה 17:00
-* גילאי 9–12: בשעה 17:45
-* גילאי 13–16: בשעה 18:30
-
-מהלך שיחה:
-
-שלב 1:
-תשאלי: האם מדובר בריקוד לבת מצווה או בשיעור ניסיון?
-
-שלב 2:
-אם מדובר בבת מצווה:
-* תשאלי תאריך
-* תשאלי איפה האירוע
-* תובילי להשארת פרטים
-
-אם מדובר בשיעור ניסיון:
-* תשאלי גיל
-* תתאימי יום ושעה לפי הגיל בלבד
-* תשאלי איזה יום נוח (ראשון או רביעי)
-
-שלב 3:
-להוביל לאיסוף פרטים:
-* שם הילדה
-* טלפון של ההורה
-
-חוקים קריטיים:
-* אל תציעי שעות שלא קיימות
-* אל תדלגי על השאלה של בת מצווה
-* אל תסיימי שיחה בלי לנסות לאסוף טלפון
-* אל תישמעי מכירתית מדי
-
-פתיחת השיחה (חובה — תמיד המשפט הראשון):
-"היי, הגעתם לסטודיו BPM, מדברת מאיה. אני כאן לעזור! אתם מתעניינים בריקוד לבת מצווה או בשיעור ניסיון?"
-
-אחרי הפתיחה:
-* אם הלקוח אומר בת מצווה — המשיכי למסלול בת מצווה
-* אם הלקוח אומר שיעור ניסיון — המשיכי למסלול שיעור ניסיון
-* אם הלקוח לא ברור או מתלבט — עזרי לו להבין מה יותר רלוונטי עבורו
-
-מטרה עסקית (קריטי):
-המטרה שלך היא לא רק לענות יפה — אלא להוביל כל שיחה לסיום שבו יש לך לפחות:
-* שם הילדה
-* מספר טלפון של ההורה
-
-אם אין לך את הפרטים האלה — השיחה לא הושלמה.
-
-חוקי סגירה:
-* תמיד תנסי להגיע לשלב איסוף פרטים
-* אם הלקוח מתלבט — תמשיכי בעדינות להוביל לשם
-* אם הלקוח אומר "אני אבדוק" — תעני: "ברור! רק כדי שאוכל לשלוח לך פרטים מסודרים, אפשר מספר טלפון?"
-* אם השיחה מתקרבת לסיום ואין לך טלפון — תשאלי בצורה טבעית: "איך אפשר לחזור אליך עם הפרטים?"
-* אם הלקוח כבר זרם — תובילי ישירות: "איך קוראים לילדה?" ואז "ומה המספר טלפון?"
-
-סגנון הסגירה:
-* לא אגרסיבי
-* לא לוחץ
-* אבל כן מוביל
-* תמיד שאלה אחת בכל פעם
-"""
+# NOTE: Hardcoded Hebrew "BPM Studio" system instruction was removed here.
+# Per multi-tenant isolation rules: no global fallback prompt may exist.
+# Every voice call MUST resolve to an active agent_id with its own
+# system_prompt. If resolution fails, the call is closed (fail closed).
 
 
 # ── TwiML entry point ─────────────────────────────────────────────────────────
@@ -177,6 +99,20 @@ async def voice_gemini_entry(request: Request):
     # Fetch agent config for the destination number — always succeeds (returns safe default on miss)
     agent_cfg = await fetch_supabase_agent_config(norm_to)
     print(f"[GEMINI-VOICE] agent='{agent_cfg.get('client_name')}' fallback={agent_cfg.get('fallback_used')}")
+    print(
+        f"[ROUTE-AUDIT] route=voice_gemini_entry to={norm_to} "
+        f"resolved_agent_id={agent_cfg.get('agent_id')} "
+        f"resolved_client_id={agent_cfg.get('client_id')} "
+        f"fallback_used={bool(agent_cfg.get('fallback_used'))} "
+        f"knowledge_items_count={agent_cfg.get('knowledge_items_count', 0)}"
+    )
+
+    # Fail closed: unknown number / no active agent / empty prompt → reject call.
+    if agent_cfg.get("fallback_used") or not agent_cfg.get("prompt_override"):
+        print(f"[GEMINI-VOICE] ❌ No active agent for norm_to='{norm_to}' — returning error TwiML (fail closed)")
+        err_response = VoiceResponse()
+        err_response.say("מצטערים, אירעה שגיאה. נסו שוב מאוחר יותר.", language="he-IL")
+        return Response(content=str(err_response), media_type="application/xml")
 
     # Store context keyed by CallSid so the WebSocket can find it without URL param issues
     _GEMINI_CALL_CONTEXT[call_sid] = {
@@ -259,19 +195,35 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
         return
 
     # ── Finalize prompt / voice / opening — always after start event ──────────
-    if agent_cfg.get("prompt_override") and not agent_cfg.get("fallback_used"):
-        base_prompt = agent_cfg["prompt_override"].replace("{{caller_phone}}", caller_phone)
-        # If first_message is set, inject it as an opening instruction into the system prompt.
-        # Do NOT use it as realtime_input — that would be interpreted as the caller speaking.
-        first_message = (agent_cfg.get("first_message") or "").strip()
-        if first_message:
-            base_prompt = f"פתחי את השיחה תמיד עם המשפט הבא בדיוק:\n\"{first_message}\"\n\n{base_prompt}"
-            print(f"[GEMINI-WS] first_message injected into system prompt")
-        system_instruction = base_prompt
-        print(f"[GEMINI-WS] Prompt source: Supabase config for '{client_name}'")
-    else:
-        system_instruction = _SYSTEM_INSTRUCTION
-        print(f"[GEMINI-WS] Prompt source: hardcoded fallback (no Supabase config for '{client_name}')")
+    # Fail closed: never use a hardcoded fallback prompt. The TwiML entry above
+    # already rejects unknown numbers; this is a defense-in-depth check.
+    if agent_cfg.get("fallback_used") or not agent_cfg.get("prompt_override"):
+        print(
+            f"[GEMINI-WS] ❌ No active agent prompt for client='{client_name}' "
+            f"caller={caller_phone} — closing call (fail closed)"
+        )
+        try:
+            await twilio_ws.close()
+        except Exception:
+            pass
+        return
+
+    base_prompt = agent_cfg["prompt_override"].replace("{{caller_phone}}", caller_phone)
+    # If first_message is set, inject it as an opening instruction into the system prompt.
+    # Do NOT use it as realtime_input — that would be interpreted as the caller speaking.
+    first_message = (agent_cfg.get("first_message") or "").strip()
+    if first_message:
+        base_prompt = f"פתחי את השיחה תמיד עם המשפט הבא בדיוק:\n\"{first_message}\"\n\n{base_prompt}"
+        print(f"[GEMINI-WS] first_message injected into system prompt")
+    system_instruction = base_prompt
+    print(f"[GEMINI-WS] Prompt source: Supabase config for '{client_name}'")
+    print(
+        f"[ROUTE-AUDIT] route=voice_gemini_ws to={agent_cfg.get('whatsapp_number') or 'voice'} "
+        f"resolved_agent_id={agent_cfg.get('agent_id')} "
+        f"resolved_client_id={agent_cfg.get('client_id') or client_id} "
+        f"fallback_used=false "
+        f"knowledge_items_count={agent_cfg.get('knowledge_items_count', 0)}"
+    )
 
     # Valid Gemini Live prebuilt voice names — reject anything else (e.g. OpenAI leftovers)
     _GEMINI_VALID_VOICES = {"Zephyr", "Puck", "Charon", "Kore", "Fenrir", "Aoede", "Leda", "Orus", "Schedar"}

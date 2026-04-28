@@ -491,6 +491,13 @@ async def websocket_endpoint(twilio_ws: WebSocket):
     print(f"[OPENAI] voice                = '{voice}'")
     print(f"[OPENAI] prompt length        = {len(system_prompt)} chars")
     print(f"[OPENAI] prompt first 300     = '{system_prompt[:300].strip()}'")
+    print(
+        f"[ROUTE-AUDIT] route=voice_realtime to={to_number} "
+        f"resolved_agent_id={client_config.get('agent_id')} "
+        f"resolved_client_id={client_config.get('client_id')} "
+        f"fallback_used={bool(client_config.get('fallback_used'))} "
+        f"knowledge_items_count={client_config.get('knowledge_items_count', 0)}"
+    )
     print("=" * 60)
 
     openai_url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview"

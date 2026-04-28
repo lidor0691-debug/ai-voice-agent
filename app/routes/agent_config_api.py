@@ -29,5 +29,16 @@ async def get_agent_config(req: AgentConfigRequest):
     """
     agent = await get_whatsapp_agent_config(req.to)
     if agent is None:
+        print(
+            f"[ROUTE-AUDIT] route=agent_config_api to={req.to!r} "
+            f"resolved_agent_id=None resolved_client_id=None "
+            f"fallback_used=true knowledge_items_count=0"
+        )
         return {"agent": None}
+    print(
+        f"[ROUTE-AUDIT] route=agent_config_api to={req.to!r} "
+        f"resolved_agent_id={agent.get('agent_id')} "
+        f"resolved_client_id={agent.get('client_id')} "
+        f"fallback_used=false knowledge_items_count=N/A"
+    )
     return agent

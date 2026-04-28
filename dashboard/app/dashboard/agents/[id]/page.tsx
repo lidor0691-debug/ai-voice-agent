@@ -16,7 +16,8 @@ export default async function EditAgentPage({ params }: Props) {
 
   const { data: { user } } = await client.auth.getUser();
   const ctx = getUserContext(user);
-  const isAdmin = ctx?.isAdmin ?? false;
+  if (!ctx) notFound();
+  const isAdmin = ctx.isAdmin;
 
   const { data, error } = await client
     .from("agents_config")
@@ -25,6 +26,7 @@ export default async function EditAgentPage({ params }: Props) {
     .single();
 
   if (error || !data) notFound();
+  if (!isAdmin && data.client_id !== ctx.clientId) notFound();
 
   const agent = data as AgentConfig;
 

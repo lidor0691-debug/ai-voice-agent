@@ -34,7 +34,17 @@ export default async function DashboardPage() {
     : { data: [] };
 
   const admin = createSupabaseAdminClient();
-  const knowledgeRes = await admin.from("knowledge_items").select("id, is_active");
+  let knowledgeRes: { data: { id: string; is_active: boolean }[] | null };
+  if (ctx.isAdmin) {
+    knowledgeRes = await admin.from("knowledge_items").select("id, is_active");
+  } else if (agentIds.length === 0) {
+    knowledgeRes = { data: [] };
+  } else {
+    knowledgeRes = await admin
+      .from("knowledge_items")
+      .select("id, is_active")
+      .in("agent_id", agentIds);
+  }
 
   const insightQuery = client
     .from("lead_intelligence_insights")

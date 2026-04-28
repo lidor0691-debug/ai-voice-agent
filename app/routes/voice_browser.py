@@ -316,8 +316,13 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
 
     # ── Load agent config ────────────────────────────────────────────────
     agent_cfg = await fetch_agent_config_by_id(agent_id)
-    if agent_cfg.get("fallback_used"):
-        logger.warning("[BROWSER-WS] No agent found for id=%s - using fallback", agent_id)
+    # Fail closed: unknown agent_id / inactive agent / empty prompt → reject.
+    # Hardcoded fallback prompts are not allowed.
+    if agent_cfg.get("fallback_used") or not agent_cfg.get("prompt_override"):
+        logger.warning("[BROWSER-WS] No active agent for id=%s — closing (fail closed)", agent_id)
+        await browser_ws.send_json({"type": "error", "message": "Agent not found"})
+        await browser_ws.close()
+        return
 
     # ── Ownership validation via Supabase JWT (fail-closed) ────────────
     _sb_url = os.getenv("SUPABASE_URL", "")
@@ -367,17 +372,31 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
     webhook_url = agent_cfg.get("webhook_url", "")
     first_message = (agent_cfg.get("first_message") or "").strip()
 
+    logger.info(
+        "[ROUTE-AUDIT] route=voice_browser mode=%s agent_id=%s "
+        "resolved_client_id=%s fallback_used=%s knowledge_items_count=%s admin=%s",
+        mode, agent_cfg.get("agent_id"), client_id,
+        bool(agent_cfg.get("fallback_used")),
+        agent_cfg.get("knowledge_items_count", 0),
+        _is_admin,
+    )
+
     # ── Load agent name→id map for assistant navigation ────────────────
+    # Non-admin sessions are restricted to the user's own client_id; admin
+    # sessions see every agent so cross-client navigation works.
     _agent_name_map: dict[str, str] = {}  # lowercase name → agent_id
     if not is_preview:
         try:
             _sb_url = os.getenv("SUPABASE_URL", "")
             _sb_key = os.getenv("SUPABASE_SERVICE_KEY", "")
             if _sb_url and _sb_key:
+                _params = {"select": "id,agent_name", "is_active": "eq.true"}
+                if not _is_admin and client_id:
+                    _params["client_id"] = f"eq.{client_id}"
                 async with httpx.AsyncClient(timeout=5.0) as _c:
                     _resp = await _c.get(
                         f"{_sb_url}/rest/v1/agents_config",
-                        params={"select": "id,agent_name", "is_active": "eq.true"},
+                        params=_params,
                         headers={
                             "apikey": _sb_key,
                             "Authorization": f"Bearer {_sb_key}",
@@ -411,16 +430,22 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
                 f'{system_instruction}'
             )
     else:
-        # Assistant mode: dashboard assistant prompt with live data snapshot
-        # Pass None to get ALL agents/leads (not filtered by single client)
-        snapshot = await fetch_dashboard_snapshot(None)
-        # Load business context from knowledge_items for all active agents
+        # Assistant mode: dashboard assistant prompt with live data snapshot.
+        # Admin sees all clients (snapshot scope = None). Non-admin is locked to
+        # their own client_id so the assistant cannot read other tenants' data.
+        _scope_client_id = None if _is_admin else client_id
+        snapshot = await fetch_dashboard_snapshot(_scope_client_id)
+        # Business context: only load knowledge for agents that belong to the
+        # session's scope (already filtered above for non-admin).
         all_agent_ids = list(_agent_name_map.values())
         biz_context = await fetch_business_context(all_agent_ids)
         full_context = f"{biz_context}\n\n{snapshot}" if biz_context else snapshot
         system_instruction = _ASSISTANT_PROMPT.replace("{snapshot}", full_context)
         first_message = ""  # assistant doesn't use agent's first_message — greeting is in prompt
-        logger.info("[BROWSER-WS] Assistant mode - snapshot loaded (%d chars), biz context (%d chars)", len(snapshot), len(biz_context))
+        logger.info(
+            "[BROWSER-WS] Assistant mode - snapshot loaded (%d chars), biz context (%d chars), scope_client_id=%s",
+            len(snapshot), len(biz_context), _scope_client_id,
+        )
 
     # ── Resolve voice ────────────────────────────────────────────────────
     raw_voice = (agent_cfg.get("voice") or "").strip()

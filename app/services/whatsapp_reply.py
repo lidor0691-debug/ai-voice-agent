@@ -368,10 +368,25 @@ async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: st
     except Exception as exc:
         return {"reply": strict_sanitize(f"DIAG_STEP1_FAIL: {exc}"), "messages": []}
 
-    if agent is None:
-        agent = {}
-    else:
-        agent = {k: _sanitize(v) if isinstance(v, str) else v for k, v in agent.items()}
+    # Fail closed: unknown business_phone / no active agent → refuse to reply.
+    # Returning a generic Maya prompt (or any other tenant's prompt) to an
+    # unknown number is forbidden by multi-tenant isolation rules.
+    if agent is None or not agent.get("system_prompt"):
+        print(
+            f"[ROUTE-AUDIT] route=whatsapp_reply business_phone={business_phone} "
+            f"resolved_agent_id=None resolved_client_id=None "
+            f"fallback_used=true knowledge_items_count=0"
+        )
+        logger.warning("[WHATSAPP] No active agent for business_phone=%s — refusing (fail closed)", business_phone)
+        return {"reply": "", "messages": []}
+
+    agent = {k: _sanitize(v) if isinstance(v, str) else v for k, v in agent.items()}
+    print(
+        f"[ROUTE-AUDIT] route=whatsapp_reply business_phone={business_phone} "
+        f"resolved_agent_id={agent.get('agent_id')} "
+        f"resolved_client_id={agent.get('client_id')} "
+        f"fallback_used=false knowledge_items_count=N/A"
+    )
 
     # ── 2. Build system message ───────────────────────────────────────────────
     try:
@@ -379,18 +394,11 @@ async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: st
     except Exception as exc:
         return {"reply": strict_sanitize(f"DIAG_STEP2_FAIL: {exc}"), "messages": []}
 
-    # ── 2b. Inject recent phone call context if available (last 60 min) ───────
-    try:
-        recent_call_ctx = await _fetch_recent_call_context(customer_phone)
-        if recent_call_ctx:
-            system_content += (
-                f"\n\n---\nהקשר חשוב: {recent_call_ctx}\n"
-                f"המשך את השיחה מנקודה זו. אל תשאל שוב על פרטים שכבר ידועים.\n"
-                f"תן עדיפות למידע מהשיחה הטלפונית על פני היסטוריית WhatsApp ישנה יותר.\n---"
-            )
-            print(f"[WHATSAPP] ✅ Injected recent call context for {customer_phone}")
-    except Exception as exc:
-        logger.warning("[WHATSAPP] Failed to inject call context: %s", exc)
+    # ── 2b. Recent phone-call context injection — DISABLED for tenant isolation
+    # _fetch_recent_call_context queries leads by phone alone, which leaks
+    # context across clients (e.g., a Roi summary into a BPM session).
+    # Re-enable only after the leads query is scoped by (phone, client_id).
+    print(f"[WHATSAPP] phone-context injection skipped (disabled for tenant isolation)")
 
     # ── 3. Load history via customer_phone ────────────────────────────────────
     try:
@@ -420,25 +428,11 @@ async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: st
     except Exception as _exc:
         logger.warning("[WHATSAPP] Failed to update last_whatsapp_inbound_at: %s", _exc)
 
-    # ── 3b. First WhatsApp message after a phone call — inject call summary into history ──
-    # Condition: no existing WhatsApp history AND last_call_summary exists in lead.
-    # This permanently embeds the phone context into WhatsApp memory (not time-limited).
-    # Runs only once — subsequent messages already have history so condition is false.
-    if row is None:
-        try:
-            async with httpx.AsyncClient(timeout=5.0) as _c:
-                _r = await _c.get(
-                    f"{_SUPABASE_URL}/rest/v1/leads",
-                    params={"phone": f"eq.{customer_phone}", "select": "last_call_summary"},
-                    headers={"apikey": _SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {_SUPABASE_SERVICE_KEY}"},
-                )
-                _rows = _r.json() if _r.status_code == 200 else []
-            _call_summary = (_rows[0].get("last_call_summary") or "") if _rows else ""
-            if _call_summary:
-                history = [{"role": "system", "content": f"סיכום שיחת הטלפון האחרונה עם הלקוח: {_call_summary}"}]
-                print(f"[WHATSAPP] ✅ Permanently injected phone call summary into history for {customer_phone}")
-        except Exception as exc:
-            logger.warning("[WHATSAPP] Failed to inject call summary into history: %s", exc)
+    # ── 3b. First-WhatsApp-after-call summary injection — DISABLED for tenant isolation
+    # Previously injected leads.last_call_summary by phone alone, which leaks
+    # across clients. Re-enable only after the leads query is scoped by
+    # (phone, client_id) and the leads upsert uses a (phone, client_id) key.
+    # No-op for now — first WhatsApp turn starts with an empty assistant history.
 
     # ── 4+5. Call OpenAI ──────────────────────────────────────────────────────
     openai_messages = (

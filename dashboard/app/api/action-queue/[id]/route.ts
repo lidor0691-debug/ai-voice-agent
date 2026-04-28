@@ -23,12 +23,14 @@ export async function PATCH(
   const update: Record<string, string> = { status: newStatus };
   if (newStatus === "acted") update.acted_at = new Date().toISOString();
 
-  const { error } = await client
+  let q = client
     .from("conversion_leak_signals")
     .update(update)
     .eq("id", id)
     .eq("status", "open");
+  if (!ctx.isAdmin) q = q.eq("client_id", ctx.clientId);
 
+  const { error } = await q;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   return NextResponse.json({ ok: true });

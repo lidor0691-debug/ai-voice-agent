@@ -52,6 +52,9 @@ _DEFAULT_VOICE  = "shimmer"
 
 # ── Safe default config — returned instead of None on any failure ─────────────
 # Callers can detect this via cfg["fallback_used"] == True.
+# Sentinel returned on lookup failure. Carries an empty prompt so any caller
+# that forgets to check fallback_used cannot accidentally speak as a generic
+# Maya. All voice routes MUST treat fallback_used=True as fail-closed.
 _AGENT_SAFE_DEFAULT: dict = {
     "client_name":           "Unassigned",
     "assistant_name":        "Maya",
@@ -61,11 +64,8 @@ _AGENT_SAFE_DEFAULT: dict = {
     "webhook_url":           "",   # legacy alias kept for safety
     "temperature":           0.7,
     "first_message":         "",
-    "prompt_override": (
-        "You are Maya, an AI voice assistant. "
-        "Greet the caller warmly and let them know someone will be with them shortly. "
-        "Caller phone: {{caller_phone}}"
-    ),
+    "prompt_override":       "",
+    "knowledge_items_count": 0,
     "_from_supabase": False,
     "fallback_used":  True,
 }
@@ -369,6 +369,7 @@ async def get_whatsapp_agent_config(raw_to: str) -> Optional[dict]:
     rules           = row.get("whatsapp_rules")
 
     return {
+        "agent_id":                 row.get("id") or None,
         "client_id":                row.get("client_id") or None,
         "system_prompt":            row.get("system_prompt") or None,
         "tone":                     row.get("tone") or None,
@@ -466,6 +467,8 @@ async def fetch_supabase_agent_config(to_number: str) -> dict:
         "whatsapp_followup_enabled": bool(row.get("whatsapp_followup_enabled") or False),
         "whatsapp_followup_type":    (row.get("whatsapp_followup_type") or "none").strip(),
         "whatsapp_followup_template":(row.get("whatsapp_followup_template") or "").strip(),
+        # Audit / observability
+        "knowledge_items_count": len(knowledge_items),
         # Meta
         "_from_supabase":        True,
         "fallback_used":         False,
@@ -559,6 +562,8 @@ async def fetch_agent_config_by_id(agent_id: str) -> dict:
         "whatsapp_followup_enabled": bool(row.get("whatsapp_followup_enabled") or False),
         "whatsapp_followup_type":    (row.get("whatsapp_followup_type") or "none").strip(),
         "whatsapp_followup_template":(row.get("whatsapp_followup_template") or "").strip(),
+        # Audit / observability
+        "knowledge_items_count": len(knowledge_items),
         # Meta
         "_from_supabase":        True,
         "fallback_used":         False,

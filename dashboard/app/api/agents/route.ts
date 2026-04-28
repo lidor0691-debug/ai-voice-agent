@@ -8,12 +8,14 @@ export async function GET() {
   const ctx = getUserContext(user);
   if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { data, error } = await client
+  const query = client
     .from("agents_config")
     .select("*")
     .eq("is_active", true)
     .order("created_at", { ascending: false });
+  if (!ctx.isAdmin) query.eq("client_id", ctx.clientId);
 
+  const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data);
 }
