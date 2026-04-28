@@ -278,6 +278,7 @@ async def _run_p1_wa_offhours(probe: dict, scan: dict) -> dict:
             "twilio_to":    target,
             "twilio_sid":   getattr(msg, "sid", None),
             "twilio_status": getattr(msg, "status", None),
+            "outbound_body": body,
             "body_chars":   len(body),
             "sent_at":      sent_at,
         },
