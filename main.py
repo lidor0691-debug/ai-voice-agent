@@ -68,6 +68,7 @@ from app.routes.maya_stt import router as maya_stt_router
 from app.routes.voice_browser import router as voice_browser_router
 from app.routes.action_api import router as action_api_router
 from app.routes.action_queue_api import router as action_queue_router
+from app.routes.mri_api import router as mri_router
 
 app = FastAPI()
 
@@ -97,6 +98,7 @@ app.include_router(maya_stt_router)
 app.include_router(voice_browser_router)
 app.include_router(action_api_router)
 app.include_router(action_queue_router)
+app.include_router(mri_router)
 
 # Serve mockup files for development (skip if directory doesn't exist, e.g. Railway)
 import pathlib
