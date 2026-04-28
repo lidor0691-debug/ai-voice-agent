@@ -231,6 +231,13 @@ async def _maybe_inject_sentence(reply: str, client_id: str, history: list[dict]
       turns (best-effort once-per-window suppression, no new state infra).
     - Never raises — returns original reply on any error.
     """
+    print("[INJECTION-FUNCTION HIT]", flush=True)
+    # Globally disabled: post-processing was appending canned sales sentences
+    # (e.g., a price-options line) to BPM/other agent replies, which is not
+    # business-appropriate. Rules file and logic kept intact for future use.
+    print("[INJECTION DISABLED RETURN]", flush=True)
+    return reply
+
     if not client_id or not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
         return reply
 
