@@ -454,6 +454,17 @@ async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: st
             {"role": "assistant", "content": reply},
         ]
 
+    # ── 6a. Attribution Ledger v0 — record outbound WhatsApp action ─────────────
+    # Fire-and-forget. Never raises. See app/services/attribution.py.
+    try:
+        from app.services.attribution import record_whatsapp_action
+        await record_whatsapp_action(
+            client_id=agent.get("client_id") or "",
+            lead_phone=customer_phone,
+        )
+    except Exception as _exc:
+        logger.warning("[ATTRIBUTION] action record skipped: %s", _exc)
+
     # ── 6b. Lead Intelligence — extract insights from current user message ──────
     try:
         from app.services.lead_intelligence import extract_insights, save_insights as _save_insights
