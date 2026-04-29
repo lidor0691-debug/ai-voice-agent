@@ -80,7 +80,7 @@ export function MayaHome({ data }: { data: MayaHomeData }) {
     <div
       dir={dir}
       lang={homeLang}
-      className={`relative flex-1 overflow-y-auto overflow-x-hidden bg-surface-0 text-white ${
+      className={`fixed inset-0 z-[60] overflow-y-auto overflow-x-hidden bg-surface-0 text-white ${
         homeLang === "he" ? "maya-hebrew" : ""
       } ${mode === "night" ? "maya-night" : ""}`}
     >
@@ -481,12 +481,12 @@ function DecisionsColumn({
       </div>
 
       {decisions.length === 0 ? (
-        <div className="rounded-2xl border border-emerald-500/15 bg-emerald-500/[0.04] p-5 text-center">
-          <CheckCircle2 className="w-4 h-4 text-emerald-400/70 mx-auto" />
-          <p className="mt-2 text-[13px] text-white/55">{s.decisionsAllClear}</p>
+        <div className="py-6 text-center">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400/60 mx-auto" />
+          <p className="mt-2 text-[13px] text-white/45 italic">{s.decisionsAllClear}</p>
         </div>
       ) : (
-        <ul className="space-y-3">
+        <ul>
           {decisions.map((d, i) => (
             <DecisionCard
               key={d.id}
@@ -495,6 +495,7 @@ function DecisionsColumn({
               onApprove={() => onApprove(d.id)}
               onOverride={() => onOverride(d.id)}
               delayMs={i * 80}
+              isLast={i === decisions.length - 1}
             />
           ))}
         </ul>
@@ -509,28 +510,30 @@ function DecisionCard({
   onApprove,
   onOverride,
   delayMs,
+  isLast,
 }: {
   decision: Decision;
   s: HomeStrings;
   onApprove: () => void;
   onOverride: () => void;
   delayMs: number;
+  isLast: boolean;
 }) {
   const isWatching = decision.tone === "watching";
   const accent = isWatching ? "#a78bfa" : "#34d399";
 
   return (
     <li
-      className="relative rounded-2xl border border-white/[0.06] bg-surface-1/70 p-4 maya-fade"
+      className={`relative py-5 maya-fade ${isLast ? "" : "border-b border-white/[0.05]"}`}
       style={{ animationDelay: `${delayMs}ms` }}
     >
-      {/* tone bar */}
+      {/* tone bar — the only chrome */}
       <span
-        className="absolute top-4 bottom-4 start-0 w-[2px] rounded-full"
-        style={{ background: accent, boxShadow: `0 0 10px ${accent}55` }}
+        className="absolute top-5 bottom-5 start-0 w-[1.5px]"
+        style={{ background: accent, opacity: 0.7 }}
       />
 
-      <div className="ps-3">
+      <div className="ps-4">
         {/* header row */}
         <div className="flex items-baseline justify-between gap-3">
           <p className="text-[14px] font-semibold text-white tracking-tight truncate">
@@ -607,15 +610,15 @@ function ActiveMissionsRow({
   dir: "rtl" | "ltr";
 }) {
   return (
-    <section className="mt-10 maya-fade" style={{ animationDelay: "240ms" }}>
-      <div className="flex items-baseline justify-between mb-3">
+    <section className="mt-12 maya-fade" style={{ animationDelay: "240ms" }}>
+      <div className="flex items-baseline justify-between mb-2">
         <SectionLabel>{s.missionsHeader}</SectionLabel>
       </div>
-      <div className="rounded-2xl border border-white/[0.06] bg-surface-1/60 divide-y divide-white/[0.04]">
+      <ul className="divide-y divide-white/[0.04]">
         {missions.map((m) => (
           <MissionRow key={m.id} mission={m} s={s} dir={dir} />
         ))}
-      </div>
+      </ul>
     </section>
   );
 }
@@ -632,7 +635,7 @@ function MissionRow({
   return (
     <button
       type="button"
-      className="group w-full flex items-center gap-5 px-5 py-4 hover:bg-white/[0.02] transition-colors text-start"
+      className="group w-full flex items-center gap-5 py-4 hover:bg-white/[0.015] transition-colors text-start"
     >
       <div className="flex-1 min-w-0">
         <p className="text-[14px] font-semibold text-white tracking-tight">{mission.name}</p>
@@ -687,13 +690,14 @@ function Sparkline({ values, dir }: { values: number[]; dir: "rtl" | "ltr" }) {
 }
 
 // ───────────────────────────────────────────────────────────────────
-// Footer chrome (small, restrained)
+// Ambient baseline — a single breathing hairline. No text, no chrome.
+// "Maya is here." rendered as the quietest possible signal.
 // ───────────────────────────────────────────────────────────────────
-function FooterChrome({ s }: { s: HomeStrings }) {
+function FooterChrome({ s: _s }: { s: HomeStrings }) {
   return (
-    <p className="mt-12 text-center text-[10px] tracking-[0.28em] text-white/15 uppercase font-mono">
-      Maya · operating layer
-    </p>
+    <div aria-hidden className="mt-16 mb-2 flex items-center justify-center">
+      <span className="block w-[180px] h-px maya-baseline" />
+    </div>
   );
 }
 
@@ -746,7 +750,7 @@ function DemoToggle({
   setMode: (m: Mode) => void;
 }) {
   return (
-    <div className="fixed bottom-4 end-4 z-[3] flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-surface-2/70 backdrop-blur-sm border border-white/[0.06]">
+    <div className="fixed bottom-4 end-4 z-[70] flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-surface-2/70 backdrop-blur-sm border border-white/[0.06]">
       <span className="text-[9px] font-mono tracking-[0.20em] uppercase text-white/35">
         {s.demoLabel}
       </span>
@@ -830,7 +834,7 @@ function CommandPalette({
 
   return (
     <div
-      className="fixed inset-0 z-[10] flex items-start justify-center pt-[14vh] px-4 maya-palette-fade"
+      className="fixed inset-0 z-[80] flex items-start justify-center pt-[14vh] px-4 maya-palette-fade"
       onClick={onClose}
     >
       <div
@@ -946,19 +950,12 @@ function PaletteIcon({ group }: { group: PaletteItem["group"] }) {
 // Surface texture — subtle background. Different per mode.
 // ───────────────────────────────────────────────────────────────────
 function SurfaceTexture({ mode }: { mode: Mode }) {
+  // Quiet radial glow that breathes slowly. The single calm-hum element on the canvas.
   return (
-    <>
-      <div
-        aria-hidden
-        className="pointer-events-none fixed inset-0 z-0"
-        style={{
-          background: mode === "day"
-            ? "radial-gradient(ellipse 80% 50% at 50% 0%, rgba(139,92,246,0.06) 0%, transparent 55%)"
-            : "radial-gradient(ellipse 60% 50% at 50% 50%, rgba(76,29,149,0.10) 0%, transparent 60%)",
-          transition: "opacity 700ms ease",
-        }}
-      />
-    </>
+    <div
+      aria-hidden
+      className={`pointer-events-none fixed inset-0 z-0 ${mode === "day" ? "maya-glow-day" : "maya-glow-night"}`}
+    />
   );
 }
 
@@ -1068,6 +1065,35 @@ const SURFACE_CSS = `
     100% { transform: scale(1);    opacity: 0.85; }
   }
 
+  /* Calm hum — slow surface breath. The only ambient element. */
+  .maya-glow-day {
+    background: radial-gradient(ellipse 80% 50% at 50% -10%, rgba(139,92,246,0.07) 0%, transparent 55%);
+    animation: maya-glow-breath 11s ease-in-out infinite;
+  }
+  .maya-glow-night {
+    background: radial-gradient(ellipse 60% 50% at 50% 50%, rgba(76,29,149,0.12) 0%, transparent 60%);
+    animation: maya-glow-breath 14s ease-in-out infinite;
+  }
+  @keyframes maya-glow-breath {
+    0%, 100% { opacity: 0.78; }
+    50%      { opacity: 1.00; }
+  }
+
+  /* Ambient baseline hairline — system pulse, no content */
+  .maya-baseline {
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(167,139,250,0.35) 50%,
+      transparent 100%
+    );
+    animation: maya-baseline-breath 6s ease-in-out infinite;
+  }
+  @keyframes maya-baseline-breath {
+    0%, 100% { opacity: 0.35; transform: scaleX(0.92); }
+    50%      { opacity: 0.85; transform: scaleX(1.00); }
+  }
+
   /* Command palette */
   .maya-palette-fade {
     animation: maya-palette-fade 180ms ease-out;
@@ -1088,6 +1114,8 @@ const SURFACE_CSS = `
   @media (prefers-reduced-motion: reduce) {
     .maya-fade,
     .maya-orb-idle, .maya-orb-working, .maya-orb-watching, .maya-orb-heard,
+    .maya-glow-day, .maya-glow-night,
+    .maya-baseline,
     .maya-palette-fade, .maya-palette-pop {
       animation: none !important;
       transition: none !important;
