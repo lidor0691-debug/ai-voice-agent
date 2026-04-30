@@ -447,10 +447,9 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 
 function greeting(firstName: string): string {
   const h = new Date().getHours();
-  // Plain English / Hebrew morning/afternoon/evening — pulled from time, not lang
-  if (h < 12) return `Good morning, ${firstName}.`;
-  if (h < 18) return `Good afternoon, ${firstName}.`;
-  return `Good evening, ${firstName}.`;
+  if (h < 12) return `בוקר טוב, ${firstName}.`;
+  if (h < 18) return `צהריים טובים, ${firstName}.`;
+  return `ערב טוב, ${firstName}.`;
 }
 
 // ───────────────────────────────────────────────────────────────────
