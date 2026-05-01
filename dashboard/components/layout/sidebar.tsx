@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   LayoutDashboard, Bot, Phone, BookOpen,
-  Settings, Zap, Users, ShieldCheck, LogOut,
+  Settings, Zap, Users, ShieldCheck, LogOut, Eye,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/context/language-context";
@@ -86,9 +86,9 @@ export function Sidebar({ isAdmin = false, onNavigate, compact = false }: { isAd
         })}
       </nav>
 
-      {/* Admin link */}
+      {/* Admin links */}
       {isAdmin && (
-        <div className="px-2 pb-2">
+        <div className="px-2 pb-2 space-y-0.5">
           <Link
             href="/admin"
             onClick={onNavigate}
@@ -104,6 +104,22 @@ export function Sidebar({ isAdmin = false, onNavigate, compact = false }: { isAd
             )}
             <ShieldCheck className="w-4 h-4 flex-shrink-0" />
             Admin
+          </Link>
+          <Link
+            href="/dashboard/admin/maya-watch"
+            onClick={onNavigate}
+            className={cn(
+              "relative flex items-center gap-2.5 px-3 py-2 rounded-xl text-[13px] font-medium transition-all",
+              pathname === "/dashboard/admin/maya-watch"
+                ? "bg-brand-500/10 text-white border border-brand-500/20"
+                : "text-gray-500 hover:text-gray-200 hover:bg-surface-3"
+            )}
+          >
+            {pathname === "/dashboard/admin/maya-watch" && (
+              <span className="absolute end-0 top-1/2 -translate-y-1/2 w-0.5 h-4 rounded-full bg-gradient-to-b from-brand-500 to-indigo-500" />
+            )}
+            <Eye className="w-4 h-4 flex-shrink-0" />
+            Maya Watch
           </Link>
         </div>
       )}

@@ -268,6 +268,115 @@ def serialize_lead(lead: Lead) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────────────
+# Briefing — rule-based Hebrew operator summary
+# ─────────────────────────────────────────────────────────────────────
+def build_briefing() -> dict:
+    leads = get_all_leads()
+
+    counts = {
+        "total_leads": len(leads),
+        "at_risk": 0,
+        "followup_pending": 0,
+        "replied_after_followup": 0,
+        "booked": 0,
+        "no_response": 0,
+    }
+    decisions: list[dict] = []
+    summary_bullets: list[str] = []
+    booked_count = 0
+
+    for lead in leads:
+        status = derive_status(lead)
+        if status in counts:
+            counts[status] += 1
+
+        name = lead.name or lead.phone
+
+        if status == "awaiting_attention":
+            decisions.append({
+                "id": f"decision:{lead.phone}",
+                "phone": lead.phone,
+                "lead_name": name,
+                "status": status,
+                "situation": "ליד חדש שאל שאלה ועדיין מחכה למענה.",
+                "why_it_matters": "זה חלון הזמן הכי חשוב. אם אין תגובה מהירה, הסיכוי לסגירה יורד.",
+                "recommendation": "ענה עכשיו קצר וברור, ושאל שאלה שמקדמת לתיאום.",
+                "suggested_message": "בשמחה. כדי לכוון אותך נכון — מדובר בייעוץ ראשון או בטיפול ספציפי שרצית לבדוק?",
+                "confidence": "medium",
+                "value_hint": "פוטנציאל לסגירה גבוה אם יקבל מענה מהיר",
+            })
+
+        elif status == "followup_pending":
+            decisions.append({
+                "id": f"decision:{lead.phone}",
+                "phone": lead.phone,
+                "lead_name": name,
+                "status": status,
+                "situation": "מאיה שלחה הודעת שחזור, ועדיין מחכים לתגובה.",
+                "why_it_matters": "אין צורך להציף את הליד עכשיו. הודעה נוספת מוקדם מדי עלולה להרגיש לוחצת.",
+                "recommendation": "להמתין. אם אין תגובה בעוד כמה שעות, לשקול הודעה אחרונה רכה.",
+                "suggested_message": None,
+                "confidence": "high",
+                "value_hint": None,
+            })
+
+        elif status == "replied_after_followup":
+            decisions.append({
+                "id": f"decision:{lead.phone}",
+                "phone": lead.phone,
+                "lead_name": name,
+                "status": status,
+                "situation": "הליד חזר אחרי הודעת השחזור של מאיה.",
+                "why_it_matters": "זה רגע קריטי. הליד כבר חזר לשיחה, ולכן המטרה עכשיו היא לסגור זמן ולא לפתוח שוב דיון כללי.",
+                "recommendation": "הצע לו שני זמנים קרובים וברורים. פתח עם התיאום, ורק אחרי שיש זמן מוסכם חזור למחיר או לפרטים.",
+                "suggested_message": "מעולה, מחר פנוי לנו ב-12:00 או ב-16:00. מה נוח לך יותר?",
+                "confidence": "high",
+                "value_hint": "ליד חם — יש תנופה לניצול",
+            })
+
+        elif status == "no_response":
+            decisions.append({
+                "id": f"decision:{lead.phone}",
+                "phone": lead.phone,
+                "lead_name": name,
+                "status": status,
+                "situation": "הליד לא חזר אחרי הודעת השחזור.",
+                "why_it_matters": "כנראה שהעניין ירד, אבל עדיין יש סיכוי להציל אותו עם הודעה קצרה ולא לוחצת.",
+                "recommendation": "שלח הודעת ניסיון אחרונה, בלי למכור חזק ובלי להאריך.",
+                "suggested_message": "רק בודקת אם זה עדיין רלוונטי עבורך. אם כן, אשמח לעזור למצוא זמן שמתאים לך.",
+                "confidence": "medium",
+                "value_hint": "סיכוי נמוך אך עדיין שווה ניסיון",
+            })
+
+        elif status == "booked":
+            booked_count += 1
+
+    if booked_count == 1:
+        summary_bullets.append("ליד אחד חזר דרך מאיה וסומן כנקבע.")
+    elif booked_count > 1:
+        summary_bullets.append(f"{booked_count} לידים חזרו דרך מאיה וסומנו כנקבע.")
+
+    replied = counts["replied_after_followup"]
+    risk = counts["at_risk"] + counts["followup_pending"]
+
+    if replied > 0:
+        headline = "יש לידים שחזרו אחרי הודעת שחזור וצריכים החלטה עכשיו."
+    elif risk > 0:
+        headline = "מאיה מזהה לידים בסיכון ומנהלת שחזור."
+    elif counts["booked"] > 0:
+        headline = "מאיה כבר החזירה ליד אחד לשיחה שהסתיימה בקביעה."
+    else:
+        headline = "מאיה במעקב. אין כרגע דליפות דחופות."
+
+    return {
+        "headline": headline,
+        "summary_bullets": summary_bullets,
+        "decisions": decisions,
+        "counts": counts,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────
 # Risk → follow-up action
 # ─────────────────────────────────────────────────────────────────────
 async def _delayed_risk_check(phone: str) -> None:

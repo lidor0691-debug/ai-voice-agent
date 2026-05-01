@@ -88,6 +88,11 @@ def mark_booked_endpoint(phone: str):
     return {"ok": True, "phone": lead.phone, "booked_at": lead.booked_at.isoformat()}
 
 
+@router.get("/maya-watch/briefing")
+def briefing():
+    return svc.build_briefing()
+
+
 @router.get("/maya-watch/health")
 def health():
     return {
