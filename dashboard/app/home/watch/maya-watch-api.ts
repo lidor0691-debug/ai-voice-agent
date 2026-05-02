@@ -11,6 +11,7 @@ import {
   type OrbitNode,
   type OrbitState,
   type WhatsAppThread,
+  type WhatsAppMessage,
   type Alert,
   type AlertSeverity,
   type LeadStage,
@@ -69,6 +70,13 @@ interface ApiLead {
   last_outbound?: ApiTimedBody | null;
   followup_sent_at?: string | null;
   followup_body?: string | null;
+  // Twilio delivery observability — populated by the status-callback path
+  // (added Stage 1). All optional so older payloads still parse.
+  followup_sid?: string | null;
+  followup_status?: string | null;
+  followup_error_code?: string | null;
+  followup_error_message?: string | null;
+  followup_status_at?: string | null;
   booked?: boolean;
   booked_at?: string | null;
 }
@@ -218,6 +226,46 @@ function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
 }
 
+// ── Delivery state helpers ────────────────────────────────────────────
+// Map raw Twilio status values to Hebrew labels + UI tones. Hidden behind
+// helpers so the components stay free of literal-string knowledge.
+
+const DELIVERY_LABEL_HE: Record<string, string> = {
+  queued:      "ממתין לשליחה",
+  sent:        "נשלח",
+  delivered:   "נמסר",
+  failed:      "נכשל",
+  undelivered: "לא נמסר",
+};
+
+function deliveryStatusLabelHe(status?: string | null): string | undefined {
+  if (!status) return undefined;
+  return DELIVERY_LABEL_HE[status] ?? status;
+}
+
+function deliveryErrorLabelHe(code?: string | null): string | undefined {
+  if (!code) return undefined;
+  if (code === "63016") return "מחוץ לחלון WhatsApp — נדרש Template";
+  return `שגיאה: ${code}`;
+}
+
+function deliveryToneFor(status?: string | null, errorCode?: string | null): "ok" | "warn" | "neutral" {
+  if (status === "delivered") return "ok";
+  if (status === "failed" || status === "undelivered" || errorCode) return "warn";
+  return "neutral";
+}
+
+/**
+ * True when a message body contains no letters in any script. Filters out
+ * encoding-mangled test messages like "?? ??????" left over from earlier
+ * Windows curl POSTs that lost their UTF-8 encoding before reaching the
+ * backend. Real WhatsApp messages always contain at least one letter.
+ */
+function isGarbledBody(body?: string | null): boolean {
+  if (!body) return true;
+  return !/\p{L}/u.test(body);
+}
+
 // ── Builders ──────────────────────────────────────────────────────────
 
 function buildKpisFromCounts(counts: Required<ApiCounts>): Kpi[] {
@@ -237,11 +285,36 @@ function buildKpisFromCounts(counts: Required<ApiCounts>): Kpi[] {
   ];
 }
 
-function buildHeroFromDecision(d: ApiDecision, headlineFallback?: string): HeroRecommendation {
+function buildHeroFromDecision(
+  d: ApiDecision,
+  headlineFallback: string | undefined,
+  matchingLead?: ApiLead,
+): HeroRecommendation {
   const why = [d.why_it_matters, d.value_hint]
     .map(s => (s ?? "").trim())
     .filter(Boolean)
     .slice(0, 3);
+
+  // Surface delivery state of Maya's followup, when known and meaningful.
+  // Intermediate states (queued/sent) stay silent — the hero card is for
+  // decisions, not transient pipeline noise.
+  let delivery: HeroRecommendation["delivery"];
+  if (matchingLead?.followup_sid) {
+    const status = matchingLead.followup_status;
+    const errorCode = matchingLead.followup_error_code;
+    if (status === "delivered") {
+      delivery = { label: "הודעת השחזור נמסרה", tone: "ok" };
+    } else if (status === "failed" || status === "undelivered" || errorCode) {
+      const errLabel = deliveryErrorLabelHe(errorCode);
+      delivery = {
+        label: errLabel
+          ? `הודעת השחזור לא נמסרה — ${errLabel}`
+          : "הודעת השחזור לא נמסרה",
+        tone: "warn",
+      };
+    }
+  }
+
   return {
     target: d.lead_name?.trim() || d.phone || "—",
     value: TEMP_VALUE_LABEL,
@@ -251,6 +324,7 @@ function buildHeroFromDecision(d: ApiDecision, headlineFallback?: string): HeroR
     confidence: confidenceToPct(d.confidence),
     window: "חלון פעולה: עכשיו",
     impact: `+${TEMP_VALUE_LABEL} צפוי`,
+    delivery,
   };
 }
 
@@ -289,27 +363,87 @@ function buildOrbitsFromLeads(leads: ApiLead[]): OrbitNode[] {
   });
 }
 
+function buildThreadMessages(
+  ib: ApiTimedBody | null | undefined,
+  ob: ApiTimedBody | null | undefined,
+): WhatsAppMessage[] {
+  const ibTime = ib?.ts ? new Date(ib.ts).getTime() : 0;
+  const obTime = ob?.ts ? new Date(ob.ts).getTime() : 0;
+  const messages: WhatsAppMessage[] = [];
+
+  if (ib?.body && ob?.body) {
+    if (ibTime <= obTime) {
+      // Customer asked → Maya responded.
+      messages.push({ direction: "in",  body: ib.body, ago: relativeAgo(ib.ts), prefix: "שאל",  ts: ib.ts ?? undefined });
+      messages.push({ direction: "out", body: ob.body, ago: relativeAgo(ob.ts), prefix: "שלחה", ts: ob.ts ?? undefined });
+    } else {
+      // Maya followed up → customer replied.
+      messages.push({ direction: "out", body: ob.body, ago: relativeAgo(ob.ts), prefix: "שלחה", ts: ob.ts ?? undefined });
+      messages.push({ direction: "in",  body: ib.body, ago: relativeAgo(ib.ts), prefix: "ענה",  ts: ib.ts ?? undefined });
+    }
+  } else if (ib?.body) {
+    messages.push({ direction: "in",  body: ib.body, ago: relativeAgo(ib.ts), prefix: "שאל",  ts: ib.ts ?? undefined });
+  } else if (ob?.body) {
+    messages.push({ direction: "out", body: ob.body, ago: relativeAgo(ob.ts), prefix: "שלחה", ts: ob.ts ?? undefined });
+  }
+
+  // Filter out encoding-mangled messages but keep the rest.
+  return messages.filter(m => !isGarbledBody(m.body));
+}
+
 function buildWhatsAppFromLeads(leads: ApiLead[]): WhatsAppThread[] {
-  return leads
-    .filter(l => l.last_inbound?.body || l.last_outbound?.body)
-    .slice(0, 4)
-    .map((l, i) => {
-      const ib = l.last_inbound;
-      const ob = l.last_outbound;
-      const inboundNewer =
-        ib?.ts && (!ob?.ts || new Date(ib.ts).getTime() > new Date(ob.ts).getTime());
-      const lastTs = inboundNewer ? ib?.ts : ob?.ts ?? ib?.ts;
-      const preview = (inboundNewer ? ib?.body : ob?.body ?? ib?.body) ?? "";
-      return {
-        id: `live:${l.phone ?? i}`,
-        who: leadDisplayName(l),
-        preview: preview.length > 120 ? preview.slice(0, 117) + "…" : preview,
-        ago: relativeAgo(lastTs),
-        // Maya owns all outbound currently — mark as AI.
-        by: "AI",
-        unread: !!inboundNewer,
-      };
+  const threads: WhatsAppThread[] = [];
+
+  for (const l of leads) {
+    const ib = l.last_inbound;
+    const ob = l.last_outbound;
+    if (!ib?.body && !ob?.body) continue;
+
+    const messages = buildThreadMessages(ib, ob);
+    // Skip threads where every message is garbled — leftover Windows-curl test data.
+    if (messages.length === 0) continue;
+
+    const lastMsg = messages[messages.length - 1];
+    const inboundNewer = lastMsg.direction === "in";
+
+    // Sender label + icon reflect the latest message direction.
+    const leadName = leadDisplayName(l);
+    const who = inboundNewer ? leadName : `מאיה · ${leadName}`;
+    const by: "AI" | "human" = inboundNewer ? "human" : "AI";
+
+    // Attach delivery info only when this lead has an actual outbound
+    // followup tracked by Twilio.
+    let delivery;
+    if (l.followup_sid) {
+      const label = deliveryStatusLabelHe(l.followup_status);
+      if (label) {
+        delivery = {
+          label,
+          tone: deliveryToneFor(l.followup_status, l.followup_error_code),
+          errorLabel: deliveryErrorLabelHe(l.followup_error_code),
+        };
+      }
+    }
+
+    // Single-line preview kept for backward compatibility (and for
+    // any consumer that doesn't read `messages`).
+    const preview = lastMsg.body.length > 120 ? lastMsg.body.slice(0, 117) + "…" : lastMsg.body;
+
+    threads.push({
+      id: `live:${l.phone ?? leadName}`,
+      who,
+      preview,
+      ago: lastMsg.ago,
+      by,
+      unread: inboundNewer,
+      delivery,
+      leadName,
+      messages,
     });
+    if (threads.length >= 4) break;
+  }
+
+  return threads;
 }
 
 function buildAlertsFromBriefing(briefing: ApiBriefing, counts: Required<ApiCounts>): Alert[] {
@@ -433,9 +567,17 @@ export function mapToWatchData(live: MayaWatchLive, identity?: AuthIdentity): Wa
     decisions.length === 0 && leads.length === 0 && counts.total_leads === 0;
   if (trulyEmpty) return quietLiveState(identity);
 
+  // Cross-reference: hero is built from a decision, but delivery state
+  // lives on the lead. Look up the matching lead by phone.
+  const leadByPhone = new Map(
+    leads.filter(l => l.phone).map(l => [l.phone as string, l]),
+  );
+  const heroDecision = decisions[0];
+  const matchingLead = heroDecision?.phone ? leadByPhone.get(heroDecision.phone) : undefined;
+
   const hero =
     decisions.length > 0
-      ? buildHeroFromDecision(decisions[0], live.briefing.headline)
+      ? buildHeroFromDecision(decisions[0], live.briefing.headline, matchingLead)
       : buildQuietHero(counts, live.briefing.headline);
 
   return {

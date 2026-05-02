@@ -17,7 +17,7 @@ export const watchStrings = {
 
   hero: {
     title:        { he: "מאיה ממליצה",            en: "Maya recommends" },
-    why:          { he: "למה עכשיו",              en: "Why now" },
+    why:          { he: "הפעולה המומלצת",          en: "Recommended action" },
     confidence:   { he: "ביטחון",                  en: "Confidence" },
     actionWindow: { he: "חלון פעולה",              en: "Action window" },
     expectedLift: { he: "השפעה צפויה",             en: "Expected impact" },

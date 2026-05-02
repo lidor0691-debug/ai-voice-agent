@@ -38,6 +38,17 @@ export function HeroRecommendationCard({ hero, lang, onApprove, onDecline }: Her
         {hero.target} · <span className="text-brand-200">{hero.value}</span>
       </div>
 
+      {hero.delivery && (
+        <div className={`text-[11px] mb-2 flex items-center gap-1.5 ${
+          hero.delivery.tone === "warn" ? "text-amber-300" : "text-emerald-300/90"
+        }`}>
+          <span className={`w-1.5 h-1.5 rounded-full ${
+            hero.delivery.tone === "warn" ? "bg-amber-400" : "bg-emerald-400"
+          }`} />
+          <span className="truncate">{hero.delivery.label}</span>
+        </div>
+      )}
+
       <div className="mb-2">
         <div className="maya-section-label mb-1">{t.why[lang]}</div>
         <ul className="space-y-0.5">
