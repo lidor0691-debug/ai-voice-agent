@@ -81,7 +81,7 @@ async def inbound(request: Request):
     if not phone or not body:
         raise HTTPException(400, "phone and body are required")
 
-    lead = svc.register_inbound(phone, body, name=name)
+    lead = await svc.register_inbound(phone, body, name=name)
     if is_twilio:
         # Empty TwiML — content_type=application/xml. Twilio is happy.
         return _twiml_ok()
@@ -120,7 +120,7 @@ async def twilio_status(request: Request):
     )
 
     if sid and status:
-        svc.record_delivery_status(sid, status, error_code, error_message)
+        await svc.record_delivery_status(sid, status, error_code, error_message)
 
     return _twiml_ok()
 
@@ -131,37 +131,39 @@ async def tick_endpoint():
 
 
 @router.get("/maya-watch/leads")
-def list_leads():
-    return {"leads": [svc.serialize_lead(l) for l in svc.get_all_leads()]}
+async def list_leads():
+    leads = await svc.get_all_leads()
+    return {"leads": [svc.serialize_lead(l) for l in leads]}
 
 
 @router.get("/maya-watch/leads/{phone:path}")
-def get_lead(phone: str):
+async def get_lead(phone: str):
     norm = svc.normalize_phone(phone)
-    for lead in svc.get_all_leads():
+    for lead in await svc.get_all_leads():
         if lead.phone == norm:
             return svc.serialize_lead(lead)
     raise HTTPException(404, "lead not found")
 
 
 @router.post("/maya-watch/leads/{phone:path}/mark-booked")
-def mark_booked_endpoint(phone: str):
-    lead = svc.mark_booked(phone)
+async def mark_booked_endpoint(phone: str):
+    lead = await svc.mark_booked(phone)
     if not lead:
         raise HTTPException(404, "lead not found")
     return {"ok": True, "phone": lead.phone, "booked_at": lead.booked_at.isoformat()}
 
 
 @router.get("/maya-watch/briefing")
-def briefing():
-    return svc.build_briefing()
+async def briefing():
+    return await svc.build_briefing()
 
 
 @router.get("/maya-watch/health")
-def health():
+async def health():
+    leads = await svc.get_all_leads()
     return {
         "ok": True,
-        "leads_in_memory": len(svc.get_all_leads()),
+        "leads_in_memory": len(leads),
         "risk_after_minutes": svc.RISK_AFTER_MINUTES,
         "no_response_after_hours": svc.NO_RESPONSE_AFTER_HOURS,
     }

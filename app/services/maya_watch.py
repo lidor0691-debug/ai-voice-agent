@@ -11,24 +11,28 @@ Flow:
     no human reply within X  →  send a single follow-up via Twilio
     customer replies / books →  outcome derived from message log
 
-Storage: in-memory dict (process-local). Wipes on restart. Deliberate.
+Storage (Stage 3): Supabase tables `maya_watch_leads` + `maya_watch_messages`
+via app.services.maya_watch_store. Survives Railway restarts. The previous
+in-memory dict is gone — every read goes through the store.
 
 Follow-up: hardcoded one-shot text, language-aware (HE / EN).
 
 Twilio: same direct-client pattern as app/routes/action_api.py — no new
-helper, no MRI coupling, no Supabase.
+helper, no MRI coupling. Sends include status_callback (Stage 1) so
+delivery state lands on the lead via `update_outbound_status`.
 
 Outcome tracking: a lead's status is *derived* from its message log + the
 followup_sent_at timestamp + a manual booked flag. Operators flip booked
 via POST /maya-watch/leads/{phone}/mark-booked.
 
 Limitations (documented, not bugs):
-- In-memory storage; restart loses state.
 - Doesn't observe outbound messages from non-Maya channels — if the human
   business owner replies via their own WhatsApp app, Maya can't see it
   and may send a redundant follow-up. Acceptable for one-client validation.
 - No Twilio webhook signature verification on the inbound endpoint.
 - One follow-up per lead per inbound. No multi-touch sequences.
+- v0 multi-tenant: client_id/agent_id columns exist on the tables but
+  the service layer leaves them null pending tenant routing.
 """
 
 from __future__ import annotations
@@ -39,6 +43,8 @@ import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional
+
+from app.services import maya_watch_store as store
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +75,8 @@ FOLLOWUP_BODY_EN = (
 )
 
 # ─────────────────────────────────────────────────────────────────────
-# Data model
+# Data model — same shape as before so derive_status / serialize_lead /
+# the briefing builder don't change. Built fresh from store rows now.
 # ─────────────────────────────────────────────────────────────────────
 Direction = Literal["in", "out"]
 
@@ -89,10 +96,7 @@ class Lead:
     followup_sent_at: Optional[datetime] = None
     followup_body: Optional[str] = None
     followup_sid: Optional[str] = None
-    # Delivery observability — populated by the Twilio status callback
-    # (see _send_whatsapp + routes.maya_watch.twilio_status). All optional
-    # so existing flows keep working when callbacks aren't wired.
-    followup_status: Optional[str] = None        # queued | sent | delivered | undelivered | failed
+    followup_status: Optional[str] = None
     followup_error_code: Optional[str] = None
     followup_error_message: Optional[str] = None
     followup_status_at: Optional[datetime] = None
@@ -112,10 +116,6 @@ class Lead:
             if m.direction == "out":
                 return m
         return None
-
-
-# Process-local store. Keyed by normalized phone (E.164, no whatsapp: prefix).
-_LEADS: dict[str, Lead] = {}
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -147,6 +147,40 @@ def pick_followup(inbound_body: str) -> str:
 
 def now_utc() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _parse_iso(ts: Optional[str]) -> Optional[datetime]:
+    if not ts:
+        return None
+    try:
+        return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def _lead_from_row(row: dict) -> Lead:
+    """Reconstruct a Lead dataclass from a store row dict (with `messages` joined)."""
+    messages: list[Message] = []
+    for m in row.get("messages") or []:
+        ts = _parse_iso(m.get("ts")) or now_utc()
+        direction = m.get("direction")
+        body = m.get("body") or ""
+        if direction in ("in", "out"):
+            messages.append(Message(direction=direction, body=body, ts=ts))
+    return Lead(
+        phone=row.get("phone") or "",
+        name=row.get("name"),
+        messages=messages,
+        followup_sent_at=_parse_iso(row.get("followup_sent_at")),
+        followup_body=row.get("followup_body"),
+        followup_sid=row.get("followup_sid"),
+        followup_status=row.get("followup_status"),
+        followup_error_code=row.get("followup_error_code"),
+        followup_error_message=row.get("followup_error_message"),
+        followup_status_at=_parse_iso(row.get("followup_status_at")),
+        booked=bool(row.get("booked")),
+        booked_at=_parse_iso(row.get("booked_at")),
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -198,55 +232,56 @@ def derive_status(lead: Lead) -> str:
 # ─────────────────────────────────────────────────────────────────────
 # Public API — called by the route layer
 # ─────────────────────────────────────────────────────────────────────
-def register_inbound(phone: str, body: str, name: Optional[str] = None) -> Lead:
+async def register_inbound(phone: str, body: str, name: Optional[str] = None) -> Lead:
     """Record an inbound message and (if it looks like a question) schedule
-    a delayed risk check."""
+    a delayed risk check. Persists to Supabase."""
     phone = normalize_phone(phone)
-    lead = _LEADS.get(phone)
-    if lead is None:
-        lead = Lead(phone=phone, name=name)
-        _LEADS[phone] = lead
-    elif name and not lead.name:
-        lead.name = name
+    # Ensure the lead row exists (with name if provided) BEFORE appending the
+    # message — append_message also upserts but doesn't pass name.
+    await store.upsert_lead(phone, name=name)
+    await store.append_message(phone, "in", body)
 
-    lead.messages.append(Message(direction="in", body=body, ts=now_utc()))
     logger.info(
         "[MAYA-WATCH] inbound phone=%s body=%r is_question=%s",
         phone, body[:80], has_question(body),
     )
 
+    # Reload the lead to inspect followup_sent_at and decide if we schedule.
+    row = await store.get_lead_with_messages(phone)
+    lead = _lead_from_row(row) if row else Lead(
+        phone=phone,
+        name=name,
+        messages=[Message(direction="in", body=body, ts=now_utc())],
+    )
+
     if has_question(body) and lead.followup_sent_at is None:
         # Fire-and-forget delayed check. If the process dies before it fires,
-        # the next manual /tick covers it.
+        # the next manual /tick (or restart-recovery scan) covers it.
         asyncio.create_task(_delayed_risk_check(phone))
 
     return lead
 
 
-def register_outbound(phone: str, body: str, sid: Optional[str] = None) -> None:
+async def register_outbound(phone: str, body: str, sid: Optional[str] = None) -> None:
     """Record an outbound message (sent by Maya or the operator)."""
     phone = normalize_phone(phone)
-    lead = _LEADS.get(phone)
-    if lead is None:
-        lead = Lead(phone=phone)
-        _LEADS[phone] = lead
-    lead.messages.append(Message(direction="out", body=body, ts=now_utc()))
+    await store.append_message(phone, "out", body, sid=sid)
     logger.info("[MAYA-WATCH] outbound phone=%s body=%r sid=%s", phone, body[:80], sid)
 
 
-def mark_booked(phone: str) -> Optional[Lead]:
+async def mark_booked(phone: str) -> Optional[Lead]:
     phone = normalize_phone(phone)
-    lead = _LEADS.get(phone)
-    if not lead:
+    ok = await store.mark_booked(phone)
+    if not ok:
         return None
-    lead.booked = True
-    lead.booked_at = now_utc()
     logger.info("[MAYA-WATCH] booked phone=%s", phone)
-    return lead
+    row = await store.get_lead_with_messages(phone)
+    return _lead_from_row(row) if row else None
 
 
-def get_all_leads() -> list[Lead]:
-    return list(_LEADS.values())
+async def get_all_leads() -> list[Lead]:
+    rows = await store.get_all_leads_with_messages()
+    return [_lead_from_row(r) for r in rows]
 
 
 def serialize_lead(lead: Lead) -> dict:
@@ -281,13 +316,13 @@ def serialize_lead(lead: Lead) -> dict:
     }
 
 
-def record_delivery_status(
+async def record_delivery_status(
     sid: str,
     status: str,
     error_code: Optional[str] = None,
     error_message: Optional[str] = None,
 ) -> bool:
-    """Update in-memory delivery status from a Twilio status callback.
+    """Persist a Twilio status_callback update.
 
     Returns True if the SID matched a known followup, False otherwise.
     Does not raise on unknown SIDs — Twilio may also call back for messages
@@ -295,29 +330,25 @@ def record_delivery_status(
     """
     if not sid:
         return False
-    for lead in _LEADS.values():
-        if lead.followup_sid == sid:
-            lead.followup_status = status or None
-            lead.followup_error_code = error_code or None
-            lead.followup_error_message = error_message or None
-            lead.followup_status_at = now_utc()
-            logger.info(
-                "[MAYA-WATCH] delivery_update phone=%s sid=%s status=%s error_code=%s error_message=%r",
-                lead.phone, sid, status, error_code or "-", error_message or "",
-            )
-            return True
-    logger.warning(
-        "[MAYA-WATCH] delivery_update_orphan sid=%s status=%s error_code=%s — no matching followup",
-        sid, status, error_code or "-",
-    )
-    return False
+    matched = await store.update_outbound_status(sid, status, error_code, error_message)
+    if matched:
+        logger.info(
+            "[MAYA-WATCH] delivery_update sid=%s status=%s error_code=%s error_message=%r",
+            sid, status, error_code or "-", error_message or "",
+        )
+    else:
+        logger.warning(
+            "[MAYA-WATCH] delivery_update_orphan sid=%s status=%s error_code=%s — no matching followup",
+            sid, status, error_code or "-",
+        )
+    return matched
 
 
 # ─────────────────────────────────────────────────────────────────────
 # Briefing — rule-based Hebrew operator summary
 # ─────────────────────────────────────────────────────────────────────
-def build_briefing() -> dict:
-    leads = get_all_leads()
+async def build_briefing() -> dict:
+    leads = await get_all_leads()
 
     counts = {
         "total_leads": len(leads),
@@ -432,9 +463,10 @@ async def _delayed_risk_check(phone: str) -> None:
     except asyncio.CancelledError:
         return
 
-    lead = _LEADS.get(phone)
-    if not lead:
+    row = await store.get_lead_with_messages(phone)
+    if not row:
         return
+    lead = _lead_from_row(row)
     if derive_status(lead) != "at_risk":
         return
     await _send_followup(lead)
@@ -443,13 +475,14 @@ async def _delayed_risk_check(phone: str) -> None:
 async def tick() -> dict:
     """Manual scan — useful for cron-style polling or for catching leads
     whose delayed check was lost (e.g. process restart)."""
+    leads = await get_all_leads()
     actions: list[dict] = []
-    for lead in list(_LEADS.values()):
+    for lead in leads:
         if derive_status(lead) == "at_risk":
             ok = await _send_followup(lead)
             actions.append({"phone": lead.phone, "sent": bool(ok)})
-    logger.info("[MAYA-WATCH] tick checked=%d actions=%d", len(_LEADS), len(actions))
-    return {"checked": len(_LEADS), "actions": actions}
+    logger.info("[MAYA-WATCH] tick checked=%d actions=%d", len(leads), len(actions))
+    return {"checked": len(leads), "actions": actions}
 
 
 async def _send_followup(lead: Lead) -> Optional[str]:
@@ -462,14 +495,16 @@ async def _send_followup(lead: Lead) -> Optional[str]:
 
     sid = await _send_whatsapp(lead.phone, body)
     if sid:
-        lead.followup_sent_at = now_utc()
-        lead.followup_body = body
-        lead.followup_sid = sid
-        # SID returned = Twilio accepted the API call. Real delivery state
-        # arrives later via the status callback (see record_delivery_status).
-        lead.followup_status = "queued"
-        lead.followup_status_at = now_utc()
-        register_outbound(lead.phone, body, sid=sid)
+        sent_at = now_utc()
+        # Persist outbound message (with sid) AND denormalize followup snapshot.
+        await store.append_message(lead.phone, "out", body, ts=sent_at, sid=sid)
+        await store.update_lead_followup(
+            lead.phone,
+            sid=sid,
+            body=body,
+            sent_at=sent_at,
+            status="queued",
+        )
         logger.info("[MAYA-WATCH] followup_sent phone=%s sid=%s status=queued", lead.phone, sid)
         return sid
     logger.error("[MAYA-WATCH] followup_failed phone=%s", lead.phone)
@@ -488,10 +523,6 @@ async def _send_whatsapp(to_phone: str, body: str) -> Optional[str]:
     from_full = f"whatsapp:{from_number}"
     to_full = f"whatsapp:{to_phone}"
 
-    # status_callback: Twilio will POST delivery updates to this URL as the
-    # message progresses through queued → sent → delivered (or failed /
-    # undelivered with an error code). Without it we only know that the API
-    # accepted the message — not whether WhatsApp actually delivered it.
     base_url = os.getenv("BASE_URL", "").strip().rstrip("/")
     status_cb = f"{base_url}/maya-watch/twilio-status" if base_url else None
     if status_cb is None:
