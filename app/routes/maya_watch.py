@@ -3,6 +3,7 @@ Maya Watch route — minimal endpoints for the thin-slice validation flow.
 
 Endpoints:
     POST /maya-watch/inbound                 — webhook (Twilio form OR JSON)
+    POST /maya-watch/twilio-status           — Twilio outbound delivery callback
     POST /maya-watch/tick                    — manual scan + act
     GET  /maya-watch/leads                   — list all leads + outcomes
     GET  /maya-watch/leads/{phone}           — single lead
@@ -13,28 +14,55 @@ For wiring real Twilio: point your WhatsApp Sandbox / Business webhook at
     POST https://<host>/maya-watch/inbound
 Twilio sends application/x-www-form-urlencoded with From / Body / ProfileName.
 For testing without Twilio: POST JSON  {"phone": "+9725...", "body": "..."}
+
+Delivery observability: when BASE_URL env is set, outbound messages are sent
+with a status_callback pointing at /maya-watch/twilio-status. Twilio then
+POSTs delivery state updates (queued → sent → delivered, or failed /
+undelivered with an ErrorCode like 63016).
 """
 
 from __future__ import annotations
 
 import logging
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import Response
 
 from app.services import maya_watch as svc
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+# Empty TwiML — what Twilio expects from a webhook when there's nothing to
+# say back. Returning JSON triggers Twilio warning 12300 "Invalid Content-Type".
+_EMPTY_TWIML = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>'
+
+
+def _twiml_ok() -> Response:
+    return Response(content=_EMPTY_TWIML, media_type="application/xml")
+
+
+def _is_twilio_form(content_type: str) -> bool:
+    return (
+        "application/x-www-form-urlencoded" in content_type
+        or "multipart/form-data" in content_type
+    )
+
 
 @router.post("/maya-watch/inbound")
 async def inbound(request: Request):
-    """Accept Twilio form-encoded WhatsApp webhook OR plain JSON for testing."""
+    """Accept Twilio form-encoded WhatsApp webhook OR plain JSON for testing.
+
+    Twilio callers get an empty TwiML (XML) response — silences the
+    Twilio "12300 Invalid Content-Type" warning. JSON callers get JSON
+    (preserves the manual / curl test path).
+    """
     content_type = request.headers.get("content-type", "")
+    is_twilio = _is_twilio_form(content_type)
     phone = ""
     body = ""
     name = None
 
-    if "application/x-www-form-urlencoded" in content_type or "multipart/form-data" in content_type:
+    if is_twilio:
         form = await request.form()
         phone = svc.normalize_phone(str(form.get("From") or ""))
         body = str(form.get("Body") or "").strip()
@@ -54,11 +82,47 @@ async def inbound(request: Request):
         raise HTTPException(400, "phone and body are required")
 
     lead = svc.register_inbound(phone, body, name=name)
+    if is_twilio:
+        # Empty TwiML — content_type=application/xml. Twilio is happy.
+        return _twiml_ok()
     return {
         "ok": True,
         "phone": phone,
         "status": svc.derive_status(lead),
     }
+
+
+@router.post("/maya-watch/twilio-status")
+async def twilio_status(request: Request):
+    """Twilio outbound delivery callback.
+
+    Twilio POSTs application/x-www-form-urlencoded with at least:
+        MessageSid, MessageStatus, From, To
+    and on failure also:
+        ErrorCode, ErrorMessage
+
+    We log every callback and update the matching lead's followup_status
+    in memory so /maya-watch/leads can surface real delivery state.
+
+    Always returns empty TwiML (Twilio expects an XML response).
+    """
+    form = await request.form()
+    sid = str(form.get("MessageSid") or "").strip()
+    status = str(form.get("MessageStatus") or "").strip()
+    error_code = str(form.get("ErrorCode") or "").strip() or None
+    error_message = str(form.get("ErrorMessage") or "").strip() or None
+    from_ = str(form.get("From") or "").strip()
+    to = str(form.get("To") or "").strip()
+
+    logger.info(
+        "[MAYA-WATCH] status_callback sid=%s status=%s error_code=%s error_message=%r from=%s to=%s",
+        sid or "-", status or "-", error_code or "-", error_message or "", from_ or "-", to or "-",
+    )
+
+    if sid and status:
+        svc.record_delivery_status(sid, status, error_code, error_message)
+
+    return _twiml_ok()
 
 
 @router.post("/maya-watch/tick")
