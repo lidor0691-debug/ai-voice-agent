@@ -82,6 +82,27 @@ export interface MayaWatchLive {
   leads: ApiLead[];
 }
 
+/** Optional auth-derived identity. When absent, falls back to neutral product identity. */
+export interface AuthIdentity {
+  name?: string | null;
+  role?: string | null;
+}
+
+const PRODUCT_IDENTITY = { name: "Maya Watch", role: "מצב חי" } as const;
+
+/**
+ * Resolve the bottom-rail identity. Live mode never shows the mock person —
+ * if no real identity is available it shows the neutral product identity.
+ */
+function resolveLiveIdentity(identity?: AuthIdentity): { name: string; role: string } {
+  const name = identity?.name?.trim();
+  const role = identity?.role?.trim();
+  if (name && role) return { name, role };
+  if (name)         return { name, role: PRODUCT_IDENTITY.role };
+  if (role)         return { name: PRODUCT_IDENTITY.name, role };
+  return { ...PRODUCT_IDENTITY };
+}
+
 // ── Fetch ─────────────────────────────────────────────────────────────
 
 async function fetchJSON<T>(path: string): Promise<T> {
@@ -364,9 +385,9 @@ function quietLiveHero(): HeroRecommendation {
   };
 }
 
-function quietLiveState(): WatchData {
+function quietLiveState(identity?: AuthIdentity): WatchData {
   return {
-    user: watchMock.user,        // UI scaffolding (will be wired to auth later)
+    user: resolveLiveIdentity(identity),
     kpis: emptyKpis(),
     hero: quietLiveHero(),
     calls: [],
@@ -403,14 +424,14 @@ function quietLiveState(): WatchData {
  * Network failure is handled one layer up in WatchShell (mock fallback
  * acceptable for prototype/dev when the backend is unreachable).
  */
-export function mapToWatchData(live: MayaWatchLive): WatchData {
+export function mapToWatchData(live: MayaWatchLive, identity?: AuthIdentity): WatchData {
   const counts = safeCounts(live.briefing.counts);
   const decisions = live.briefing.decisions ?? [];
   const leads = live.leads;
 
   const trulyEmpty =
     decisions.length === 0 && leads.length === 0 && counts.total_leads === 0;
-  if (trulyEmpty) return quietLiveState();
+  if (trulyEmpty) return quietLiveState(identity);
 
   const hero =
     decisions.length > 0
@@ -418,7 +439,7 @@ export function mapToWatchData(live: MayaWatchLive): WatchData {
       : buildQuietHero(counts, live.briefing.headline);
 
   return {
-    user: watchMock.user,                                      // UI scaffolding
+    user: resolveLiveIdentity(identity),                        // real or neutral, never mock
     kpis: buildKpisFromCounts(counts),                          // live
     hero,                                                       // live
     calls: [],                                                  // no live source yet — never mock

@@ -1,18 +1,37 @@
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { WatchShell } from "./WatchShell";
-import { fetchMayaWatch, mapToWatchData } from "./maya-watch-api";
+import { fetchMayaWatch, mapToWatchData, type AuthIdentity } from "./maya-watch-api";
+
+/** Pull a non-empty string from any of the given keys on a metadata bag. */
+function pickString(obj: Record<string, unknown> | undefined, ...keys: string[]): string | undefined {
+  if (!obj) return undefined;
+  for (const k of keys) {
+    const v = obj[k];
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  return undefined;
+}
 
 export default async function WatchPage() {
   const supabase = await createSupabaseServerClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  // Server-side fetch of live Maya Watch data with mock fallback baked in.
-  // mapToWatchData returns the mock when the backend is empty; passing
-  // undefined when the fetch itself fails lets WatchShell apply the same fallback.
+  // Derive identity from the existing Supabase session (no new auth logic).
+  // If user_metadata has nothing useful, mapToWatchData falls back to the
+  // neutral product identity ("Maya Watch" / "מצב חי") — never the mock person.
+  const meta = (user.user_metadata ?? {}) as Record<string, unknown>;
+  const identity: AuthIdentity = {
+    name: pickString(meta, "name", "full_name", "display_name"),
+    role: pickString(meta, "business_name", "business", "company", "role"),
+  };
+
+  // Server-side fetch of live Maya Watch data with mock fallback only on
+  // network failure — successful-but-empty responses degrade to a quiet
+  // live state inside the mapper (no fake business activity).
   const live = await fetchMayaWatch();
-  const initialData = live ? mapToWatchData(live) : undefined;
+  const initialData = live ? mapToWatchData(live, identity) : undefined;
 
   return <WatchShell initialData={initialData} />;
 }
