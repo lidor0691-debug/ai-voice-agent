@@ -21,6 +21,28 @@ export interface VoiceCall {
   live: boolean;
 }
 
+/** Delivery state derived from Maya Watch followup_status + followup_error_code. */
+export interface DeliveryInfo {
+  /** Hebrew label, e.g. "נמסר", "נכשל". */
+  label: string;
+  /** Color tone for the indicator: green / amber / neutral. */
+  tone: "ok" | "warn" | "neutral";
+  /** Optional Hebrew error string when delivery failed. */
+  errorLabel?: string;
+}
+
+/** A single message inside a WhatsApp thread (compact + modal share this shape). */
+export interface WhatsAppMessage {
+  direction: "in" | "out";
+  body: string;
+  /** Relative time string for display, e.g. "12 דק׳". */
+  ago: string;
+  /** Short Hebrew verb prefix: "שאל" (asked), "שלחה" (sent), "ענה" (replied). */
+  prefix: string;
+  /** Optional ISO timestamp — used in the timeline modal when present. */
+  ts?: string;
+}
+
 export interface WhatsAppThread {
   id: string;
   who: string;
@@ -28,6 +50,15 @@ export interface WhatsAppThread {
   ago: string;
   by: "AI" | "human";
   unread: boolean;
+  /** Present when this thread has an outgoing Maya followup with a known delivery state. */
+  delivery?: DeliveryInfo;
+  /** Bare lead/customer name without any sender prefix — used as modal header. */
+  leadName?: string;
+  /**
+   * Chronological message list (oldest first). When present, the panel renders
+   * a compact conversation view; when absent, falls back to single-preview style.
+   */
+  messages?: WhatsAppMessage[];
 }
 
 export interface LeadStage {
@@ -57,6 +88,12 @@ export interface HeroRecommendation {
   confidence: number;
   window: string;
   impact: string;
+  /** Present when the lead matching this recommendation has a known delivery state. */
+  delivery?: {
+    /** Full Hebrew sentence, e.g. "הודעת השחזור נמסרה" or "הודעת השחזור לא נמסרה — מחוץ לחלון...". */
+    label: string;
+    tone: "ok" | "warn";
+  };
 }
 
 export type AlertSeverity = "high" | "med" | "low";
