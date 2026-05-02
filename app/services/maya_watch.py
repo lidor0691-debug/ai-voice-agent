@@ -89,6 +89,13 @@ class Lead:
     followup_sent_at: Optional[datetime] = None
     followup_body: Optional[str] = None
     followup_sid: Optional[str] = None
+    # Delivery observability — populated by the Twilio status callback
+    # (see _send_whatsapp + routes.maya_watch.twilio_status). All optional
+    # so existing flows keep working when callbacks aren't wired.
+    followup_status: Optional[str] = None        # queued | sent | delivered | undelivered | failed
+    followup_error_code: Optional[str] = None
+    followup_error_message: Optional[str] = None
+    followup_status_at: Optional[datetime] = None
     booked: bool = False
     booked_at: Optional[datetime] = None
 
@@ -262,9 +269,48 @@ def serialize_lead(lead: Lead) -> dict:
             lead.followup_sent_at.isoformat() if lead.followup_sent_at else None
         ),
         "followup_body": lead.followup_body,
+        "followup_sid": lead.followup_sid,
+        "followup_status": lead.followup_status,
+        "followup_error_code": lead.followup_error_code,
+        "followup_error_message": lead.followup_error_message,
+        "followup_status_at": (
+            lead.followup_status_at.isoformat() if lead.followup_status_at else None
+        ),
         "booked": lead.booked,
         "booked_at": lead.booked_at.isoformat() if lead.booked_at else None,
     }
+
+
+def record_delivery_status(
+    sid: str,
+    status: str,
+    error_code: Optional[str] = None,
+    error_message: Optional[str] = None,
+) -> bool:
+    """Update in-memory delivery status from a Twilio status callback.
+
+    Returns True if the SID matched a known followup, False otherwise.
+    Does not raise on unknown SIDs — Twilio may also call back for messages
+    sent by other code paths.
+    """
+    if not sid:
+        return False
+    for lead in _LEADS.values():
+        if lead.followup_sid == sid:
+            lead.followup_status = status or None
+            lead.followup_error_code = error_code or None
+            lead.followup_error_message = error_message or None
+            lead.followup_status_at = now_utc()
+            logger.info(
+                "[MAYA-WATCH] delivery_update phone=%s sid=%s status=%s error_code=%s error_message=%r",
+                lead.phone, sid, status, error_code or "-", error_message or "",
+            )
+            return True
+    logger.warning(
+        "[MAYA-WATCH] delivery_update_orphan sid=%s status=%s error_code=%s — no matching followup",
+        sid, status, error_code or "-",
+    )
+    return False
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -419,8 +465,12 @@ async def _send_followup(lead: Lead) -> Optional[str]:
         lead.followup_sent_at = now_utc()
         lead.followup_body = body
         lead.followup_sid = sid
+        # SID returned = Twilio accepted the API call. Real delivery state
+        # arrives later via the status callback (see record_delivery_status).
+        lead.followup_status = "queued"
+        lead.followup_status_at = now_utc()
         register_outbound(lead.phone, body, sid=sid)
-        logger.info("[MAYA-WATCH] followup_sent phone=%s sid=%s", lead.phone, sid)
+        logger.info("[MAYA-WATCH] followup_sent phone=%s sid=%s status=queued", lead.phone, sid)
         return sid
     logger.error("[MAYA-WATCH] followup_failed phone=%s", lead.phone)
     return None
@@ -434,17 +484,41 @@ async def _send_whatsapp(to_phone: str, body: str) -> Optional[str]:
     if not (sid_env and token_env and from_number):
         logger.error("[MAYA-WATCH] twilio env missing — followup not sent")
         return None
+
+    from_full = f"whatsapp:{from_number}"
+    to_full = f"whatsapp:{to_phone}"
+
+    # status_callback: Twilio will POST delivery updates to this URL as the
+    # message progresses through queued → sent → delivered (or failed /
+    # undelivered with an error code). Without it we only know that the API
+    # accepted the message — not whether WhatsApp actually delivered it.
+    base_url = os.getenv("BASE_URL", "").strip().rstrip("/")
+    status_cb = f"{base_url}/maya-watch/twilio-status" if base_url else None
+    if status_cb is None:
+        logger.warning(
+            "[MAYA-WATCH] BASE_URL not set — sending without status_callback "
+            "(no delivery observability for this message)"
+        )
+
+    logger.info(
+        "[MAYA-WATCH] send_attempt from=%s to=%s status_cb=%s body_len=%d",
+        from_full, to_full, status_cb or "(none)", len(body),
+    )
     try:
         from twilio.rest import Client
         client = Client(sid_env, token_env)
-        msg = await asyncio.to_thread(
-            lambda: client.messages.create(
-                from_=f"whatsapp:{from_number}",
-                to=f"whatsapp:{to_phone}",
-                body=body,
-            )
+        kwargs: dict = {"from_": from_full, "to": to_full, "body": body}
+        if status_cb:
+            kwargs["status_callback"] = status_cb
+        msg = await asyncio.to_thread(lambda: client.messages.create(**kwargs))
+        logger.info(
+            "[MAYA-WATCH] twilio_accepted sid=%s from=%s to=%s",
+            msg.sid, from_full, to_full,
         )
         return msg.sid
     except Exception as exc:
-        logger.error("[MAYA-WATCH] twilio send failed: %s", exc)
+        logger.error(
+            "[MAYA-WATCH] twilio_send_failed from=%s to=%s error=%s",
+            from_full, to_full, exc,
+        )
         return None
