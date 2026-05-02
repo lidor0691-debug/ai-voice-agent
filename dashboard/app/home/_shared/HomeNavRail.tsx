@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { Activity, Phone, MessageCircle, Users, Sparkles, Bot, Zap, BarChart3, Settings } from "lucide-react";
+import { Activity, Phone, MessageCircle, Users, Sparkles, Bot, Zap, BarChart3, Settings, type LucideIcon } from "lucide-react";
 import { homeStrings, NAV_ORDER, type HomeNavKey, type Lang } from "./home-strings";
 
-const ICONS: Record<HomeNavKey, React.ComponentType<{ size?: number }>> = {
+const ICONS: Record<HomeNavKey, LucideIcon> = {
   watch:    Activity,
   calls:    Phone,
   whatsapp: MessageCircle,

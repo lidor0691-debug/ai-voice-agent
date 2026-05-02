@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, Lightbulb, Trophy, Sparkles } from "lucide-react";
+import { AlertTriangle, Lightbulb, Trophy, Sparkles, type LucideIcon } from "lucide-react";
 import type { Alert, Insight, Win, Pattern } from "../watch-mock";
 import { watchStrings } from "../watch-strings";
 import type { Lang } from "../../_shared/home-strings";
@@ -74,7 +74,7 @@ export function ActivityRail({ alerts, insights, wins, patterns, lang }: Activit
 function Section({
   icon: Icon, title, tone, children,
 }: {
-  icon: React.ComponentType<{ size?: number; className?: string }>;
+  icon: LucideIcon;
   title: string;
   tone: "amber" | "brand" | "emerald";
   children: React.ReactNode;
