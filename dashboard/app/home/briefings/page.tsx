@@ -13,7 +13,7 @@ export default async function BriefingsPage() {
   return (
     <HomeShell lang="he">
       <HomeNavRail lang="he" active="watch" user={watchMock.user} />
-      <div className="ps-[200px] min-h-full grid place-items-center">
+      <div className="lg:ps-[200px] min-h-full grid place-items-center">
         <div className="text-center text-white/60">
           <div className="maya-section-label mb-2">תדרוכים · בקרוב</div>
           <h1 className="text-2xl text-white/85 font-semibold">מסך התדרוכים יוטמע בהמשך</h1>

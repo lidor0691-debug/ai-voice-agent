@@ -27,7 +27,7 @@ export function HomeNavRail({ lang, active, user }: HomeNavRailProps) {
     <aside
       className="
         fixed top-0 bottom-0 w-[200px]
-        flex flex-col
+        hidden lg:flex flex-col
         bg-surface-1/70 backdrop-blur-xl
         border-l border-r border-border-subtle
         z-20

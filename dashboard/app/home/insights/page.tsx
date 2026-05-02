@@ -12,7 +12,7 @@ export default async function InsightsPage() {
   return (
     <HomeShell lang="he">
       <HomeNavRail lang="he" active="insights" user={watchMock.user} />
-      <div className="ps-[200px] min-h-full grid place-items-center">
+      <div className="lg:ps-[200px] min-h-full grid place-items-center">
         <div className="text-center text-white/60">
           <div className="maya-section-label mb-2">תובנות · בקרוב</div>
           <h1 className="text-2xl text-white/85 font-semibold">מסך התובנות יוטמע בהמשך</h1>
