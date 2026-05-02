@@ -12,7 +12,7 @@ export default async function AgentsPage() {
   return (
     <HomeShell lang="he">
       <HomeNavRail lang="he" active="agents" user={watchMock.user} />
-      <div className="rtl:pe-[200px] ltr:ps-[200px] min-h-full grid place-items-center">
+      <div className="ps-[200px] min-h-full grid place-items-center">
         <div className="text-center text-white/60">
           <div className="maya-section-label mb-2">סוכנים · בקרוב</div>
           <h1 className="text-2xl text-white/85 font-semibold">מסך הסוכנים יוטמע בהמשך</h1>

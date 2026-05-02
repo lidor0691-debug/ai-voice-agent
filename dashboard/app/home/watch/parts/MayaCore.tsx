@@ -21,12 +21,22 @@ export function MayaCore() {
 
 interface ConstellationProps {
   orbits: OrbitNode[];
+  /** Max nodes to render — keeps the field uncluttered. */
+  max?: number;
 }
 
-export function ConstellationRing({ orbits }: ConstellationProps) {
+const STATE_PRIORITY: Record<OrbitNode["state"], number> = { hot: 0, warm: 1, cool: 2 };
+
+export function ConstellationRing({ orbits, max = 6 }: ConstellationProps) {
+  // Show the most important nodes first (hot → warm → cool), capped at `max`.
+  const visible = orbits
+    .slice()
+    .sort((a, b) => STATE_PRIORITY[a.state] - STATE_PRIORITY[b.state])
+    .slice(0, max);
+
   return (
     <div className="absolute inset-0 pointer-events-none">
-      {orbits.map(o => {
+      {visible.map(o => {
         const x = 50 + Math.cos(o.theta) * o.r * 42;
         const y = 50 + Math.sin(o.theta) * o.r * 42;
         return (
@@ -37,8 +47,6 @@ export function ConstellationRing({ orbits }: ConstellationProps) {
           >
             <span className="maya-orbit-dot" />
             <span className="text-white/85">{o.name}</span>
-            <span className="text-white/50">·</span>
-            <span className="text-white/65">{o.value}</span>
           </div>
         );
       })}

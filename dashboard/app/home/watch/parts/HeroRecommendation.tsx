@@ -17,39 +17,40 @@ export function HeroRecommendationCard({ hero, lang, onApprove, onDecline }: Her
   return (
     <div className="
       relative card maya-fade-in
-      bg-gradient-to-br from-surface-2/90 to-surface-1/70
+      bg-gradient-to-br from-surface-2/82 to-surface-1/62
+      backdrop-blur-xl
       border border-border-strong rounded-2xl
-      p-6 pe-7
-      shadow-[0_24px_60px_-24px_rgba(0,0,0,0.6)]
+      p-4 pe-5
+      shadow-[0_24px_60px_-24px_rgba(0,0,0,0.65)]
       overflow-hidden
     ">
       <div className="maya-tone-bar" />
 
-      <div className="flex items-baseline justify-between mb-3">
+      <div className="flex items-baseline justify-between mb-1.5">
         <div className="maya-section-label">{t.title[lang]}</div>
         <div className="text-[11px] text-white/45">{hero.window}</div>
       </div>
 
-      <h2 className="text-[22px] leading-tight text-white font-semibold tracking-tight mb-1">
+      <h2 className="text-[19px] leading-tight text-white font-semibold tracking-tight mb-0.5">
         {hero.headline}
       </h2>
-      <div className="text-[13px] text-white/55 mb-5">
+      <div className="text-[12px] text-white/55 mb-2">
         {hero.target} · <span className="text-brand-200">{hero.value}</span>
       </div>
 
-      <div className="mb-5">
-        <div className="maya-section-label mb-2">{t.why[lang]}</div>
-        <ul className="space-y-1.5">
+      <div className="mb-2">
+        <div className="maya-section-label mb-1">{t.why[lang]}</div>
+        <ul className="space-y-0.5">
           {hero.why.map((reason, i) => (
-            <li key={i} className="flex items-start gap-2 text-[13px] text-white/80">
-              <span className="mt-2 w-1 h-1 rounded-full bg-brand-200 shrink-0" />
+            <li key={i} className="flex items-start gap-2 text-[12.5px] text-white/80 leading-snug">
+              <span className="mt-1.5 w-1 h-1 rounded-full bg-brand-200 shrink-0" />
               <span>{reason}</span>
             </li>
           ))}
         </ul>
       </div>
 
-      <div className="flex items-center gap-4 mb-5 text-[12px]">
+      <div className="flex items-center gap-4 mb-2.5 text-[12px]">
         <ConfidenceMeter pct={hero.confidence} label={t.confidence[lang]} />
         <div className="h-6 w-px bg-white/10" />
         <div>
@@ -58,28 +59,27 @@ export function HeroRecommendationCard({ hero, lang, onApprove, onDecline }: Her
         </div>
       </div>
 
-      <div className="text-[13px] text-white/65 mb-3">
-        <ChevronRight size={12} className="inline-block ms-1" />
-        {hero.action}
-      </div>
-
-      <div className="flex gap-2">
+      <div className="flex items-center gap-2">
         <button
           onClick={onApprove}
-          className="btn-primary flex items-center gap-2 px-4 h-10 rounded-lg bg-brand-500 hover:bg-brand-400 text-white text-[13px] font-medium"
+          className="btn-primary flex items-center gap-2 px-4 h-9 rounded-lg bg-brand-500 hover:bg-brand-400 text-white text-[13px] font-medium"
         >
           <Check size={14} />
           {t.primary[lang]}
         </button>
-        <button className="btn-ghost px-4 h-10 rounded-lg text-white/75 hover:bg-white/5 text-[13px]">
+        <button className="btn-ghost px-3 h-9 rounded-lg text-white/75 hover:bg-white/5 text-[13px]">
           {t.secondary[lang]}
         </button>
+        <div className="ms-auto flex items-center gap-2 text-[12px] text-white/55">
+          <ChevronRight size={12} />
+          <span className="truncate max-w-[160px]">{hero.action}</span>
+        </div>
         <button
           onClick={onDecline}
-          className="ms-auto btn-ghost px-3 h-10 rounded-lg text-white/45 hover:bg-white/5 text-[13px] flex items-center gap-1.5"
+          aria-label={t.decline[lang]}
+          className="btn-ghost w-9 h-9 grid place-items-center rounded-lg text-white/45 hover:bg-white/5"
         >
-          <X size={13} />
-          {t.decline[lang]}
+          <X size={14} />
         </button>
       </div>
     </div>
