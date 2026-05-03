@@ -83,14 +83,21 @@ def _iso(dt: Optional[datetime]) -> Optional[str]:
 
 
 async def _find_lead_id(phone: str, client_id: Optional[str] = None) -> Optional[str]:
-    """Return the leads.id (uuid) for a phone within a tenant scope, or None."""
+    """
+    Return the leads.id (uuid) for a phone within a tenant scope, or None.
+
+    Tenant scoping (Stage 4): when `client_id` is provided, filter on it so
+    upserts don't accidentally find another tenant's lead with the same
+    phone. When `client_id` is None, match rows where client_id is null
+    (the legacy single-tenant pre-Stage-4 path).
+    """
     if not env_ready() or not phone:
         return None
     params: dict = {"phone": f"eq.{phone}", "select": "id", "limit": "1"}
-    # Match the same coalesce semantics as the unique index: NULL client_id
-    # behaves like the sentinel — Supabase REST has no easy coalesce filter,
-    # so for v0 we just filter by phone (one row per phone is fine until
-    # multi-tenant lands and adds client_id filtering).
+    if client_id is not None:
+        params["client_id"] = f"eq.{client_id}"
+    else:
+        params["client_id"] = "is.null"
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             resp = await client.get(
@@ -395,14 +402,22 @@ async def get_lead_with_messages(
     phone: str,
     client_id: Optional[str] = None,
 ) -> Optional[dict]:
-    """Single-lead variant of get_all_leads_with_messages by phone."""
+    """Single-lead variant of get_all_leads_with_messages by phone.
+
+    Tenant scoping: when client_id is provided, only returns the lead if it
+    belongs to that tenant. When client_id is None, returns any lead with
+    that phone (admin lookup; never shown directly to a client).
+    """
     if not env_ready() or not phone:
         return None
+    leads_params: dict = {"phone": f"eq.{phone}", "select": "*", "limit": "1"}
+    if client_id is not None:
+        leads_params["client_id"] = f"eq.{client_id}"
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             leads_resp = await client.get(
                 f"{_SUPABASE_URL}/rest/v1/{_TABLE_LEADS}",
-                params={"phone": f"eq.{phone}", "select": "*", "limit": "1"},
+                params=leads_params,
                 headers=_read_headers(),
             )
             leads_resp.raise_for_status()

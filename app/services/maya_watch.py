@@ -92,6 +92,9 @@ class Message:
 class Lead:
     phone: str
     name: Optional[str] = None
+    # Stage 4 — tenant scope. Optional so legacy unrouted rows still load.
+    client_id: Optional[str] = None
+    agent_id: Optional[str] = None
     messages: list[Message] = field(default_factory=list)
     followup_sent_at: Optional[datetime] = None
     followup_body: Optional[str] = None
@@ -170,6 +173,8 @@ def _lead_from_row(row: dict) -> Lead:
     return Lead(
         phone=row.get("phone") or "",
         name=row.get("name"),
+        client_id=row.get("client_id"),
+        agent_id=row.get("agent_id"),
         messages=messages,
         followup_sent_at=_parse_iso(row.get("followup_sent_at")),
         followup_body=row.get("followup_body"),
@@ -181,6 +186,118 @@ def _lead_from_row(row: dict) -> Lead:
         booked=bool(row.get("booked")),
         booked_at=_parse_iso(row.get("booked_at")),
     )
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Tenant resolver — Twilio To number → (agent_id, client_id)
+# ─────────────────────────────────────────────────────────────────────
+import httpx  # noqa: E402  (placed here to keep the resolver block self-contained)
+
+_SUPABASE_URL_FOR_RESOLVER = os.getenv("SUPABASE_URL", "")
+_SUPABASE_KEY_FOR_RESOLVER = os.getenv("SUPABASE_SERVICE_KEY", "")
+
+
+async def _agents_config_lookup(field: str, value: str) -> Optional[dict]:
+    """Tiny direct query against agents_config — returns the first matching
+    active row, or None. Mirrors the public lookup pattern used by
+    app/services/agent_config.py without reaching into its private internals.
+    """
+    if not (_SUPABASE_URL_FOR_RESOLVER and _SUPABASE_KEY_FOR_RESOLVER and value):
+        return None
+    headers = {
+        "apikey": _SUPABASE_KEY_FOR_RESOLVER,
+        "Authorization": f"Bearer {_SUPABASE_KEY_FOR_RESOLVER}",
+    }
+    params = {
+        field: f"eq.{value}",
+        "is_active": "eq.true",
+        "select": "id,client_id,agent_name,whatsapp_number,phone_number",
+        "limit": "1",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(
+                f"{_SUPABASE_URL_FOR_RESOLVER}/rest/v1/agents_config",
+                params=params,
+                headers=headers,
+            )
+            resp.raise_for_status()
+            rows = resp.json()
+        return rows[0] if rows else None
+    except Exception as exc:
+        logger.warning("[MAYA-WATCH] agents_config lookup failed %s=%s: %s", field, value, exc)
+        return None
+
+
+async def _agents_config_lookup_by_id(agent_id: str) -> Optional[dict]:
+    """Lookup an agent row by id (used for the sandbox default fallback).
+    Skips the is_active filter so a deactivated default still resolves."""
+    if not (_SUPABASE_URL_FOR_RESOLVER and _SUPABASE_KEY_FOR_RESOLVER and agent_id):
+        return None
+    headers = {
+        "apikey": _SUPABASE_KEY_FOR_RESOLVER,
+        "Authorization": f"Bearer {_SUPABASE_KEY_FOR_RESOLVER}",
+    }
+    params = {
+        "id": f"eq.{agent_id}",
+        "select": "id,client_id,agent_name",
+        "limit": "1",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(
+                f"{_SUPABASE_URL_FOR_RESOLVER}/rest/v1/agents_config",
+                params=params,
+                headers=headers,
+            )
+            resp.raise_for_status()
+            rows = resp.json()
+        return rows[0] if rows else None
+    except Exception as exc:
+        logger.warning("[MAYA-WATCH] agents_config id lookup failed id=%s: %s", agent_id, exc)
+        return None
+
+
+async def resolve_agent_for_to(to_number: str) -> tuple[Optional[str], Optional[str]]:
+    """
+    Resolve (agent_id, client_id) from a Twilio "To" number.
+
+    Lookup order:
+      1. agents_config.whatsapp_number = To (primary, WhatsApp channel)
+      2. agents_config.phone_number    = To (fallback, voice-config row
+         that also has a whatsapp_number set)
+      3. MAYA_WATCH_DEFAULT_AGENT_ID env (sandbox shared-number fallback)
+
+    Returns (None, None) on no match — the caller persists with null
+    tenant scope and logs `unrouted_inbound` for admin triage.
+    """
+    if not to_number:
+        # No To at all — sandbox/test path. Still try the configured default.
+        normalized = ""
+    else:
+        normalized = to_number.strip()
+        if normalized.startswith("whatsapp:"):
+            normalized = normalized[9:]
+
+    if normalized:
+        row = await _agents_config_lookup("whatsapp_number", normalized)
+        if not row:
+            row = await _agents_config_lookup("phone_number", normalized)
+        if row:
+            return (row.get("id"), row.get("client_id"))
+
+    default_id = os.getenv("MAYA_WATCH_DEFAULT_AGENT_ID", "").strip()
+    if default_id:
+        row = await _agents_config_lookup_by_id(default_id)
+        if row:
+            logger.info(
+                "[MAYA-WATCH] resolver_default to=%s → agent_id=%s client_id=%s",
+                normalized or "(empty)", row.get("id"), row.get("client_id"),
+            )
+            return (row.get("id"), row.get("client_id"))
+
+    logger.warning("[MAYA-WATCH] unrouted_inbound to=%s — no agent matched, no default set", normalized or "(empty)")
+    return (None, None)
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -232,55 +349,82 @@ def derive_status(lead: Lead) -> str:
 # ─────────────────────────────────────────────────────────────────────
 # Public API — called by the route layer
 # ─────────────────────────────────────────────────────────────────────
-async def register_inbound(phone: str, body: str, name: Optional[str] = None) -> Lead:
+async def register_inbound(
+    phone: str,
+    body: str,
+    name: Optional[str] = None,
+    *,
+    client_id: Optional[str] = None,
+    agent_id: Optional[str] = None,
+) -> Lead:
     """Record an inbound message and (if it looks like a question) schedule
-    a delayed risk check. Persists to Supabase."""
+    a delayed risk check. Persists to Supabase, scoped by tenant."""
     phone = normalize_phone(phone)
-    # Ensure the lead row exists (with name if provided) BEFORE appending the
-    # message — append_message also upserts but doesn't pass name.
-    await store.upsert_lead(phone, name=name)
-    await store.append_message(phone, "in", body)
+    # Ensure the lead row exists (with name + tenant scope) BEFORE appending
+    # the message. The lead's client_id determines which tenant owns the row.
+    await store.upsert_lead(phone, name=name, client_id=client_id, agent_id=agent_id)
+    await store.append_message(
+        phone, "in", body,
+        client_id=client_id, agent_id=agent_id,
+    )
 
     logger.info(
-        "[MAYA-WATCH] inbound phone=%s body=%r is_question=%s",
-        phone, body[:80], has_question(body),
+        "[MAYA-WATCH] inbound phone=%s client_id=%s agent_id=%s body=%r is_question=%s",
+        phone, client_id or "-", agent_id or "-", body[:80], has_question(body),
     )
 
     # Reload the lead to inspect followup_sent_at and decide if we schedule.
-    row = await store.get_lead_with_messages(phone)
+    row = await store.get_lead_with_messages(phone, client_id=client_id)
     lead = _lead_from_row(row) if row else Lead(
         phone=phone,
         name=name,
+        client_id=client_id,
+        agent_id=agent_id,
         messages=[Message(direction="in", body=body, ts=now_utc())],
     )
 
     if has_question(body) and lead.followup_sent_at is None:
         # Fire-and-forget delayed check. If the process dies before it fires,
         # the next manual /tick (or restart-recovery scan) covers it.
-        asyncio.create_task(_delayed_risk_check(phone))
+        asyncio.create_task(_delayed_risk_check(phone, client_id=client_id))
 
     return lead
 
 
-async def register_outbound(phone: str, body: str, sid: Optional[str] = None) -> None:
+async def register_outbound(
+    phone: str,
+    body: str,
+    sid: Optional[str] = None,
+    *,
+    client_id: Optional[str] = None,
+    agent_id: Optional[str] = None,
+) -> None:
     """Record an outbound message (sent by Maya or the operator)."""
     phone = normalize_phone(phone)
-    await store.append_message(phone, "out", body, sid=sid)
-    logger.info("[MAYA-WATCH] outbound phone=%s body=%r sid=%s", phone, body[:80], sid)
+    await store.append_message(
+        phone, "out", body,
+        sid=sid, client_id=client_id, agent_id=agent_id,
+    )
+    logger.info(
+        "[MAYA-WATCH] outbound phone=%s client_id=%s body=%r sid=%s",
+        phone, client_id or "-", body[:80], sid,
+    )
 
 
-async def mark_booked(phone: str) -> Optional[Lead]:
+async def mark_booked(phone: str, *, client_id: Optional[str] = None) -> Optional[Lead]:
     phone = normalize_phone(phone)
-    ok = await store.mark_booked(phone)
+    ok = await store.mark_booked(phone, client_id=client_id)
     if not ok:
         return None
-    logger.info("[MAYA-WATCH] booked phone=%s", phone)
-    row = await store.get_lead_with_messages(phone)
+    logger.info("[MAYA-WATCH] booked phone=%s client_id=%s", phone, client_id or "-")
+    row = await store.get_lead_with_messages(phone, client_id=client_id)
     return _lead_from_row(row) if row else None
 
 
-async def get_all_leads() -> list[Lead]:
-    rows = await store.get_all_leads_with_messages()
+async def get_all_leads(client_id: Optional[str] = None) -> list[Lead]:
+    """When client_id is provided, returns only that tenant's leads.
+    When None, returns all leads (admin-aggregated view)."""
+    rows = await store.get_all_leads_with_messages(client_id=client_id)
     return [_lead_from_row(r) for r in rows]
 
 
@@ -347,8 +491,8 @@ async def record_delivery_status(
 # ─────────────────────────────────────────────────────────────────────
 # Briefing — rule-based Hebrew operator summary
 # ─────────────────────────────────────────────────────────────────────
-async def build_briefing() -> dict:
-    leads = await get_all_leads()
+async def build_briefing(client_id: Optional[str] = None) -> dict:
+    leads = await get_all_leads(client_id=client_id)
 
     counts = {
         "total_leads": len(leads),
@@ -456,14 +600,15 @@ async def build_briefing() -> dict:
 # ─────────────────────────────────────────────────────────────────────
 # Risk → follow-up action
 # ─────────────────────────────────────────────────────────────────────
-async def _delayed_risk_check(phone: str) -> None:
-    """Wait RISK_AFTER_MINUTES then evaluate; if at risk, send follow-up."""
+async def _delayed_risk_check(phone: str, *, client_id: Optional[str] = None) -> None:
+    """Wait RISK_AFTER_MINUTES then evaluate; if at risk, send follow-up.
+    Tenant-scoped so two clients with the same phone don't collide."""
     try:
         await asyncio.sleep(RISK_AFTER_MINUTES * 60)
     except asyncio.CancelledError:
         return
 
-    row = await store.get_lead_with_messages(phone)
+    row = await store.get_lead_with_messages(phone, client_id=client_id)
     if not row:
         return
     lead = _lead_from_row(row)
@@ -472,16 +617,18 @@ async def _delayed_risk_check(phone: str) -> None:
     await _send_followup(lead)
 
 
-async def tick() -> dict:
+async def tick(client_id: Optional[str] = None) -> dict:
     """Manual scan — useful for cron-style polling or for catching leads
-    whose delayed check was lost (e.g. process restart)."""
-    leads = await get_all_leads()
+    whose delayed check was lost (e.g. process restart). When client_id is
+    provided, scans only that tenant's leads; otherwise all (admin)."""
+    leads = await get_all_leads(client_id=client_id)
     actions: list[dict] = []
     for lead in leads:
         if derive_status(lead) == "at_risk":
             ok = await _send_followup(lead)
             actions.append({"phone": lead.phone, "sent": bool(ok)})
-    logger.info("[MAYA-WATCH] tick checked=%d actions=%d", len(leads), len(actions))
+    logger.info("[MAYA-WATCH] tick checked=%d actions=%d client_id=%s",
+                len(leads), len(actions), client_id or "all")
     return {"checked": len(leads), "actions": actions}
 
 
@@ -497,15 +644,25 @@ async def _send_followup(lead: Lead) -> Optional[str]:
     if sid:
         sent_at = now_utc()
         # Persist outbound message (with sid) AND denormalize followup snapshot.
-        await store.append_message(lead.phone, "out", body, ts=sent_at, sid=sid)
+        # Tenant ids come from the lead itself so the new outbound row inherits
+        # the same scope as the conversation it belongs to.
+        await store.append_message(
+            lead.phone, "out", body,
+            ts=sent_at, sid=sid,
+            client_id=lead.client_id, agent_id=lead.agent_id,
+        )
         await store.update_lead_followup(
             lead.phone,
             sid=sid,
             body=body,
             sent_at=sent_at,
             status="queued",
+            client_id=lead.client_id,
         )
-        logger.info("[MAYA-WATCH] followup_sent phone=%s sid=%s status=queued", lead.phone, sid)
+        logger.info(
+            "[MAYA-WATCH] followup_sent phone=%s client_id=%s sid=%s status=queued",
+            lead.phone, lead.client_id or "-", sid,
+        )
         return sid
     logger.error("[MAYA-WATCH] followup_failed phone=%s", lead.phone)
     return None

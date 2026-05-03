@@ -128,12 +128,20 @@ async function fetchJSON<T>(path: string): Promise<T> {
   }
 }
 
-/** Returns null on any network/parse error so callers can fall back to mock. */
-export async function fetchMayaWatch(): Promise<MayaWatchLive | null> {
+/** Returns null on any network/parse error so callers can fall back to mock.
+ *
+ * Stage 4 — tenant scope. When clientId is provided, both endpoints filter
+ * to that client. When undefined, the backend returns aggregated data
+ * (admin view). The dashboard layer is responsible for deciding which to
+ * pass — a non-admin user should NEVER call this without their own
+ * clientId or they'd see other tenants' data.
+ */
+export async function fetchMayaWatch(clientId?: string): Promise<MayaWatchLive | null> {
+  const scope = clientId ? `?client_id=${encodeURIComponent(clientId)}` : "";
   try {
     const [briefing, leadsResp] = await Promise.all([
-      fetchJSON<ApiBriefing>("/maya-watch/briefing"),
-      fetchJSON<ApiLeadsResp>("/maya-watch/leads"),
+      fetchJSON<ApiBriefing>(`/maya-watch/briefing${scope}`),
+      fetchJSON<ApiLeadsResp>(`/maya-watch/leads${scope}`),
     ]);
     return { briefing: briefing ?? {}, leads: leadsResp?.leads ?? [] };
   } catch (e) {
