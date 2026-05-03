@@ -35,10 +35,11 @@ export default async function WatchPage() {
     role: pickString(meta, "business_name", "business", "company", "role"),
   };
 
-  // Server-side fetch of live Maya Watch data with mock fallback only on
-  // network failure — successful-but-empty responses degrade to a quiet
-  // live state inside the mapper (no fake business activity).
-  const live = await fetchMayaWatch(clientId);
+  // Stage 5 — only authenticated AND configured users (admin OR a client
+  // with a real client_id) get live data. An unconfigured user (ctx=null)
+  // skips the fetch so the dashboard never accidentally hands them
+  // admin-aggregated data; they fall through to the mock UI scaffolding.
+  const live = ctx ? await fetchMayaWatch(clientId) : null;
   const initialData = live ? mapToWatchData(live, identity) : undefined;
 
   return <WatchShell initialData={initialData} />;

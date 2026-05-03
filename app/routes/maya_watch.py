@@ -24,9 +24,10 @@ undelivered with an ErrorCode like 63016).
 from __future__ import annotations
 
 import logging
+import os
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import Response
 
 from app.services import maya_watch as svc
@@ -48,6 +49,41 @@ def _is_twilio_form(content_type: str) -> bool:
         "application/x-www-form-urlencoded" in content_type
         or "multipart/form-data" in content_type
     )
+
+
+# ── Stage 5 — internal-key gate for private endpoints ────────────────────
+# Reads MAYA_WATCH_INTERNAL_KEY from env (set on both Railway and Vercel).
+# The Next.js dashboard adds X-Maya-Watch-Key on every server-side fetch;
+# the browser never sees the key (server components only).
+#
+# Apply via `dependencies=[Depends(_require_internal_key)]` on the
+# private routes below. The Twilio webhooks (/inbound, /twilio-status)
+# and /health are deliberately exempt — Twilio cannot send custom
+# headers, and /health is used for uptime probes.
+
+_INTERNAL_KEY = os.getenv("MAYA_WATCH_INTERNAL_KEY", "").strip()
+
+
+async def _require_internal_key(
+    x_maya_watch_key: Optional[str] = Header(default=None, alias="X-Maya-Watch-Key"),
+) -> None:
+    """Reject any private-endpoint request that doesn't carry the matching key.
+
+    Fail-closed semantics: if the env var isn't configured on the server,
+    we raise 500 rather than silently letting requests through. Better to
+    notice the misconfiguration loudly than to leak data.
+    """
+    if not _INTERNAL_KEY:
+        logger.error("[MAYA-WATCH] MAYA_WATCH_INTERNAL_KEY not configured — denying private endpoint")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="MAYA_WATCH_INTERNAL_KEY not configured",
+        )
+    if not x_maya_watch_key or x_maya_watch_key != _INTERNAL_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing X-Maya-Watch-Key",
+        )
 
 
 @router.post("/maya-watch/inbound")
@@ -153,22 +189,23 @@ async def twilio_status(request: Request):
     return _twiml_ok()
 
 
-@router.post("/maya-watch/tick")
+@router.post("/maya-watch/tick", dependencies=[Depends(_require_internal_key)])
 async def tick_endpoint(client_id: Optional[str] = Query(default=None)):
-    """Manual scan. When client_id is omitted, scans all tenants (admin)."""
+    """Manual scan. When client_id is omitted, scans all tenants (admin).
+    Internal-key gated (Stage 5)."""
     return await svc.tick(client_id=client_id)
 
 
-@router.get("/maya-watch/leads")
+@router.get("/maya-watch/leads", dependencies=[Depends(_require_internal_key)])
 async def list_leads(client_id: Optional[str] = Query(default=None)):
     """When client_id is omitted, returns all leads (admin aggregated view).
-    The dashboard layer is responsible for passing the authenticated user's
-    client_id; admin callers may omit it intentionally."""
+    Internal-key gated (Stage 5) — only the Next.js dashboard server can
+    call this; direct callers without the key get 401."""
     leads = await svc.get_all_leads(client_id=client_id)
     return {"leads": [svc.serialize_lead(l) for l in leads]}
 
 
-@router.get("/maya-watch/leads/{phone:path}")
+@router.get("/maya-watch/leads/{phone:path}", dependencies=[Depends(_require_internal_key)])
 async def get_lead(
     phone: str,
     client_id: Optional[str] = Query(default=None),
@@ -180,7 +217,7 @@ async def get_lead(
     raise HTTPException(404, "lead not found")
 
 
-@router.post("/maya-watch/leads/{phone:path}/mark-booked")
+@router.post("/maya-watch/leads/{phone:path}/mark-booked", dependencies=[Depends(_require_internal_key)])
 async def mark_booked_endpoint(
     phone: str,
     client_id: Optional[str] = Query(default=None),
@@ -191,7 +228,7 @@ async def mark_booked_endpoint(
     return {"ok": True, "phone": lead.phone, "booked_at": lead.booked_at.isoformat()}
 
 
-@router.get("/maya-watch/briefing")
+@router.get("/maya-watch/briefing", dependencies=[Depends(_require_internal_key)])
 async def briefing(client_id: Optional[str] = Query(default=None)):
     return await svc.build_briefing(client_id=client_id)
 
