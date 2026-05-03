@@ -116,10 +116,19 @@ function resolveLiveIdentity(identity?: AuthIdentity): { name: string; role: str
 async function fetchJSON<T>(path: string): Promise<T> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  // Stage 5 — server-only internal key. Read from process.env so it
+  // never leaks to the browser (this module is imported by a server
+  // component that calls fetchMayaWatch on the server side). If the env
+  // var is unset, FastAPI will 401 → fetchMayaWatch returns null →
+  // mock fallback engages (existing failure path).
+  const headers: Record<string, string> = {};
+  const key = process.env.MAYA_WATCH_INTERNAL_KEY;
+  if (key) headers["X-Maya-Watch-Key"] = key;
   try {
     const res = await fetch(`${BASE}${path}`, {
       signal: ctrl.signal,
       cache: "no-store",
+      headers,
     });
     if (!res.ok) throw new Error(`${path}: ${res.status} ${res.statusText}`);
     return (await res.json()) as T;
