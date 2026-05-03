@@ -86,7 +86,133 @@ async def _require_internal_key(
         )
 
 
-@router.post("/maya-watch/inbound")
+# ── Stage 6 — Twilio signature verification (observe-only by default) ────
+# Verifies X-Twilio-Signature on the public Twilio webhooks (/inbound +
+# /twilio-status). Two modes via MAYA_WATCH_VERIFY_TWILIO_SIGNATURE:
+#
+#   false / unset → observe-only: log [MAYA-WATCH] sig_check ok=true/false
+#                   for every request, never reject. Use this for the first
+#                   24-48h to prove URL reconstruction matches what Twilio
+#                   actually signs.
+#   true          → enforce: reject missing/invalid signature with 403.
+#                   If TWILIO_AUTH_TOKEN is missing, return 500 — refuse to
+#                   silently fail-open when enforcement is supposed to be on.
+#
+# URL reconstruction uses BASE_URL (same env we tell Twilio in
+# status_callback), so signing key, signing URL, and verifier URL all
+# share the same source of truth. No proxy header guesswork in the
+# happy path.
+#
+# Form parsing: parses the form ONCE in the dependency and stashes it on
+# request.state.form so the route handler can reuse it without
+# consuming the body twice.
+
+
+def _twilio_url(request: Request) -> str:
+    """Reconstruct the URL Twilio signed against, preferring BASE_URL.
+
+    BASE_URL is what we configure Twilio to call (status_callback uses it
+    too — see app/services/maya_watch.py:_send_whatsapp). Symmetry: as
+    long as the value of BASE_URL on Railway equals the URL configured in
+    the Twilio Console, signature URLs match exactly.
+
+    Forwarded-header fallback handles the case where BASE_URL is unset
+    (dev / local) — Railway sets x-forwarded-proto and x-forwarded-host
+    correctly behind its edge proxy.
+    """
+    base = os.getenv("BASE_URL", "").strip().rstrip("/")
+    if base:
+        qs = f"?{request.url.query}" if request.url.query else ""
+        return f"{base}{request.url.path}{qs}"
+    proto = request.headers.get("x-forwarded-proto", "https")
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host", "")
+    qs = f"?{request.url.query}" if request.url.query else ""
+    return f"{proto}://{host}{request.url.path}{qs}"
+
+
+async def _verify_twilio_signature(request: Request) -> None:
+    """Verify the X-Twilio-Signature header. Observe-only unless flag is on.
+
+    Side effect: parses the form (when content-type is form-encoded) and
+    stashes it on request.state.form for the route handler to reuse —
+    Starlette's request body is single-shot, so this avoids double-read.
+    """
+    enforce = os.getenv("MAYA_WATCH_VERIFY_TWILIO_SIGNATURE", "").strip().lower() == "true"
+    auth_token = os.getenv("TWILIO_AUTH_TOKEN", "").strip()
+    path = request.url.path
+    mode = "enforce" if enforce else "observe"
+
+    # Parse form once if this looks like a Twilio request; otherwise store
+    # None so the JSON test path isn't surprised by an empty FormData.
+    content_type = request.headers.get("content-type", "")
+    is_form = (
+        "application/x-www-form-urlencoded" in content_type
+        or "multipart/form-data" in content_type
+    )
+    if is_form:
+        form = await request.form()
+        request.state.form = form
+    else:
+        request.state.form = None
+        # JSON test path — never a Twilio request, no signature to check.
+        logger.info("[MAYA-WATCH] sig_check no_form ok=skip path=%s mode=%s", path, mode)
+        return
+
+    if not auth_token:
+        if enforce:
+            logger.error(
+                "[MAYA-WATCH] sig_check cannot_verify path=%s mode=enforce — TWILIO_AUTH_TOKEN missing",
+                path,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="signature verification unavailable",
+            )
+        logger.warning(
+            "[MAYA-WATCH] sig_check cannot_verify path=%s mode=observe — TWILIO_AUTH_TOKEN missing",
+            path,
+        )
+        return
+
+    signature = request.headers.get("x-twilio-signature", "")
+    if not signature:
+        if enforce:
+            logger.warning("[MAYA-WATCH] sig_check sig=missing ok=false path=%s mode=enforce", path)
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="missing X-Twilio-Signature",
+            )
+        logger.warning("[MAYA-WATCH] sig_check sig=missing ok=false path=%s mode=observe", path)
+        return
+
+    url = _twilio_url(request)
+    params = {k: str(v) for k, v in (form or {}).items()}
+
+    # Local import to keep the cold-path off the module load.
+    from twilio.request_validator import RequestValidator
+    validator = RequestValidator(auth_token)
+    ok = validator.validate(url, params, signature)
+
+    if ok:
+        logger.info("[MAYA-WATCH] sig_check ok=true path=%s mode=%s", path, mode)
+        return
+
+    if enforce:
+        logger.warning(
+            "[MAYA-WATCH] sig_check sig=invalid ok=false path=%s mode=enforce url=%s",
+            path, url,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="invalid X-Twilio-Signature",
+        )
+    logger.warning(
+        "[MAYA-WATCH] sig_check sig=invalid ok=false path=%s mode=observe url=%s",
+        path, url,
+    )
+
+
+@router.post("/maya-watch/inbound", dependencies=[Depends(_verify_twilio_signature)])
 async def inbound(request: Request):
     """Accept Twilio form-encoded WhatsApp webhook OR plain JSON for testing.
 
@@ -101,6 +227,11 @@ async def inbound(request: Request):
     Twilio callers get an empty TwiML (XML) response — silences the
     Twilio "12300 Invalid Content-Type" warning. JSON callers get JSON
     (preserves the manual / curl test path).
+
+    Stage 6 — `_verify_twilio_signature` runs first. In observe mode it
+    only logs; in enforce mode it returns 403 on missing/invalid sig.
+    The dependency parses the form once and stashes it on
+    request.state.form so we don't double-read the request body.
     """
     content_type = request.headers.get("content-type", "")
     is_twilio = _is_twilio_form(content_type)
@@ -112,7 +243,11 @@ async def inbound(request: Request):
     explicit_client_id: Optional[str] = None
 
     if is_twilio:
-        form = await request.form()
+        # Reuse the form parsed in _verify_twilio_signature; fall back if
+        # the dep didn't run (e.g. tests bypassing dependencies).
+        form = getattr(request.state, "form", None)
+        if form is None:
+            form = await request.form()
         phone = svc.normalize_phone(str(form.get("From") or ""))
         body = str(form.get("Body") or "").strip()
         n = str(form.get("ProfileName") or "").strip()
@@ -156,7 +291,7 @@ async def inbound(request: Request):
     }
 
 
-@router.post("/maya-watch/twilio-status")
+@router.post("/maya-watch/twilio-status", dependencies=[Depends(_verify_twilio_signature)])
 async def twilio_status(request: Request):
     """Twilio outbound delivery callback.
 
@@ -169,8 +304,13 @@ async def twilio_status(request: Request):
     in memory so /maya-watch/leads can surface real delivery state.
 
     Always returns empty TwiML (Twilio expects an XML response).
+
+    Stage 6 — same `_verify_twilio_signature` dep as /inbound. Form is
+    reused from request.state to avoid double-reading the request body.
     """
-    form = await request.form()
+    form = getattr(request.state, "form", None)
+    if form is None:
+        form = await request.form()
     sid = str(form.get("MessageSid") or "").strip()
     status = str(form.get("MessageStatus") or "").strip()
     error_code = str(form.get("ErrorCode") or "").strip() or None
