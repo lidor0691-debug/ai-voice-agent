@@ -570,7 +570,7 @@ function quietLiveHero(): HeroRecommendation {
   };
 }
 
-function quietLiveState(identity?: AuthIdentity): WatchData {
+export function quietLiveState(identity?: AuthIdentity): WatchData {
   return {
     user: resolveLiveIdentity(identity),
     kpis: emptyKpis(),
@@ -585,6 +585,22 @@ function quietLiveState(identity?: AuthIdentity): WatchData {
     patterns: [],
     agentToday: [],
     prompts: watchMock.prompts,  // UI scaffolding (suggested questions, not business activity)
+  };
+}
+
+/** Same shape as quietLiveState but with a headline that signals the live
+ *  fetch failed. Kept intentionally close to quiet so the operator sees a
+ *  calm "still monitoring" screen, not an alarming error state — but the
+ *  copy makes clear that nothing here is real activity. */
+export function liveFetchFailedState(identity?: AuthIdentity): WatchData {
+  const base = quietLiveState(identity);
+  return {
+    ...base,
+    hero: {
+      ...base.hero,
+      headline: "חיבור הנתונים זמני — מאיה ממשיכה לעקוב",
+      why: ["הנתונים החיים אינם זמינים כרגע. נסה לרענן בעוד רגע."],
+    },
   };
 }
 
