@@ -380,23 +380,52 @@ function buildOrbitsFromLeads(leads: ApiLead[]): OrbitNode[] {
   });
 }
 
+/** Hours after which a Maya followup is treated as "stale". A real reply
+ *  to a followup typically lands within minutes to a few hours; a gap
+ *  past this threshold almost always means the customer came back with a
+ *  fresh question, not a delayed reply. 12h covers next-morning reopens
+ *  without misclassifying afternoon-to-evening replies. */
+const STALE_FOLLOWUP_HOURS = 12;
+
+interface ThreadBuildResult {
+  messages: WhatsAppMessage[];
+  /** Hebrew context line when the latest inbound is >24h after the last
+   *  outbound. The panel renders it dim, combined with delivery.label. */
+  staleFollowupNote?: string;
+}
+
 function buildThreadMessages(
   ib: ApiTimedBody | null | undefined,
   ob: ApiTimedBody | null | undefined,
-): WhatsAppMessage[] {
+): ThreadBuildResult {
   const ibTime = ib?.ts ? new Date(ib.ts).getTime() : 0;
   const obTime = ob?.ts ? new Date(ob.ts).getTime() : 0;
   const messages: WhatsAppMessage[] = [];
+  let staleFollowupNote: string | undefined;
 
   if (ib?.body && ob?.body) {
-    if (ibTime <= obTime) {
-      // Customer asked → Maya responded.
-      messages.push({ direction: "in",  body: ib.body, ago: relativeAgo(ib.ts), prefix: "שאל",  ts: ib.ts ?? undefined });
-      messages.push({ direction: "out", body: ob.body, ago: relativeAgo(ob.ts), prefix: "שלחה", ts: ob.ts ?? undefined });
-    } else {
-      // Maya followed up → customer replied.
+    const inboundNewer = ibTime > obTime;
+    const gapMs = inboundNewer ? ibTime - obTime : 0;
+    const staleGap = gapMs > STALE_FOLLOWUP_HOURS * 3600 * 1000;
+
+    if (inboundNewer && staleGap) {
+      // Fresh-inquiry pattern: customer came back >24h after Maya's last
+      // outbound. Treat the inbound as a new question, NOT as a reply —
+      // hide the stale followup from the chat chain so the operator
+      // doesn't read it as an active response.
+      messages.push({
+        direction: "in",  body: ib.body, ago: relativeAgo(ib.ts),
+        prefix: "שאל",  ts: ib.ts ?? undefined,
+      });
+      staleFollowupNote = `הודעת שחזור קודמת נשלחה לפני ${relativeAgo(ob.ts)}`;
+    } else if (inboundNewer) {
+      // Maya followed up → customer replied within the 24h window.
       messages.push({ direction: "out", body: ob.body, ago: relativeAgo(ob.ts), prefix: "שלחה", ts: ob.ts ?? undefined });
       messages.push({ direction: "in",  body: ib.body, ago: relativeAgo(ib.ts), prefix: "ענה",  ts: ib.ts ?? undefined });
+    } else {
+      // Customer asked → Maya responded (outbound is the latest).
+      messages.push({ direction: "in",  body: ib.body, ago: relativeAgo(ib.ts), prefix: "שאל",  ts: ib.ts ?? undefined });
+      messages.push({ direction: "out", body: ob.body, ago: relativeAgo(ob.ts), prefix: "שלחה", ts: ob.ts ?? undefined });
     }
   } else if (ib?.body) {
     messages.push({ direction: "in",  body: ib.body, ago: relativeAgo(ib.ts), prefix: "שאל",  ts: ib.ts ?? undefined });
@@ -405,7 +434,8 @@ function buildThreadMessages(
   }
 
   // Filter out encoding-mangled messages but keep the rest.
-  return messages.filter(m => !isGarbledBody(m.body));
+  const filtered = messages.filter(m => !isGarbledBody(m.body));
+  return { messages: filtered, staleFollowupNote };
 }
 
 function buildWhatsAppFromLeads(leads: ApiLead[]): WhatsAppThread[] {
@@ -416,7 +446,7 @@ function buildWhatsAppFromLeads(leads: ApiLead[]): WhatsAppThread[] {
     const ob = l.last_outbound;
     if (!ib?.body && !ob?.body) continue;
 
-    const messages = buildThreadMessages(ib, ob);
+    const { messages, staleFollowupNote } = buildThreadMessages(ib, ob);
     // Skip threads where every message is garbled — leftover Windows-curl test data.
     if (messages.length === 0) continue;
 
@@ -456,6 +486,7 @@ function buildWhatsAppFromLeads(leads: ApiLead[]): WhatsAppThread[] {
       delivery,
       leadName,
       messages,
+      staleFollowupNote,
     });
     if (threads.length >= 4) break;
   }

@@ -77,7 +77,18 @@ function ThreadRow({ thread, onOpen }: { thread: WhatsAppThread; onOpen: () => v
           <div className="text-[11px] text-white/55 truncate">{thread.preview}</div>
         )}
 
-        {thread.delivery && <DeliveryLine delivery={thread.delivery} />}
+        {/* When a stale-followup note exists, the previous outbound is shown
+            as historical context (not as an active reply). Fold the delivery
+            label into the same dim line so "● נמסר" doesn't read as a
+            current-state indicator. */}
+        {thread.staleFollowupNote ? (
+          <div className="text-[10px] mt-1 text-white/45 truncate">
+            {thread.staleFollowupNote}
+            {thread.delivery?.label && ` · ${thread.delivery.label}`}
+          </div>
+        ) : (
+          thread.delivery && <DeliveryLine delivery={thread.delivery} />
+        )}
       </div>
     </button>
   );
@@ -157,10 +168,17 @@ function ThreadModal({ thread, onClose }: { thread: WhatsAppThread; onClose: () 
           ))}
         </div>
 
-        {thread.delivery && (
-          <div className="px-5 py-3 border-t border-white/5">
-            <DeliveryLine delivery={thread.delivery} />
+        {thread.staleFollowupNote ? (
+          <div className="px-5 py-3 border-t border-white/5 text-[11px] text-white/45">
+            {thread.staleFollowupNote}
+            {thread.delivery?.label && ` · ${thread.delivery.label}`}
           </div>
+        ) : (
+          thread.delivery && (
+            <div className="px-5 py-3 border-t border-white/5">
+              <DeliveryLine delivery={thread.delivery} />
+            </div>
+          )
         )}
       </div>
     </div>
