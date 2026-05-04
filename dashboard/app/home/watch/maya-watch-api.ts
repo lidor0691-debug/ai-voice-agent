@@ -184,6 +184,9 @@ function relativeAgo(ts?: string | null): string {
   const hr = Math.floor(min / 60);
   if (hr < 24) return `${hr} שע׳`;
   const day = Math.floor(hr / 24);
+  // Hebrew uses singular / dual / plural forms for day counts.
+  if (day === 1) return "יום";
+  if (day === 2) return "יומיים";
   return `${day} ימים`;
 }
 
@@ -417,7 +420,7 @@ function buildThreadMessages(
         direction: "in",  body: ib.body, ago: relativeAgo(ib.ts),
         prefix: "שאל",  ts: ib.ts ?? undefined,
       });
-      staleFollowupNote = `הודעת שחזור קודמת נשלחה לפני ${relativeAgo(ob.ts)}`;
+      staleFollowupNote = `שחזור קודם: נשלח לפני ${relativeAgo(ob.ts)}`;
     } else if (inboundNewer) {
       // Maya followed up → customer replied within the 24h window.
       messages.push({ direction: "out", body: ob.body, ago: relativeAgo(ob.ts), prefix: "שלחה", ts: ob.ts ?? undefined });
