@@ -59,6 +59,15 @@ export interface WhatsAppThread {
    * a compact conversation view; when absent, falls back to single-preview style.
    */
   messages?: WhatsAppMessage[];
+  /**
+   * Set when the latest customer message arrived more than 24h after Maya's
+   * last followup — the followup is "stale" and should be shown as historical
+   * context (not as an active reply). Example:
+   *   "הודעת שחזור קודמת נשלחה לפני יום"
+   * Combined with delivery.label by the panel into:
+   *   "הודעת שחזור קודמת נשלחה לפני יום · נמסר"
+   */
+  staleFollowupNote?: string;
 }
 
 export interface LeadStage {
