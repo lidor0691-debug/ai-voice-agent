@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Check, X, ChevronRight } from "lucide-react";
 import type { HeroRecommendation } from "../watch-mock";
 import { watchStrings } from "../watch-strings";
@@ -8,12 +10,54 @@ import type { Lang } from "../../_shared/home-strings";
 interface HeroRecommendationProps {
   hero: HeroRecommendation;
   lang: Lang;
+  /** Legacy parent log handler — fires after a successful action so the
+   *  WatchShell console.log still surfaces. The act flow itself does NOT
+   *  depend on this prop. */
   onApprove?: () => void;
   onDecline?: () => void;
 }
 
 export function HeroRecommendationCard({ hero, lang, onApprove, onDecline }: HeroRecommendationProps) {
   const t = watchStrings.hero;
+  const router = useRouter();
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Stage 7 — the action surface only fires when the live mapping carried
+  // a backend decision id. Quiet-live, fetch-failed, and demo states leave
+  // hero.id undefined; the button stays visible (preserves layout) but
+  // disabled.
+  const canAct = Boolean(hero.id) && !pending;
+
+  async function handleApprove() {
+    if (!hero.id || pending) return;
+    setPending(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/home/watch/decisions/${encodeURIComponent(hero.id)}/act`,
+        { method: "POST", cache: "no-store" },
+      );
+      if (!res.ok) {
+        setError(t.actError[lang]);
+        setPending(false);
+        return;
+      }
+      // Success — refresh the server-rendered page so /briefing re-runs
+      // and this acted decision drops out of the open list. The hero
+      // either advances to the next decision or shows the quiet-live
+      // monitoring state. No optimistic removal — server is source of truth.
+      onApprove?.();
+      router.refresh();
+      // Leave `pending` true through refresh so the button stays disabled
+      // until React re-renders with the new hero. If refresh fails, the
+      // user sees the spinner — better than re-enabling on a stale card.
+    } catch {
+      setError(t.actError[lang]);
+      setPending(false);
+    }
+  }
+
   return (
     <div className="
       relative card maya-fade-in
@@ -72,13 +116,15 @@ export function HeroRecommendationCard({ hero, lang, onApprove, onDecline }: Her
 
       <div className="flex items-center gap-2">
         <button
-          onClick={onApprove}
-          className="btn-primary flex items-center gap-2 px-4 h-9 rounded-lg bg-brand-500 hover:bg-brand-400 text-white text-[13px] font-medium"
+          type="button"
+          onClick={handleApprove}
+          disabled={!canAct}
+          className="btn-primary flex items-center gap-2 px-4 h-9 rounded-lg bg-brand-500 hover:bg-brand-400 disabled:bg-brand-500/40 disabled:cursor-not-allowed text-white text-[13px] font-medium"
         >
           <Check size={14} />
-          {t.primary[lang]}
+          {pending ? t.primaryPending[lang] : t.primary[lang]}
         </button>
-        <button className="btn-ghost px-3 h-9 rounded-lg text-white/75 hover:bg-white/5 text-[13px]">
+        <button type="button" className="btn-ghost px-3 h-9 rounded-lg text-white/75 hover:bg-white/5 text-[13px]">
           {t.secondary[lang]}
         </button>
         <div className="ms-auto flex items-center gap-2 text-[12px] text-white/55">
@@ -86,6 +132,7 @@ export function HeroRecommendationCard({ hero, lang, onApprove, onDecline }: Her
           <span className="truncate max-w-[160px]">{hero.action}</span>
         </div>
         <button
+          type="button"
           onClick={onDecline}
           aria-label={t.decline[lang]}
           className="btn-ghost w-9 h-9 grid place-items-center rounded-lg text-white/45 hover:bg-white/5"
@@ -93,6 +140,16 @@ export function HeroRecommendationCard({ hero, lang, onApprove, onDecline }: Her
           <X size={14} />
         </button>
       </div>
+
+      {error && (
+        <div
+          role="alert"
+          className="mt-2 text-[11px] text-amber-300/90 flex items-center gap-1.5"
+        >
+          <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+          <span className="truncate">{error}</span>
+        </div>
+      )}
     </div>
   );
 }

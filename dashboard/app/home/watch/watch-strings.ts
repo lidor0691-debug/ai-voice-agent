@@ -21,9 +21,11 @@ export const watchStrings = {
     confidence:   { he: "ביטחון",                  en: "Confidence" },
     actionWindow: { he: "חלון פעולה",              en: "Action window" },
     expectedLift: { he: "השפעה צפויה",             en: "Expected impact" },
-    primary:      { he: "אישור והפעלה",            en: "Approve & dispatch" },
-    secondary:    { he: "פרטים נוספים",            en: "Show me more" },
-    decline:      { he: "דחה",                     en: "Decline" },
+    primary:        { he: "אישור והפעלה",            en: "Approve & dispatch" },
+    primaryPending: { he: "מעדכן...",                en: "Updating..." },
+    actError:       { he: "לא הצלחנו לעדכן — נסה שוב", en: "Update failed — please retry" },
+    secondary:      { he: "פרטים נוספים",            en: "Show me more" },
+    decline:        { he: "דחה",                     en: "Decline" },
   },
 
   rails: {
