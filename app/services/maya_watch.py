@@ -428,6 +428,99 @@ async def get_all_leads(client_id: Optional[str] = None) -> list[Lead]:
     return [_lead_from_row(r) for r in rows]
 
 
+async def get_lead_with_id(
+    phone: str,
+    client_id: Optional[str] = None,
+) -> Optional[tuple[str, Lead]]:
+    """
+    Single-lead lookup that exposes the underlying row UUID alongside the
+    Lead dataclass. Used by the action endpoint (Stage 7) which needs the
+    UUID to record an action without us having to add `id` to Lead and
+    threading it through every call site.
+
+    Tenant scope: when client_id is provided, only returns the lead if it
+    belongs to that tenant — same semantics as the rest of Maya Watch.
+    Returns None if no matching lead, or if the row lacks an id.
+    """
+    norm = normalize_phone(phone)
+    if not norm:
+        return None
+    row = await store.get_lead_with_messages(norm, client_id=client_id)
+    if not row:
+        return None
+    lead_id = row.get("id")
+    if not lead_id:
+        return None
+    return lead_id, _lead_from_row(row)
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Operator actions (Stage 7) — service-layer wrappers around the store.
+# Routes go through these so the route module never imports the store.
+# ─────────────────────────────────────────────────────────────────────
+
+
+def parse_decision_id(decision_id: str) -> tuple[Optional[str], str]:
+    """
+    Parse a decision id emitted by build_briefing.
+
+    Two formats accepted:
+        decision:{status}:{phone}   (Stage 7+)  → (status, phone)
+        decision:{phone}            (legacy)    → (None, phone)
+
+    Phone numbers don't contain ':' (E.164 form is digits + leading '+'),
+    and the status enum values used by derive_status don't either, so the
+    split is unambiguous.
+
+    Caller convention: when status is None (legacy id), derive the current
+    status from the lead. Raises ValueError on any other shape.
+    """
+    if not isinstance(decision_id, str) or not decision_id:
+        raise ValueError("decision_id must be a non-empty string")
+    if not decision_id.startswith("decision:"):
+        raise ValueError("decision_id must start with 'decision:'")
+    rest = decision_id[len("decision:"):]
+    parts = rest.split(":", 1)
+    if len(parts) == 2:
+        status, phone = parts[0].strip(), parts[1].strip()
+        if not status or not phone:
+            raise ValueError("decision_id parts must be non-empty")
+        return status, phone
+    phone = parts[0].strip()
+    if not phone:
+        raise ValueError("decision_id must include a phone")
+    return None, phone
+
+
+async def record_decision_action(
+    *,
+    lead_id: str,
+    phone: str,
+    decision_status: str,
+    client_id: Optional[str],
+    agent_id: Optional[str],
+    acted_by: Optional[str],
+) -> Optional[dict]:
+    """
+    Service-layer wrapper around store.record_action. Always writes
+    action_type='acted' for v0; future verbs (e.g. 'dismissed') would land
+    as additional service helpers, not as caller-supplied parameters.
+
+    Returns the action row dict on success (with `already_acted: bool`),
+    or None on failure — the route layer translates None into 5xx without
+    needing to know about the store module.
+    """
+    return await store.record_action(
+        lead_id=lead_id,
+        phone=phone,
+        decision_status=decision_status,
+        client_id=client_id,
+        agent_id=agent_id,
+        action_type="acted",
+        acted_by=acted_by,
+    )
+
+
 def serialize_lead(lead: Lead) -> dict:
     return {
         "phone": lead.phone,
@@ -492,10 +585,20 @@ async def record_delivery_status(
 # Briefing — rule-based Hebrew operator summary
 # ─────────────────────────────────────────────────────────────────────
 async def build_briefing(client_id: Optional[str] = None) -> dict:
-    leads = await get_all_leads(client_id=client_id)
+    # Stage 7 — read raw rows so we have lead.id for the suppression check.
+    # Same network cost as get_all_leads; we just keep the uuid alongside
+    # the dataclass instead of dropping it on the floor.
+    rows = await store.get_all_leads_with_messages(client_id=client_id)
+    pairs: list[tuple[Optional[str], Lead]] = [
+        (r.get("id"), _lead_from_row(r)) for r in rows
+    ]
+    # Stage 7 — pull the set of (lead_id, status, "acted") tuples once and
+    # filter decisions against it. Empty set on failure / missing table →
+    # no suppression, identical to pre-Stage-7 behavior.
+    acted_keys = await store.list_acted_keys(client_id=client_id)
 
     counts = {
-        "total_leads": len(leads),
+        "total_leads": len(pairs),
         "at_risk": 0,
         "followup_pending": 0,
         "replied_after_followup": 0,
@@ -506,16 +609,26 @@ async def build_briefing(client_id: Optional[str] = None) -> dict:
     summary_bullets: list[str] = []
     booked_count = 0
 
-    for lead in leads:
+    for lead_id, lead in pairs:
         status = derive_status(lead)
         if status in counts:
             counts[status] += 1
+        if status == "booked":
+            booked_count += 1
+            continue  # booked never produces an open decision
+
+        # Stage 7 — gate open decisions only. Counts above stay accurate
+        # regardless of whether the operator has acted; counts represent
+        # lead reality, decisions represent open work.
+        if lead_id and (lead_id, status, "acted") in acted_keys:
+            continue
 
         name = lead.name or lead.phone
+        decision_id = f"decision:{status}:{lead.phone}"  # Stage 7 — status-aware id
 
         if status == "awaiting_attention":
             decisions.append({
-                "id": f"decision:{lead.phone}",
+                "id": decision_id,
                 "phone": lead.phone,
                 "lead_name": name,
                 "status": status,
@@ -529,7 +642,7 @@ async def build_briefing(client_id: Optional[str] = None) -> dict:
 
         elif status == "followup_pending":
             decisions.append({
-                "id": f"decision:{lead.phone}",
+                "id": decision_id,
                 "phone": lead.phone,
                 "lead_name": name,
                 "status": status,
@@ -543,7 +656,7 @@ async def build_briefing(client_id: Optional[str] = None) -> dict:
 
         elif status == "replied_after_followup":
             decisions.append({
-                "id": f"decision:{lead.phone}",
+                "id": decision_id,
                 "phone": lead.phone,
                 "lead_name": name,
                 "status": status,
@@ -557,7 +670,7 @@ async def build_briefing(client_id: Optional[str] = None) -> dict:
 
         elif status == "no_response":
             decisions.append({
-                "id": f"decision:{lead.phone}",
+                "id": decision_id,
                 "phone": lead.phone,
                 "lead_name": name,
                 "status": status,
@@ -568,9 +681,6 @@ async def build_briefing(client_id: Optional[str] = None) -> dict:
                 "confidence": "medium",
                 "value_hint": "סיכוי נמוך אך עדיין שווה ניסיון",
             })
-
-        elif status == "booked":
-            booked_count += 1
 
     if booked_count == 1:
         summary_bullets.append("ליד אחד חזר דרך מאיה וסומן כנקבע.")

@@ -373,6 +373,83 @@ async def briefing(client_id: Optional[str] = Query(default=None)):
     return await svc.build_briefing(client_id=client_id)
 
 
+@router.post(
+    "/maya-watch/decisions/{decision_id:path}/act",
+    dependencies=[Depends(_require_internal_key)],
+)
+async def act_on_decision(
+    decision_id: str,
+    client_id: Optional[str] = Query(default=None),
+    acted_by: Optional[str] = Header(default=None, alias="X-Maya-Watch-Acted-By"),
+):
+    """Mark an open decision as acted on by the operator.
+
+    Idempotent: a second call with the same (lead, decision_status, "acted")
+    triple returns 200 with the existing action_id and `already_acted: true`.
+
+    Tenant scope: when client_id is provided, the lead must belong to that
+    client — otherwise the lookup returns None → 404. When omitted (admin
+    path), any lead matches.
+
+    Decision id format: accepts the new `decision:{status}:{phone}` format
+    AND the legacy `decision:{phone}` format. For legacy ids the current
+    decision_status is derived from the lead state.
+
+    Never sends a WhatsApp message. Stage 7 v0 only persists the action
+    row; the briefing endpoint reads it to suppress already-acted
+    decisions on the next call.
+    """
+    try:
+        status_from_id, phone_from_id = svc.parse_decision_id(decision_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"malformed decision_id: {exc}",
+        )
+
+    pair = await svc.get_lead_with_id(phone_from_id, client_id=client_id)
+    if pair is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="lead not found in scope",
+        )
+    lead_id, lead = pair
+
+    decision_status = status_from_id or svc.derive_status(lead)
+    if not decision_status:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="cannot resolve decision_status",
+        )
+
+    row = await svc.record_decision_action(
+        lead_id=lead_id,
+        phone=lead.phone,
+        decision_status=decision_status,
+        # Tenant scope written on the row mirrors the lead's, even when the
+        # caller didn't pass client_id (admin path).
+        client_id=client_id or lead.client_id,
+        agent_id=lead.agent_id,
+        acted_by=acted_by,
+    )
+    if row is None:
+        # Most likely cause: maya_watch_actions table missing or Supabase
+        # 5xx. The store helper has already logged [MAYA-WATCH] details.
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="failed to record action",
+        )
+
+    return {
+        "ok": True,
+        "action_id": row.get("id"),
+        "decision_id": decision_id,
+        "lead_id": lead_id,
+        "decision_status": decision_status,
+        "already_acted": bool(row.get("already_acted")),
+    }
+
+
 @router.get("/maya-watch/health")
 async def health():
     leads = await svc.get_all_leads()  # admin view — overall count
