@@ -47,6 +47,7 @@ _SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
 
 _TABLE_LEADS = "maya_watch_leads"
 _TABLE_MESSAGES = "maya_watch_messages"
+_TABLE_ACTIONS = "maya_watch_actions"
 
 _TIMEOUT = 5.0
 
@@ -440,3 +441,143 @@ async def get_lead_with_messages(
     except Exception as exc:
         logger.error("[MAYA-WATCH] get_lead_with_messages failed phone=%s: %s", phone, exc)
         return None
+
+
+# ── Operator actions (Stage 7) ───────────────────────────────────────────
+# These helpers back the maya_watch_actions table (added by
+# supabase/migrations/create_maya_watch_actions.sql). They are intentionally
+# inert until the migration is applied — every failure path returns a
+# falsy/empty value so the rest of Maya Watch keeps working unchanged.
+# v0 callers are not yet wired (route + briefing suppression land in PR 3).
+
+
+async def record_action(
+    *,
+    lead_id: str,
+    phone: str,
+    decision_status: str,
+    client_id: Optional[str] = None,
+    agent_id: Optional[str] = None,
+    action_type: str = "acted",
+    acted_by: Optional[str] = None,
+    metadata: Optional[dict] = None,
+) -> Optional[dict]:
+    """
+    Insert one operator-action row, or return the existing row when the
+    unique constraint (lead_id, decision_status, action_type) already
+    matches — same observable result for repeat callers.
+
+    Returns the row dict on success, with an extra `already_acted` boolean
+    indicating whether this call inserted a new row (False) or matched an
+    existing one (True). Returns None on any failure (missing env, table
+    not yet present, network/Supabase error) so the route layer can stay
+    a thin pass-through without crashing the request path.
+    """
+    if not env_ready() or not lead_id or not phone or not decision_status:
+        return None
+    payload: dict[str, Any] = {
+        "lead_id": lead_id,
+        "client_id": client_id,
+        "agent_id": agent_id,
+        "phone": phone,
+        "decision_status": decision_status,
+        "action_type": action_type,
+        "acted_by": acted_by,
+        "metadata": metadata if metadata is not None else {},
+    }
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            resp = await client.post(
+                f"{_SUPABASE_URL}/rest/v1/{_TABLE_ACTIONS}",
+                json=payload,
+                headers=_headers("return=representation"),
+            )
+            # PostgREST returns 409 on a unique-constraint violation. Fetch
+            # the existing row and return it so the caller can stay
+            # idempotent without inspecting status codes.
+            if resp.status_code == 409:
+                existing = await client.get(
+                    f"{_SUPABASE_URL}/rest/v1/{_TABLE_ACTIONS}",
+                    params={
+                        "lead_id": f"eq.{lead_id}",
+                        "decision_status": f"eq.{decision_status}",
+                        "action_type": f"eq.{action_type}",
+                        "select": "*",
+                        "limit": "1",
+                    },
+                    headers=_read_headers(),
+                )
+                existing.raise_for_status()
+                rows = existing.json()
+                if not rows:
+                    logger.warning(
+                        "[MAYA-WATCH] record_action 409 but no matching row lead_id=%s status=%s",
+                        lead_id, decision_status,
+                    )
+                    return None
+                row = rows[0]
+                row["already_acted"] = True
+                logger.info(
+                    "[MAYA-WATCH] record_action idempotent lead_id=%s status=%s action_id=%s",
+                    lead_id, decision_status, row.get("id"),
+                )
+                return row
+
+            resp.raise_for_status()
+            rows = resp.json()
+        if not rows:
+            return None
+        row = rows[0]
+        row["already_acted"] = False
+        logger.info(
+            "[MAYA-WATCH] record_action inserted lead_id=%s status=%s action_id=%s",
+            lead_id, decision_status, row.get("id"),
+        )
+        return row
+    except Exception as exc:
+        logger.error(
+            "[MAYA-WATCH] record_action failed lead_id=%s status=%s: %s",
+            lead_id, decision_status, exc,
+        )
+        return None
+
+
+async def list_acted_keys(
+    client_id: Optional[str] = None,
+) -> set[tuple[str, str, str]]:
+    """
+    Return the set of (lead_id, decision_status, action_type) tuples that
+    represent decisions the operator has already acted on for the given
+    tenant scope. Briefing (PR 3) will use this to suppress already-acted
+    decisions from the open list.
+
+    Fail-safe: returns an empty set on any failure — missing table (PR 1
+    not yet applied), missing env, network errors, or Supabase 5xx. An
+    empty set causes briefing to behave exactly as today (no suppression),
+    so this helper can land safely before the migration runs.
+    """
+    if not env_ready():
+        return set()
+    params: dict = {"select": "lead_id,decision_status,action_type"}
+    if client_id is not None:
+        params["client_id"] = f"eq.{client_id}"
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            resp = await client.get(
+                f"{_SUPABASE_URL}/rest/v1/{_TABLE_ACTIONS}",
+                params=params,
+                headers=_read_headers(),
+            )
+            resp.raise_for_status()
+            rows = resp.json()
+        keys: set[tuple[str, str, str]] = set()
+        for r in rows:
+            lead_id = r.get("lead_id")
+            status = r.get("decision_status")
+            atype = r.get("action_type")
+            if lead_id and status and atype:
+                keys.add((lead_id, status, atype))
+        return keys
+    except Exception as exc:
+        logger.warning("[MAYA-WATCH] list_acted_keys failed: %s", exc)
+        return set()
