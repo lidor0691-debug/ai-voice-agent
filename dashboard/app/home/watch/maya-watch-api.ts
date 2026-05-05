@@ -159,6 +159,62 @@ export async function fetchMayaWatch(clientId?: string): Promise<MayaWatchLive |
   }
 }
 
+// ── Action endpoint (Stage 7) ─────────────────────────────────────────
+// Server-side helper that POSTs to Railway's
+// `/maya-watch/decisions/{id}/act`. Called by the dashboard route handler
+// at /api/home/watch/decisions/[decisionId]/act/route.ts. The internal key
+// is read from process.env on the server only — this module is never
+// imported by a client component, so the key cannot leak to the browser.
+
+export interface ActDecisionResult {
+  /** True iff Railway returned 2xx. */
+  ok: boolean;
+  /** Upstream HTTP status. 0 means the call itself failed (timeout, network). */
+  status: number;
+  /** Parsed JSON body from Railway. Pass-through to the route handler so
+   *  the browser sees the same shape regardless of success/error. */
+  body: unknown;
+}
+
+export async function actDecision(
+  decisionId: string,
+  opts: { clientId?: string; actedBy?: string } = {},
+): Promise<ActDecisionResult> {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  const headers: Record<string, string> = {};
+  const key = process.env.MAYA_WATCH_INTERNAL_KEY;
+  if (key) headers["X-Maya-Watch-Key"] = key;
+  if (opts.actedBy) headers["X-Maya-Watch-Acted-By"] = opts.actedBy;
+
+  // Encode the decision id ourselves — it contains ':' and '+' which must
+  // travel as %3A / %2B on the path. URL.searchParams handles client_id.
+  const path = `/maya-watch/decisions/${encodeURIComponent(decisionId)}/act`;
+  const url = new URL(`${BASE}${path}`);
+  if (opts.clientId) url.searchParams.set("client_id", opts.clientId);
+
+  try {
+    const res = await fetch(url.toString(), {
+      method: "POST",
+      signal: ctrl.signal,
+      cache: "no-store",
+      headers,
+    });
+    let body: unknown = null;
+    try {
+      body = await res.json();
+    } catch {
+      // Empty / non-JSON response — leave null.
+    }
+    return { ok: res.ok, status: res.status, body };
+  } catch (e) {
+    console.warn("[/home/watch] actDecision failed:", e);
+    return { ok: false, status: 0, body: { error: "upstream_error" } };
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────
 
 function safeCounts(c?: ApiCounts): Required<ApiCounts> {
@@ -336,6 +392,13 @@ function buildHeroFromDecision(
   }
 
   return {
+    // Stage 7 — surface the backend decision id + phone so the operator's
+    // "אישור והפעלה" click can call POST /maya-watch/decisions/{id}/act.
+    // Both fields stay undefined for non-live hero variants (quietLiveHero,
+    // liveFetchFailedState) — the button reads `id` and disables itself
+    // when absent so the action surface only fires on real decisions.
+    id: d.id?.trim() || undefined,
+    phone: d.phone?.trim() || undefined,
     target: d.lead_name?.trim() || d.phone || "—",
     value: TEMP_VALUE_LABEL,
     headline: (d.situation?.trim() || headlineFallback || "החלטה ממתינה").slice(0, 140),

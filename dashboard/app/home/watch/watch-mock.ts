@@ -89,6 +89,12 @@ export interface OrbitNode {
 }
 
 export interface HeroRecommendation {
+  /** Backend decision id of the form `decision:{status}:{phone}`. Present
+   *  only on live mappings — quiet-live, fetch-failed, and demo states
+   *  leave it undefined and the action button is rendered disabled. */
+  id?: string;
+  /** Lead phone number (E.164). Present alongside `id` on live mappings. */
+  phone?: string;
   target: string;
   value: string;
   headline: string;
