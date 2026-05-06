@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check, X, ChevronRight } from "lucide-react";
 import type { HeroRecommendation } from "../watch-mock";
@@ -22,6 +22,16 @@ export function HeroRecommendationCard({ hero, lang, onApprove, onDecline }: Her
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Reset local state when the underlying decision changes — e.g. after
+  // router.refresh() lands a fresh hero following a successful action.
+  // useState survives rerenders on the same component instance, so without
+  // this effect the `pending` flag would stay true forever and the button
+  // would be stuck on "מעדכן..." even after the new hero rendered.
+  useEffect(() => {
+    setPending(false);
+    setError(null);
+  }, [hero.id]);
 
   // Stage 7 — the action surface only fires when the live mapping carried
   // a backend decision id. Quiet-live, fetch-failed, and demo states leave
@@ -49,9 +59,11 @@ export function HeroRecommendationCard({ hero, lang, onApprove, onDecline }: Her
       // monitoring state. No optimistic removal — server is source of truth.
       onApprove?.();
       router.refresh();
-      // Leave `pending` true through refresh so the button stays disabled
-      // until React re-renders with the new hero. If refresh fails, the
-      // user sees the spinner — better than re-enabling on a stale card.
+      // `pending` is reset by the [hero.id] effect above once router.refresh
+      // brings in the new decision. If refresh somehow fails to change the
+      // hero (e.g. backend didn't suppress), the button stays disabled until
+      // the user navigates or hard-refreshes — acceptable degraded mode
+      // since the action insert itself is durable.
     } catch {
       setError(t.actError[lang]);
       setPending(false);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useCallback } from "react";
 import { Watch } from "./Watch";
 import { HomeShell } from "../_shared/HomeShell";
 import type { WatchData } from "./watch-mock";
@@ -17,7 +17,11 @@ interface WatchShellProps {
 export function WatchShell({ initialData }: WatchShellProps) {
   const { lang } = useLanguage();
 
-  const [data] = useState<WatchData>(initialData);
+  // Pass the prop straight through — never wrap it in useState. router.refresh()
+  // re-runs page.tsx server-side and feeds a new initialData to this client
+  // component; useState would freeze the first value and ignore subsequent
+  // server-rendered updates, breaking the post-action hero swap.
+  const data = initialData;
 
   const handleApprove = useCallback(() => {
     console.log("[Maya] approved:", data.hero.target);
