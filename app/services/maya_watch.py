@@ -588,14 +588,18 @@ async def build_briefing(client_id: Optional[str] = None) -> dict:
     # Stage 7 — read raw rows so we have lead.id for the suppression check.
     # Same network cost as get_all_leads; we just keep the uuid alongside
     # the dataclass instead of dropping it on the floor.
-    rows = await store.get_all_leads_with_messages(client_id=client_id)
+    # Stage 8B — fetch the three Supabase round-trips concurrently. Each
+    # is independent and adds ~50-100ms; serialized would compound. Each
+    # helper has its own fail-safe so partial failures (e.g. actions table
+    # blip) don't take down the whole briefing.
+    rows, acted_keys, handled = await asyncio.gather(
+        store.get_all_leads_with_messages(client_id=client_id),
+        store.list_acted_keys(client_id=client_id),
+        store.get_handled_today(client_id=client_id, limit=3),
+    )
     pairs: list[tuple[Optional[str], Lead]] = [
         (r.get("id"), _lead_from_row(r)) for r in rows
     ]
-    # Stage 7 — pull the set of (lead_id, status, "acted") tuples once and
-    # filter decisions against it. Empty set on failure / missing table →
-    # no suppression, identical to pre-Stage-7 behavior.
-    acted_keys = await store.list_acted_keys(client_id=client_id)
 
     counts = {
         "total_leads": len(pairs),
@@ -718,11 +722,34 @@ async def build_briefing(client_id: Optional[str] = None) -> dict:
     else:
         headline = "מאיה במעקב. אין כרגע דליפות דחופות."
 
+    # Stage 8B — enrich recent action rows with lead_name from the leads
+    # already loaded above; falls back to phone if the lead isn't in scope
+    # (e.g. cross-tenant aggregation in admin mode where the lead row
+    # belongs to a different client and wasn't fetched).
+    name_by_id: dict[str, str] = {
+        lead_id: (lead.name or lead.phone)
+        for lead_id, lead in pairs
+        if lead_id
+    }
+    handled_today = {
+        "count": handled.get("count", 0),
+        "recent": [
+            {
+                "lead_name": name_by_id.get(r.get("lead_id"), r.get("phone") or "—"),
+                "phone": r.get("phone"),
+                "decision_status": r.get("decision_status"),
+                "acted_at": r.get("acted_at"),
+            }
+            for r in handled.get("recent", [])
+        ],
+    }
+
     return {
         "headline": headline,
         "summary_bullets": summary_bullets,
         "decisions": decisions,
         "counts": counts,
+        "handled_today": handled_today,
     }
 
 
