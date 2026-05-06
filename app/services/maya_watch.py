@@ -640,6 +640,25 @@ async def build_briefing(client_id: Optional[str] = None) -> dict:
                 "value_hint": "פוטנציאל לסגירה גבוה אם יקבל מענה מהיר",
             })
 
+        # Stage 8A — at_risk: question stayed unanswered past RISK_AFTER_MINUTES
+        # without any followup. Same lifecycle as awaiting_attention but with
+        # urgency framing — the operator should reach out personally now.
+        # Sits next to awaiting_attention because both stem from the same root
+        # condition (has_question + no followup_sent_at), only differ by elapsed.
+        elif status == "at_risk":
+            decisions.append({
+                "id": decision_id,
+                "phone": lead.phone,
+                "lead_name": name,
+                "status": status,
+                "situation": "הליד שאל שאלה ונשאר בלי מענה יותר מדי זמן.",
+                "why_it_matters": "זה רגע שבו ההתעניינות יכולה להתקרר. תגובה קצרה עכשיו יכולה להחזיר את השיחה למסלול.",
+                "recommendation": "פנה אל הליד עכשיו עם הודעה קצרה ואישית. כדאי להכיר בעיכוב ואז להציע צעד ברור.",
+                "suggested_message": "סליחה על העיכוב — אני כאן עכשיו. רוצה שנקבע זמן קצר לדבר?",
+                "confidence": "high",
+                "value_hint": "ליד בסיכון — עדיין אפשר להחזיר אותו לשיחה.",
+            })
+
         elif status == "followup_pending":
             decisions.append({
                 "id": decision_id,
