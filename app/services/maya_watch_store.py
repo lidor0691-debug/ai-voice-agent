@@ -581,3 +581,74 @@ async def list_acted_keys(
     except Exception as exc:
         logger.warning("[MAYA-WATCH] list_acted_keys failed: %s", exc)
         return set()
+
+
+# ── Activity feedback (Stage 8B) ─────────────────────────────────────────
+# Operator activity summary — distinct from `counts` (lead reality).
+# Reads the same maya_watch_actions table but with a date filter so the
+# briefing can surface "טיפלת היום: N לידים".
+
+
+def _utc_today_iso() -> str:
+    """Start of the current day in UTC, ISO-formatted for PostgREST.
+
+    v0 caveat: this uses UTC, not the operator's local timezone. An action
+    recorded at 22:00 IST drops out of "today" at 02:00 IST when UTC rolls
+    over. Acceptable for v0; revisit with a client-supplied `since` ISO if
+    the misalignment becomes a friction point.
+    """
+    now = datetime.now(timezone.utc)
+    midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    return midnight.isoformat()
+
+
+async def get_handled_today(
+    client_id: Optional[str] = None,
+    limit: int = 3,
+) -> dict:
+    """
+    Return a summary of operator actions recorded today (UTC).
+
+    Shape:
+        {
+            "count": int,           # total acted rows today within scope
+            "recent": list[dict],   # up to `limit`, ordered by acted_at desc
+                                    #   each item: {lead_id, phone,
+                                    #               decision_status, acted_at}
+        }
+
+    Tenant scope: when client_id is provided, filters to that tenant.
+    When None, aggregates across all tenants (admin view).
+
+    Fail-safe: returns {"count": 0, "recent": []} on any error — missing
+    table, missing env, network/Supabase blip. Briefing keeps working.
+
+    Note: lead_name is NOT resolved here. The service layer joins it from
+    the leads dict it already loaded for the briefing.
+    """
+    empty: dict = {"count": 0, "recent": []}
+    if not env_ready() or limit < 0:
+        return empty
+    params: dict = {
+        "action_type": "eq.acted",
+        "acted_at": f"gte.{_utc_today_iso()}",
+        "select": "lead_id,phone,decision_status,acted_at",
+        "order": "acted_at.desc",
+    }
+    if client_id is not None:
+        params["client_id"] = f"eq.{client_id}"
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            resp = await client.get(
+                f"{_SUPABASE_URL}/rest/v1/{_TABLE_ACTIONS}",
+                params=params,
+                headers=_read_headers(),
+            )
+            resp.raise_for_status()
+            rows = resp.json()
+        # Volume per tenant per day is bounded; len(rows) is fine vs adding
+        # the count=exact header round-trip.
+        return {"count": len(rows), "recent": rows[:limit]}
+    except Exception as exc:
+        logger.warning("[MAYA-WATCH] get_handled_today failed: %s", exc)
+        return empty
