@@ -66,6 +66,17 @@ export const watchStrings = {
     copy:         { he: "העתק",                     en: "Copy" },
     copied:       { he: "הועתק",                    en: "Copied" },
     copyError:    { he: "לא הצלחנו להעתיק",          en: "Copy failed" },
+    preview:      { he: "תצוגה מקדימה",              en: "Preview" },
+  },
+
+  sendPreview: {
+    warning:     { he: "עדיין לא נשלח ללקוח",                  en: "Not sent to the lead yet" },
+    draftLabel:  { he: "הודעה לשליחה",                          en: "Message to send" },
+    copyButton:  { he: "העתק הודעה",                            en: "Copy message" },
+    copied:      { he: "הועתק",                                 en: "Copied" },
+    copyError:   { he: "לא הצלחנו להעתיק",                       en: "Copy failed" },
+    close:       { he: "סגור",                                  en: "Close" },
+    futureHint:  { he: "שליחה ממאיה תתווסף בשלב הבא",            en: "Send via Maya is coming in a later stage" },
   },
 
   prompts: {

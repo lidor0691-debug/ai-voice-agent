@@ -1,9 +1,11 @@
 "use client";
 
-import { Check, Copy, Mic, Sparkles } from "lucide-react";
+import { Check, Copy, Eye, Mic, Sparkles } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import type { HeroRecommendation } from "../watch-mock";
 import { watchStrings } from "../watch-strings";
 import type { Lang } from "../../_shared/home-strings";
+import { SendPreviewModal } from "./SendPreviewModal";
 
 interface TalkToMayaDockProps {
   prompts: string[];
@@ -14,14 +16,28 @@ interface TalkToMayaDockProps {
    *  The parent (Watch.tsx) typically passes hero.suggestedMessage with
    *  hero.action as a fallback; undefined hides the chip entirely. */
   suggestionText?: string;
+  /** Stage 10A — current hero used by the Send Preview modal (lead name,
+   *  phone, status label). When absent (quiet/failed/empty hero), the
+   *  preview button is hidden because there's no real lead context to
+   *  preview against. */
+  hero?: HeroRecommendation;
 }
 
-export function TalkToMayaDock({ prompts, lang, onSend, suggestionText }: TalkToMayaDockProps) {
+export function TalkToMayaDock({ prompts, lang, onSend, suggestionText, hero }: TalkToMayaDockProps) {
   const [text, setText] = useState("");
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const t = watchStrings.dock;
+
+  // Stage 10A — auto-close the preview modal when the underlying hero
+  // changes (e.g. router.refresh() lands a new decision after an act/undo
+  // elsewhere). Prevents the modal from showing stale lead context for a
+  // draft that no longer matches the operator's current hero.
+  useEffect(() => {
+    setPreviewOpen(false);
+  }, [hero?.id]);
 
   // Stage 9C — auto-revert the success indicator after a brief moment so
   // the icon swaps back to Copy. Cleanup cancels the timer on unmount or
@@ -61,6 +77,7 @@ export function TalkToMayaDock({ prompts, lang, onSend, suggestionText }: TalkTo
   }
 
   return (
+    <>
     <div className="
       sticky bottom-4 mx-auto max-w-[920px] w-full
       bg-surface-2/85 backdrop-blur-xl
@@ -106,6 +123,20 @@ export function TalkToMayaDock({ prompts, lang, onSend, suggestionText }: TalkTo
           placeholder={t.placeholder[lang]}
           className="input-base flex-1 h-10 px-3 rounded-xl bg-surface-1/80 border border-border-subtle text-[13px] text-white placeholder:text-white/35 focus:outline-none focus:ring-1 focus:ring-brand-400/40"
         />
+        {/* Stage 10A — preview button. Visible only when there's a draft AND
+            a real hero — quiet/failed states have no lead context worth
+            previewing. Secondary visual weight (ghost) keeps the Stage 9C
+            Copy button as the primary affordance. */}
+        {Boolean(text.trim() && hero?.id) && (
+          <button
+            type="button"
+            onClick={() => setPreviewOpen(true)}
+            aria-label={t.preview[lang]}
+            className="w-10 h-10 rounded-xl bg-white/5 hover:bg-white/10 ring-1 ring-border-subtle grid place-items-center text-white/75 hover:text-white transition-colors"
+          >
+            <Eye size={16} />
+          </button>
+        )}
         {/* Stage 9C — copy-to-clipboard, NOT send. Icon flips to Check during
             the brief success window. aria-label reflects current state so
             screen readers announce "הועתק" right after the click. */}
@@ -137,5 +168,15 @@ export function TalkToMayaDock({ prompts, lang, onSend, suggestionText }: TalkTo
         </div>
       )}
     </div>
+
+    {previewOpen && hero && text.trim() && (
+      <SendPreviewModal
+        hero={hero}
+        draftText={text}
+        lang={lang}
+        onClose={() => setPreviewOpen(false)}
+      />
+    )}
+    </>
   );
 }
