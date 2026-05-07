@@ -22,6 +22,15 @@ interface WatchProps {
 }
 
 export function Watch({ data, lang, onApprove, onDecline, onAsk }: WatchProps) {
+  // Stage 9B — derive the smart-suggest draft text from the current hero.
+  // suggestedMessage wins when present; falls back to action text for statuses
+  // like 'followup_pending' that have no canned message but still have a
+  // recommendation worth drafting. Quiet/failed states leave both unset
+  // (action='—'), which evaluates to undefined and hides the chip entirely.
+  const suggestionText =
+    data.hero.suggestedMessage ||
+    (data.hero.action && data.hero.action !== "—" ? data.hero.action : undefined);
+
   return (
     <>
       {/* Narrow viewport fallback — below sm (640px). Command-center UI requires real estate. */}
@@ -96,7 +105,12 @@ export function Watch({ data, lang, onApprove, onDecline, onAsk }: WatchProps) {
           </main>
 
           <div className="flex-none px-5 pb-4">
-            <TalkToMayaDock prompts={data.prompts} lang={lang} onSend={onAsk} />
+            <TalkToMayaDock
+              prompts={data.prompts}
+              lang={lang}
+              onSend={onAsk}
+              suggestionText={suggestionText}
+            />
           </div>
         </div>
       </div>

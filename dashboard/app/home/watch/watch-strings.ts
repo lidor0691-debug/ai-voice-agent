@@ -59,9 +59,10 @@ export const watchStrings = {
   },
 
   dock: {
-    placeholder: { he: "שאל את מאיה…",            en: "Ask Maya…" },
-    listening:   { he: "מקשיב…",                   en: "Listening…" },
-    suggestions: { he: "הצעות",                    en: "Suggestions" },
+    placeholder:  { he: "שאל את מאיה…",            en: "Ask Maya…" },
+    listening:    { he: "מקשיב…",                   en: "Listening…" },
+    suggestions:  { he: "הצעות",                    en: "Suggestions" },
+    smartSuggest: { he: "הצע לי עדכון חכם",         en: "Suggest a smart update" },
   },
 
   prompts: {
