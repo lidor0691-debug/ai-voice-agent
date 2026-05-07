@@ -521,6 +521,35 @@ async def record_decision_action(
     )
 
 
+async def undo_decision_action(
+    *,
+    lead_id: str,
+    phone: str,
+    decision_status: str,
+    client_id: Optional[str],
+    agent_id: Optional[str],
+    acted_by: Optional[str],
+) -> dict:
+    """
+    Service-layer wrapper around store.record_undone (Stage 8C).
+
+    Returns the discriminated dict from the store:
+        {found_acted, ok, already_undone, row}
+    The route layer maps:
+        found_acted=False  → 404
+        ok=False           → 500
+        ok=True            → 200 with row + already_undone
+    """
+    return await store.record_undone(
+        lead_id=lead_id,
+        phone=phone,
+        decision_status=decision_status,
+        client_id=client_id,
+        agent_id=agent_id,
+        acted_by=acted_by,
+    )
+
+
 def serialize_lead(lead: Lead) -> dict:
     return {
         "phone": lead.phone,
