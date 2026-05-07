@@ -37,6 +37,11 @@ export const watchStrings = {
     wins:          { he: "ניצחונות השבוע",          en: "Wins this week" },
     patterns:      { he: "דפוסים שזוהו",            en: "Patterns detected" },
     constellation: { he: "מערך הלקוחות",           en: "Customer constellation" },
+    handledToday:  { he: "טיפלת היום",              en: "Handled today" },
+  },
+
+  handledToday: {
+    empty: { he: "עדיין לא טופלו לידים היום", en: "No leads handled yet today" },
   },
 
   dock: {

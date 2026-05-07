@@ -4,6 +4,7 @@ import { MayaCore, ConstellationRing } from "./parts/MayaCore";
 import { HeroRecommendationCard } from "./parts/HeroRecommendation";
 import { ActivityRail } from "./parts/ActivityRail";
 import { VoiceCallsPanel } from "./parts/VoiceCallsPanel";
+import { HandledTodayPanel } from "./parts/HandledTodayPanel";
 import { WhatsAppPanel } from "./parts/WhatsAppPanel";
 import { LeadPipeline } from "./parts/LeadPipeline";
 import { TalkToMayaDock } from "./parts/TalkToMayaDock";
@@ -86,6 +87,7 @@ export function Watch({ data, lang, onApprove, onDecline, onAsk }: WatchProps) {
               {/* Right — live panels */}
               <div className="col-span-12 xl:col-span-3 order-2 xl:order-3 flex flex-col gap-3 xl:h-full xl:overflow-y-auto">
                 <VoiceCallsPanel calls={data.calls} lang={lang} />
+                <HandledTodayPanel handled={data.handledToday} lang={lang} />
                 <WhatsAppPanel threads={data.whatsapp} lang={lang} />
                 <LeadPipeline stages={data.leads} lang={lang} />
               </div>
