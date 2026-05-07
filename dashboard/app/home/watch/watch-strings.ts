@@ -41,7 +41,10 @@ export const watchStrings = {
   },
 
   handledToday: {
-    empty: { he: "עדיין לא טופלו לידים היום", en: "No leads handled yet today" },
+    empty:        { he: "עדיין לא טופלו לידים היום", en: "No leads handled yet today" },
+    undo:         { he: "בטל",                       en: "Undo" },
+    undoPending:  { he: "מבטל...",                   en: "Undoing..." },
+    undoError:    { he: "לא הצלחנו לבטל — נסה שוב",   en: "Undo failed — please retry" },
   },
 
   heroDetails: {
