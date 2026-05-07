@@ -231,6 +231,46 @@ export async function actDecision(
   }
 }
 
+// Stage 8C-2 — Undo a previously acted decision. Mirrors actDecision
+// exactly except for the path suffix; returns the same ActDecisionResult
+// shape so the route handler can pass-through Railway's status verbatim.
+export async function undoDecision(
+  decisionId: string,
+  opts: { clientId?: string; actedBy?: string } = {},
+): Promise<ActDecisionResult> {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  const headers: Record<string, string> = {};
+  const key = process.env.MAYA_WATCH_INTERNAL_KEY;
+  if (key) headers["X-Maya-Watch-Key"] = key;
+  if (opts.actedBy) headers["X-Maya-Watch-Acted-By"] = opts.actedBy;
+
+  const path = `/maya-watch/decisions/${encodeURIComponent(decisionId)}/undo`;
+  const url = new URL(`${BASE}${path}`);
+  if (opts.clientId) url.searchParams.set("client_id", opts.clientId);
+
+  try {
+    const res = await fetch(url.toString(), {
+      method: "POST",
+      signal: ctrl.signal,
+      cache: "no-store",
+      headers,
+    });
+    let body: unknown = null;
+    try {
+      body = await res.json();
+    } catch {
+      // Empty / non-JSON response — leave null.
+    }
+    return { ok: res.ok, status: res.status, body };
+  } catch (e) {
+    console.warn("[/home/watch] undoDecision failed:", e);
+    return { ok: false, status: 0, body: { error: "upstream_error" } };
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────
 
 function safeCounts(c?: ApiCounts): Required<ApiCounts> {
