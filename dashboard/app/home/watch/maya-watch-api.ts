@@ -15,6 +15,8 @@ import {
   type Alert,
   type AlertSeverity,
   type LeadStage,
+  type HandledToday,
+  type HandledTodayItem,
 } from "./watch-mock";
 
 const BASE = "https://ai-voice-agent-production-0a55.up.railway.app";
@@ -49,11 +51,25 @@ interface ApiDecision {
   value_hint?: string;
 }
 
+// Stage 8B — operator activity feedback. Optional so older payloads still parse.
+interface ApiHandledTodayItem {
+  lead_name?: string;
+  phone?: string;
+  decision_status?: string;
+  acted_at?: string;
+}
+
+interface ApiHandledToday {
+  count?: number;
+  recent?: ApiHandledTodayItem[];
+}
+
 interface ApiBriefing {
   headline?: string;
   summary_bullets?: string[];
   decisions?: ApiDecision[];
   counts?: ApiCounts;
+  handled_today?: ApiHandledToday;
 }
 
 interface ApiTimedBody {
@@ -584,6 +600,30 @@ function buildAlertsFromBriefing(briefing: ApiBriefing, counts: Required<ApiCoun
   return alerts;
 }
 
+// Stage 8B — surface "טיפלת היום" rows. Backend already trims to 3; we
+// defensively re-clamp here so a malformed payload can't blow up the panel.
+// lead_name comes from the backend (joined from leads dict server-side);
+// fall back to phone slice when missing so the row never renders blank.
+function mapHandledToday(api?: ApiHandledToday): HandledToday {
+  if (!api) return { count: 0, recent: [] };
+  const recent: HandledTodayItem[] = (api.recent ?? []).slice(0, 3).map(r => {
+    const phone = (r.phone ?? "").trim();
+    const leadName = r.lead_name?.trim() || (phone ? `ליד ${phone.slice(-4)}` : "ליד");
+    const status = r.decision_status?.trim() ?? "";
+    return {
+      leadName,
+      phone,
+      status,
+      statusLabel: statusLabelHe(status || undefined),
+      ago: relativeAgo(r.acted_at),
+    };
+  });
+  return {
+    count: typeof api.count === "number" ? api.count : 0,
+    recent,
+  };
+}
+
 function buildLeadStagesFromCounts(counts: Required<ApiCounts>): LeadStage[] {
   const total = Math.max(counts.total_leads, 1);
   return [
@@ -647,6 +687,7 @@ export function quietLiveState(identity?: AuthIdentity): WatchData {
     wins: [],
     patterns: [],
     agentToday: [],
+    handledToday: { count: 0, recent: [] },
     prompts: watchMock.prompts,  // UI scaffolding (suggested questions, not business activity)
   };
 }
@@ -723,6 +764,7 @@ export function mapToWatchData(live: MayaWatchLive, identity?: AuthIdentity): Wa
     wins: [],                                                   // no live source yet — never mock
     patterns: [],                                               // no live source yet — never mock
     agentToday: [],                                             // no live source yet — never mock
+    handledToday: mapHandledToday(live.briefing.handled_today), // Stage 8B — operator activity
     prompts: watchMock.prompts,                                 // UI scaffolding
   };
 }

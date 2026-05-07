@@ -111,6 +111,27 @@ export interface HeroRecommendation {
   };
 }
 
+/** Stage 8B — operator activity feedback for "טיפלת היום" panel. */
+export interface HandledTodayItem {
+  /** Display name for the lead, falls back to phone string when name is missing. */
+  leadName: string;
+  /** Lead phone in E.164 form (used as a stable React key alongside acted_at). */
+  phone: string;
+  /** Raw decision-status enum (e.g. 'replied_after_followup') — kept for tone hooks. */
+  status: string;
+  /** Hebrew status label rendered next to the lead name (e.g. 'חזר אחרי שחזור'). */
+  statusLabel: string;
+  /** Pre-formatted relative time, e.g. '12 דק׳'. Mapper computes once at render. */
+  ago: string;
+}
+
+export interface HandledToday {
+  /** Total acted-today rows for this scope (admin or single client). */
+  count: number;
+  /** Up to 3 most recent items, ordered acted_at desc. */
+  recent: HandledTodayItem[];
+}
+
 export type AlertSeverity = "high" | "med" | "low";
 
 export interface Alert {
@@ -156,6 +177,9 @@ export interface WatchData {
   wins: Win[];
   patterns: Pattern[];
   agentToday: AgentToday[];
+  /** Stage 8B — populated from /briefing's `handled_today`. Empty default
+   *  for quiet-live / fetch-failed / mock states. */
+  handledToday: HandledToday;
   prompts: string[];
 }
 
@@ -248,6 +272,8 @@ export const watchMock: WatchData = {
     { label: "שיחות נכנסות",  value: "4/6" },
     { label: "וואטסאפ",       value: "38" },
   ],
+
+  handledToday: { count: 0, recent: [] },
 
   prompts: [
     "מה קרה הבוקר?",
