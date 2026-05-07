@@ -50,6 +50,10 @@ export interface WhatsAppThread {
   ago: string;
   by: "AI" | "human";
   unread: boolean;
+  /** Stage 9A — lead phone (E.164). Used by HeroDetailsModal to match the
+   *  current hero decision against its conversation thread without parsing
+   *  the synthetic `id` string. Optional so legacy mock threads still load. */
+  phone?: string;
   /** Present when this thread has an outgoing Maya followup with a known delivery state. */
   delivery?: DeliveryInfo;
   /** Bare lead/customer name without any sender prefix — used as modal header. */
@@ -95,6 +99,14 @@ export interface HeroRecommendation {
   id?: string;
   /** Lead phone number (E.164). Present alongside `id` on live mappings. */
   phone?: string;
+  /** Stage 9A — raw decision_status enum (e.g. 'replied_after_followup').
+   *  Present on live mappings only; modal uses it for the Hebrew status
+   *  label via existing statusLabelHe() helper. */
+  status?: string;
+  /** Stage 9A — operator-pasteable Hebrew message suggested for this
+   *  decision. Some statuses (e.g. 'followup_pending') intentionally have
+   *  no suggestion; the details modal hides that section when absent. */
+  suggestedMessage?: string;
   target: string;
   value: string;
   headline: string;

@@ -415,6 +415,11 @@ function buildHeroFromDecision(
     // when absent so the action surface only fires on real decisions.
     id: d.id?.trim() || undefined,
     phone: d.phone?.trim() || undefined,
+    // Stage 9A — preserve raw status + suggested message for HeroDetailsModal.
+    // Both stay undefined for non-live hero variants; the modal closes/hides
+    // sections gracefully when absent.
+    status: d.status?.trim() || undefined,
+    suggestedMessage: d.suggested_message?.trim() || undefined,
     target: d.lead_name?.trim() || d.phone || "—",
     value: TEMP_VALUE_LABEL,
     headline: (d.situation?.trim() || headlineFallback || "החלטה ממתינה").slice(0, 140),
@@ -565,6 +570,9 @@ function buildWhatsAppFromLeads(leads: ApiLead[]): WhatsAppThread[] {
       ago: lastMsg.ago,
       by,
       unread: inboundNewer,
+      // Stage 9A — explicit phone field so HeroDetailsModal can match by
+      // hero.phone without parsing the synthetic id string.
+      phone: l.phone ?? undefined,
       delivery,
       leadName,
       messages,

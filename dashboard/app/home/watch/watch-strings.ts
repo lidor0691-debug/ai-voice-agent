@@ -44,6 +44,17 @@ export const watchStrings = {
     empty: { he: "עדיין לא טופלו לידים היום", en: "No leads handled yet today" },
   },
 
+  heroDetails: {
+    closeAria:        { he: "סגור",                    en: "Close" },
+    whyItMatters:     { he: "למה זה חשוב",              en: "Why it matters" },
+    recommendation:   { he: "המלצה",                    en: "Recommendation" },
+    suggestedMessage: { he: "הודעה מוצעת",              en: "Suggested message" },
+    confidenceLabel:  { he: "ביטחון",                   en: "Confidence" },
+    impactLabel:      { he: "השפעה צפויה",              en: "Expected impact" },
+    conversation:     { he: "שיחה אחרונה",              en: "Recent conversation" },
+    noConversation:   { he: "אין שיחה אחרונה זמינה",    en: "No recent conversation available" },
+  },
+
   dock: {
     placeholder: { he: "שאל את מאיה…",            en: "Ask Maya…" },
     listening:   { he: "מקשיב…",                   en: "Listening…" },

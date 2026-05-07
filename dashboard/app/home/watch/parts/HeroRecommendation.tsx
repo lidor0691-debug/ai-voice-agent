@@ -1,15 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check, X, ChevronRight } from "lucide-react";
-import type { HeroRecommendation } from "../watch-mock";
+import type { HeroRecommendation, WhatsAppThread } from "../watch-mock";
 import { watchStrings } from "../watch-strings";
 import type { Lang } from "../../_shared/home-strings";
+import { HeroDetailsModal } from "./HeroDetailsModal";
 
 interface HeroRecommendationProps {
   hero: HeroRecommendation;
   lang: Lang;
+  /** Stage 9A — full WhatsApp thread list, used by HeroDetailsModal to find
+   *  the conversation matching this hero's phone. Optional so the card still
+   *  renders in contexts where threads aren't passed. */
+  whatsapp?: WhatsAppThread[];
   /** Legacy parent log handler — fires after a successful action so the
    *  WatchShell console.log still surfaces. The act flow itself does NOT
    *  depend on this prop. */
@@ -17,20 +22,36 @@ interface HeroRecommendationProps {
   onDecline?: () => void;
 }
 
-export function HeroRecommendationCard({ hero, lang, onApprove, onDecline }: HeroRecommendationProps) {
+export function HeroRecommendationCard({ hero, lang, whatsapp, onApprove, onDecline }: HeroRecommendationProps) {
   const t = watchStrings.hero;
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+
+  // Stage 9A — pre-filter the matching thread by phone so the modal stays
+  // a thin presenter. Returns undefined when no live phone or no matching
+  // thread (modal renders the empty conversation state).
+  const matchingThread = useMemo<WhatsAppThread | undefined>(() => {
+    if (!hero.phone || !whatsapp || whatsapp.length === 0) return undefined;
+    return whatsapp.find(t => t.phone === hero.phone);
+  }, [hero.phone, whatsapp]);
+
+  // Stage 9A — disable details when there's no actionable hero. Quiet/failed
+  // states have no rich context to show.
+  const canShowDetails = Boolean(hero.id);
 
   // Reset local state when the underlying decision changes — e.g. after
   // router.refresh() lands a fresh hero following a successful action.
   // useState survives rerenders on the same component instance, so without
   // this effect the `pending` flag would stay true forever and the button
   // would be stuck on "מעדכן..." even after the new hero rendered.
+  // Stage 9A — also auto-closes the details modal when the hero swaps so
+  // the operator never reads stale context for a different decision.
   useEffect(() => {
     setPending(false);
     setError(null);
+    setDetailsOpen(false);
   }, [hero.id]);
 
   // Stage 7 — the action surface only fires when the live mapping carried
@@ -71,6 +92,7 @@ export function HeroRecommendationCard({ hero, lang, onApprove, onDecline }: Her
   }
 
   return (
+    <>
     <div className="
       relative card maya-fade-in
       bg-gradient-to-br from-surface-2/82 to-surface-1/62
@@ -136,7 +158,12 @@ export function HeroRecommendationCard({ hero, lang, onApprove, onDecline }: Her
           <Check size={14} />
           {pending ? t.primaryPending[lang] : t.primary[lang]}
         </button>
-        <button type="button" className="btn-ghost px-3 h-9 rounded-lg text-white/75 hover:bg-white/5 text-[13px]">
+        <button
+          type="button"
+          onClick={() => setDetailsOpen(true)}
+          disabled={!canShowDetails}
+          className="btn-ghost px-3 h-9 rounded-lg text-white/75 hover:bg-white/5 disabled:text-white/30 disabled:cursor-not-allowed text-[13px]"
+        >
           {t.secondary[lang]}
         </button>
         <div className="ms-auto flex items-center gap-2 text-[12px] text-white/55">
@@ -163,6 +190,16 @@ export function HeroRecommendationCard({ hero, lang, onApprove, onDecline }: Her
         </div>
       )}
     </div>
+
+    {detailsOpen && canShowDetails && (
+      <HeroDetailsModal
+        hero={hero}
+        thread={matchingThread}
+        lang={lang}
+        onClose={() => setDetailsOpen(false)}
+      />
+    )}
+    </>
   );
 }
 
