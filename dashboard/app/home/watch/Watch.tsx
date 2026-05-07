@@ -78,6 +78,7 @@ export function Watch({ data, lang, onApprove, onDecline, onAsk }: WatchProps) {
                   <HeroRecommendationCard
                     hero={data.hero}
                     lang={lang}
+                    whatsapp={data.whatsapp}
                     onApprove={onApprove}
                     onDecline={onDecline}
                   />
