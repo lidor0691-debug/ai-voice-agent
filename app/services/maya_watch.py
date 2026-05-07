@@ -398,16 +398,24 @@ async def register_outbound(
     *,
     client_id: Optional[str] = None,
     agent_id: Optional[str] = None,
+    source: Optional[str] = None,
 ) -> None:
-    """Record an outbound message (sent by Maya or the operator)."""
+    """Record an outbound message (sent by Maya or the operator).
+
+    `source` (Stage 10C-1): pass-through to the store. Currently unused —
+    Maya's followup path inlines its own append_message call. Reserved for
+    10C-2 operator-send endpoint, which will call this with
+    source='operator_preview'.
+    """
     phone = normalize_phone(phone)
     await store.append_message(
         phone, "out", body,
         sid=sid, client_id=client_id, agent_id=agent_id,
+        source=source,
     )
     logger.info(
-        "[MAYA-WATCH] outbound phone=%s client_id=%s body=%r sid=%s",
-        phone, client_id or "-", body[:80], sid,
+        "[MAYA-WATCH] outbound phone=%s client_id=%s source=%s body=%r sid=%s",
+        phone, client_id or "-", source or "-", body[:80], sid,
     )
 
 
@@ -835,6 +843,11 @@ async def _send_followup(lead: Lead) -> Optional[str]:
             lead.phone, "out", body,
             ts=sent_at, sid=sid,
             client_id=lead.client_id, agent_id=lead.agent_id,
+            # Stage 10C-1 — tag this row as Maya followup so the status-
+            # callback mirror updates lead.followup_* for it. Operator-sent
+            # rows (10C-2+) will use source='operator_preview' and skip the
+            # mirror, preserving Maya's followup snapshot.
+            source="followup",
         )
         await store.update_lead_followup(
             lead.phone,

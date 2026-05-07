@@ -182,8 +182,16 @@ async def append_message(
     sid: Optional[str] = None,
     client_id: Optional[str] = None,
     agent_id: Optional[str] = None,
+    source: Optional[str] = None,
 ) -> bool:
-    """Insert one in/out message row. Returns True on success."""
+    """Insert one in/out message row. Returns True on success.
+
+    `source` (Stage 10C-1): identifies which writer produced this row.
+    'followup' for Maya's auto-followup; future 'operator_preview' for the
+    operator-driven send endpoint. NULL for legacy rows (treated as
+    'followup' by status-callback mirror logic — the only existing writer
+    of direction='out' rows pre-10C-1 was _send_followup).
+    """
     if not env_ready() or not phone or direction not in ("in", "out"):
         return False
     lead_id = await upsert_lead(phone, client_id=client_id, agent_id=agent_id)
@@ -197,6 +205,7 @@ async def append_message(
         "body": body,
         "ts": _iso(ts) if ts else None,
         "sid": sid,
+        "source": source,
     }
     # Drop None-valued ts so DB default (now()) kicks in.
     if payload["ts"] is None:
@@ -280,10 +289,10 @@ async def update_outbound_status(
     }
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            # Update the message row by SID, ask for the lead_id back.
+            # Update the message row by SID, ask for the lead_id + source back.
             resp = await client.patch(
                 f"{_SUPABASE_URL}/rest/v1/{_TABLE_MESSAGES}",
-                params={"sid": f"eq.{sid}", "select": "lead_id"},
+                params={"sid": f"eq.{sid}", "select": "lead_id,source"},
                 json=msg_payload,
                 headers=_headers("return=representation"),
             )
@@ -293,22 +302,40 @@ async def update_outbound_status(
                 logger.warning("[MAYA-WATCH] orphan status_callback sid=%s status=%s", sid, status)
                 return False
             lead_id = rows[0].get("lead_id")
+            row_source = rows[0].get("source")
 
-            # Mirror latest state onto the lead row only if THIS sid is the
-            # one currently denormalized — avoids out-of-order callbacks
-            # for older sids overwriting newer state.
-            lead_payload = {
-                "followup_status": status,
-                "followup_error_code": error_code,
-                "followup_error_message": error_message,
-                "followup_status_at": _iso(now),
-            }
-            await client.patch(
-                f"{_SUPABASE_URL}/rest/v1/{_TABLE_LEADS}",
-                params={"id": f"eq.{lead_id}", "followup_sid": f"eq.{sid}"},
-                json=lead_payload,
-                headers=_headers("return=minimal"),
-            )
+            # Stage 10C-1 — gate the lead-followup mirror on source. Operator
+            # sends ('operator_preview' and any future operator source) update
+            # only their own message row, never the lead's denormalized
+            # followup snapshot. Legacy NULL source mirrors (the only pre-
+            # 10C-1 writer of direction='out' was _send_followup, so NULL is
+            # semantically 'followup').
+            #
+            # Belt + suspenders: the existing `followup_sid: eq.{sid}` filter
+            # below ALSO prevents operator-send pollution (operator sids
+            # never match lead.followup_sid). Two layers of defense — a
+            # future change to either alone still leaves the other intact.
+            if row_source not in ("followup", None):
+                logger.info(
+                    "[MAYA-WATCH] mirror_skipped sid=%s source=%s — operator-send, lead followup_* preserved",
+                    sid, row_source,
+                )
+            else:
+                # Mirror latest state onto the lead row only if THIS sid is the
+                # one currently denormalized — avoids out-of-order callbacks
+                # for older sids overwriting newer state.
+                lead_payload = {
+                    "followup_status": status,
+                    "followup_error_code": error_code,
+                    "followup_error_message": error_message,
+                    "followup_status_at": _iso(now),
+                }
+                await client.patch(
+                    f"{_SUPABASE_URL}/rest/v1/{_TABLE_LEADS}",
+                    params={"id": f"eq.{lead_id}", "followup_sid": f"eq.{sid}"},
+                    json=lead_payload,
+                    headers=_headers("return=minimal"),
+                )
         logger.info(
             "[MAYA-WATCH] delivery_update_persisted sid=%s status=%s error_code=%s",
             sid, status, error_code or "-",
