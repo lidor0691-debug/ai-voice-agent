@@ -63,6 +63,9 @@ export const watchStrings = {
     listening:    { he: "מקשיב…",                   en: "Listening…" },
     suggestions:  { he: "הצעות",                    en: "Suggestions" },
     smartSuggest: { he: "הצע לי עדכון חכם",         en: "Suggest a smart update" },
+    copy:         { he: "העתק",                     en: "Copy" },
+    copied:       { he: "הועתק",                    en: "Copied" },
+    copyError:    { he: "לא הצלחנו להעתיק",          en: "Copy failed" },
   },
 
   prompts: {
