@@ -110,6 +110,7 @@ export function Watch({ data, lang, onApprove, onDecline, onAsk }: WatchProps) {
               lang={lang}
               onSend={onAsk}
               suggestionText={suggestionText}
+              hero={data.hero}
             />
           </div>
         </div>
