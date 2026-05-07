@@ -542,19 +542,47 @@ async def record_action(
         return None
 
 
+def _filter_active_acted_keys(rows: list[dict]) -> set[tuple[str, str, str]]:
+    """
+    Pure helper. Given rows of {lead_id, decision_status, action_type},
+    return the set of (lead_id, decision_status, 'acted') triples that are
+    currently *active* — i.e. an 'acted' row exists and no corresponding
+    'undone' row exists for the same (lead_id, decision_status).
+
+    Stage 8C — separates the row-grouping logic from the network call so it
+    can be unit-tested with deterministic inputs.
+    """
+    types_by_pair: dict[tuple[str, str], set[str]] = {}
+    for r in rows:
+        lead_id = r.get("lead_id")
+        status = r.get("decision_status")
+        atype = r.get("action_type")
+        if not (lead_id and status and atype):
+            continue
+        types_by_pair.setdefault((lead_id, status), set()).add(atype)
+    keys: set[tuple[str, str, str]] = set()
+    for (lead_id, status), atypes in types_by_pair.items():
+        if "acted" in atypes and "undone" not in atypes:
+            keys.add((lead_id, status, "acted"))
+    return keys
+
+
 async def list_acted_keys(
     client_id: Optional[str] = None,
 ) -> set[tuple[str, str, str]]:
     """
-    Return the set of (lead_id, decision_status, action_type) tuples that
-    represent decisions the operator has already acted on for the given
-    tenant scope. Briefing (PR 3) will use this to suppress already-acted
-    decisions from the open list.
+    Return the suppression-key set for the briefing.
 
-    Fail-safe: returns an empty set on any failure — missing table (PR 1
-    not yet applied), missing env, network errors, or Supabase 5xx. An
-    empty set causes briefing to behave exactly as today (no suppression),
-    so this helper can land safely before the migration runs.
+    A key (lead_id, decision_status, 'acted') is included when an 'acted'
+    row exists AND no 'undone' row exists for the same (lead_id, status).
+    Stage 8C — undone rows reactivate suppressed decisions: they remove
+    the matching key from the returned set so build_briefing's existing
+    `if (lead_id, status, "acted") in acted_keys: continue` check resumes
+    surfacing the decision as open work.
+
+    Fail-safe: returns an empty set on any failure — missing table, missing
+    env, network/Supabase blip. An empty set is identical to pre-Stage-7
+    no-suppression behavior; briefing keeps working.
     """
     if not env_ready():
         return set()
@@ -570,14 +598,7 @@ async def list_acted_keys(
             )
             resp.raise_for_status()
             rows = resp.json()
-        keys: set[tuple[str, str, str]] = set()
-        for r in rows:
-            lead_id = r.get("lead_id")
-            status = r.get("decision_status")
-            atype = r.get("action_type")
-            if lead_id and status and atype:
-                keys.add((lead_id, status, atype))
-        return keys
+        return _filter_active_acted_keys(rows)
     except Exception as exc:
         logger.warning("[MAYA-WATCH] list_acted_keys failed: %s", exc)
         return set()
@@ -602,26 +623,59 @@ def _utc_today_iso() -> str:
     return midnight.isoformat()
 
 
+def _filter_active_acted_today(rows: list[dict], limit: int) -> dict:
+    """
+    Pure helper. Given today's action rows (BOTH 'acted' and 'undone',
+    fetched without an action_type filter), return the count + recent
+    list of 'acted' rows whose (lead_id, decision_status) does NOT have
+    a corresponding 'undone' row in today's window.
+
+    Stage 8C — when an acted-today is undone-today, it's removed from
+    handled_today entirely (count drops, doesn't appear in recent). The
+    audit history still has both rows in the table.
+
+    `rows` must already be ordered by acted_at desc; the input function
+    requests this from PostgREST.
+    """
+    undone_pairs: set[tuple[str, str]] = {
+        (r["lead_id"], r["decision_status"])
+        for r in rows
+        if r.get("action_type") == "undone"
+        and r.get("lead_id") and r.get("decision_status")
+    }
+    acted_active: list[dict] = [
+        r for r in rows
+        if r.get("action_type") == "acted"
+        and (r.get("lead_id"), r.get("decision_status")) not in undone_pairs
+    ]
+    return {"count": len(acted_active), "recent": acted_active[:limit]}
+
+
 async def get_handled_today(
     client_id: Optional[str] = None,
     limit: int = 3,
 ) -> dict:
     """
-    Return a summary of operator actions recorded today (UTC).
+    Return a summary of operator actions recorded today (UTC) that are
+    still "active" — acted-and-not-undone within today's window.
 
     Shape:
         {
-            "count": int,           # total acted rows today within scope
+            "count": int,           # acted-not-undone today within scope
             "recent": list[dict],   # up to `limit`, ordered by acted_at desc
                                     #   each item: {lead_id, phone,
-                                    #               decision_status, acted_at}
+                                    #               decision_status,
+                                    #               action_type, acted_at}
         }
+
+    Stage 8C — when the operator undoes a same-day action, both the count
+    and the recent row drop immediately. The audit history (both rows)
+    persists in the table for analytics and auditing later.
 
     Tenant scope: when client_id is provided, filters to that tenant.
     When None, aggregates across all tenants (admin view).
 
-    Fail-safe: returns {"count": 0, "recent": []} on any error — missing
-    table, missing env, network/Supabase blip. Briefing keeps working.
+    Fail-safe: returns {"count": 0, "recent": []} on any error.
 
     Note: lead_name is NOT resolved here. The service layer joins it from
     the leads dict it already loaded for the briefing.
@@ -629,10 +683,11 @@ async def get_handled_today(
     empty: dict = {"count": 0, "recent": []}
     if not env_ready() or limit < 0:
         return empty
+    # Stage 8C — drop the action_type filter so we see both 'acted' and
+    # 'undone' rows in today's window. The pure helper does the grouping.
     params: dict = {
-        "action_type": "eq.acted",
         "acted_at": f"gte.{_utc_today_iso()}",
-        "select": "lead_id,phone,decision_status,acted_at",
+        "select": "lead_id,phone,decision_status,action_type,acted_at",
         "order": "acted_at.desc",
     }
     if client_id is not None:
@@ -646,9 +701,128 @@ async def get_handled_today(
             )
             resp.raise_for_status()
             rows = resp.json()
-        # Volume per tenant per day is bounded; len(rows) is fine vs adding
-        # the count=exact header round-trip.
-        return {"count": len(rows), "recent": rows[:limit]}
+        return _filter_active_acted_today(rows, limit)
     except Exception as exc:
         logger.warning("[MAYA-WATCH] get_handled_today failed: %s", exc)
         return empty
+
+
+# ── Undo (Stage 8C) ──────────────────────────────────────────────────────
+# Undo is recorded as a NEW row with action_type='undone' for the same
+# (lead_id, decision_status). The original 'acted' row is preserved for
+# audit. Suppression and handled_today both check for the presence of an
+# 'undone' row to flip the decision back to "open".
+#
+# v0 limitation: the unique index (lead_id, decision_status, action_type)
+# means re-acting after undo for the same triple is blocked. The lead's
+# status must change first (creating a new triple). Documented in the PR.
+
+
+async def find_action_id(
+    *,
+    lead_id: str,
+    decision_status: str,
+    action_type: str,
+) -> Optional[str]:
+    """
+    Look up the id of the matching action row, or None.
+
+    Used by record_undone to confirm there's an 'acted' row to undo before
+    inserting the 'undone' row, and to populate metadata.undid_action_id
+    for audit linkage.
+    """
+    if not env_ready() or not lead_id or not decision_status or not action_type:
+        return None
+    params = {
+        "lead_id": f"eq.{lead_id}",
+        "decision_status": f"eq.{decision_status}",
+        "action_type": f"eq.{action_type}",
+        "select": "id",
+        "limit": "1",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            resp = await client.get(
+                f"{_SUPABASE_URL}/rest/v1/{_TABLE_ACTIONS}",
+                params=params,
+                headers=_read_headers(),
+            )
+            resp.raise_for_status()
+            rows = resp.json()
+        if not rows:
+            return None
+        return rows[0].get("id")
+    except Exception as exc:
+        logger.warning(
+            "[MAYA-WATCH] find_action_id failed lead_id=%s status=%s type=%s: %s",
+            lead_id, decision_status, action_type, exc,
+        )
+        return None
+
+
+async def record_undone(
+    *,
+    lead_id: str,
+    phone: str,
+    decision_status: str,
+    client_id: Optional[str] = None,
+    agent_id: Optional[str] = None,
+    acted_by: Optional[str] = None,
+) -> dict:
+    """
+    Insert an 'undone' action row for (lead_id, decision_status).
+
+    Returns a discriminated dict so the route layer can pick the right
+    HTTP status:
+        {
+            "found_acted":    bool,  # was there an 'acted' row to undo?
+            "ok":             bool,  # did the undo write succeed?
+            "already_undone": bool,  # was an 'undone' row already there?
+            "row":            dict | None,  # the undone row when ok=True
+        }
+
+    Resolution table for the route:
+        found_acted=False             → 404 "no prior acted row to undo"
+        found_acted=True, ok=False    → 500 "failed to record undo"
+        found_acted=True, ok=True     → 200 with row + already_undone
+
+    Audit linkage: metadata.undid_action_id = uuid of the original 'acted'
+    row. Idempotency comes for free from the unique index
+    (lead_id, decision_status, action_type) — second click hits 409 and
+    record_action's existing fetch path returns the existing row.
+    """
+    result: dict = {"found_acted": False, "ok": False, "already_undone": False, "row": None}
+    if not env_ready() or not lead_id or not phone or not decision_status:
+        return result
+
+    # Step 1 — confirm there's an acted row to undo, and grab its id for audit linkage.
+    acted_id = await find_action_id(
+        lead_id=lead_id,
+        decision_status=decision_status,
+        action_type="acted",
+    )
+    if not acted_id:
+        # Nothing to undo. Caller surfaces as 404.
+        return result
+    result["found_acted"] = True
+
+    # Step 2 — reuse record_action's insert + 409-idempotency path.
+    inserted = await record_action(
+        lead_id=lead_id,
+        phone=phone,
+        decision_status=decision_status,
+        client_id=client_id,
+        agent_id=agent_id,
+        action_type="undone",
+        acted_by=acted_by,
+        metadata={"undid_action_id": acted_id},
+    )
+    if inserted is None:
+        # DB error during insert. Caller surfaces as 500.
+        return result
+
+    result["ok"] = True
+    # Translate the action-side flag name for clarity at the API surface.
+    result["already_undone"] = bool(inserted.pop("already_acted", False))
+    result["row"] = inserted
+    return result

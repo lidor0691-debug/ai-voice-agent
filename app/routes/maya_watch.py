@@ -450,6 +450,85 @@ async def act_on_decision(
     }
 
 
+@router.post(
+    "/maya-watch/decisions/{decision_id:path}/undo",
+    dependencies=[Depends(_require_internal_key)],
+)
+async def undo_decision(
+    decision_id: str,
+    client_id: Optional[str] = Query(default=None),
+    acted_by: Optional[str] = Header(default=None, alias="X-Maya-Watch-Acted-By"),
+):
+    """Undo a previously acted decision (Stage 8C).
+
+    Records a new row with action_type='undone' for the same
+    (lead_id, decision_status). The original 'acted' row is preserved for
+    audit; suppression and handled_today both flip the decision back to
+    "open" once the undone row exists.
+
+    Idempotent: a second call returns 200 with `already_undone: true`
+    (DB unique index keys on (lead_id, decision_status, action_type)).
+
+    v0 limitation: re-acting after undo for the same triple is blocked by
+    the unique index. The lead must transition to a different status first.
+
+    Never sends a WhatsApp message. Twilio is not invoked.
+    """
+    try:
+        status_from_id, phone_from_id = svc.parse_decision_id(decision_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"malformed decision_id: {exc}",
+        )
+
+    pair = await svc.get_lead_with_id(phone_from_id, client_id=client_id)
+    if pair is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="lead not found in scope",
+        )
+    lead_id, lead = pair
+
+    decision_status = status_from_id or svc.derive_status(lead)
+    if not decision_status:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="cannot resolve decision_status",
+        )
+
+    result = await svc.undo_decision_action(
+        lead_id=lead_id,
+        phone=lead.phone,
+        decision_status=decision_status,
+        client_id=client_id or lead.client_id,
+        agent_id=lead.agent_id,
+        acted_by=acted_by,
+    )
+
+    if not result.get("found_acted"):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="no prior acted row to undo",
+        )
+    if not result.get("ok"):
+        # Real store failure — record_undone already logged details.
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="failed to record undo",
+        )
+
+    row = result.get("row") or {}
+    return {
+        "ok": True,
+        "action_id": row.get("id"),
+        "decision_id": decision_id,
+        "lead_id": lead_id,
+        "decision_status": decision_status,
+        "already_undone": bool(result.get("already_undone")),
+    }
+
+
 @router.get("/maya-watch/health")
 async def health():
     leads = await svc.get_all_leads()  # admin view — overall count
