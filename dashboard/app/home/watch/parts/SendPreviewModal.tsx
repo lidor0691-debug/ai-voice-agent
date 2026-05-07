@@ -81,7 +81,11 @@ export function SendPreviewModal({ hero, draftText, lang, onClose }: SendPreview
           <div className="min-w-0">
             <div className="text-[14px] text-white/90 truncate">{hero.target}</div>
             <div className="text-[11px] text-white/50 mt-0.5 flex items-center gap-2">
-              {hero.phone && <span className="tabular-nums">{hero.phone}</span>}
+              {hero.phone && (
+                <span dir="ltr" className="tabular-nums [unicode-bidi:isolate]">
+                  {hero.phone}
+                </span>
+              )}
               {hero.phone && hero.status && <span className="text-white/30">·</span>}
               {hero.status && <span>{statusLabel}</span>}
             </div>
