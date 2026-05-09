@@ -53,6 +53,10 @@ def fast_env(monkeypatch):
     monkeypatch.setenv("BASE_URL", _TEST_BASE_URL)
     monkeypatch.setenv("TWILIO_ACCOUNT_SID", "ACtestaccountsid")
     monkeypatch.setenv("TWILIO_AUTH_TOKEN", "test_auth_token")
+    # Stage 10D — allowlist the test phone so existing happy-path tests
+    # continue exercising the post-allowlist code paths. Allowlist-block
+    # tests use monkeypatch.delenv to override.
+    monkeypatch.setenv("MAYA_WATCH_SEND_ALLOWED_PHONES", _TEST_PHONE)
     # Internal key is module-global; route loaded it at import time. Override.
     monkeypatch.setattr(routes_module, "_INTERNAL_KEY", _TEST_INTERNAL_KEY)
 
@@ -394,3 +398,100 @@ def test_twilio_creds_missing_returns_500_no_twilio(fast_env, store_mocks, svc_m
     assert resp.status_code == 500
     assert resp.json()["error_code"] == "twilio_not_configured"
     assert svc_mocks.twilio_send.await_count == 0
+
+
+# ── Stage 10D — allowlist gate ──────────────────────────────────────────
+
+
+def test_allowlist_missing_returns_403_no_twilio_no_insert(
+    fast_env, store_mocks, svc_mocks, client, monkeypatch,
+):
+    """Env var unset → fail closed: 403, no Twilio, no insert."""
+    monkeypatch.delenv("MAYA_WATCH_SEND_ALLOWED_PHONES", raising=False)
+    resp = _post(client, body=_valid_body())
+    assert resp.status_code == 403
+    body = resp.json()
+    assert body["ok"] is False
+    assert body["error_code"] == "send_not_allowed"
+    assert body["message"] == "Operator send is not enabled for this phone"
+    assert svc_mocks.twilio_send.await_count == 0
+    assert store_mocks.insert_outbound.await_count == 0
+
+
+def test_allowlist_empty_returns_403_no_twilio_no_insert(
+    fast_env, store_mocks, svc_mocks, client, monkeypatch,
+):
+    """Env var present but empty (or whitespace-only) → fail closed."""
+    monkeypatch.setenv("MAYA_WATCH_SEND_ALLOWED_PHONES", "   ")
+    resp = _post(client, body=_valid_body())
+    assert resp.status_code == 403
+    assert resp.json()["error_code"] == "send_not_allowed"
+    assert svc_mocks.twilio_send.await_count == 0
+    assert store_mocks.insert_outbound.await_count == 0
+
+
+def test_allowlist_excludes_lead_phone_returns_403(
+    fast_env, store_mocks, svc_mocks, client, monkeypatch,
+):
+    """Allowlist contains other phones but not the lead's → 403."""
+    monkeypatch.setenv(
+        "MAYA_WATCH_SEND_ALLOWED_PHONES",
+        "+972500000111,+972500000222",  # neither matches _TEST_PHONE
+    )
+    resp = _post(client, body=_valid_body())
+    assert resp.status_code == 403
+    assert resp.json()["error_code"] == "send_not_allowed"
+    assert svc_mocks.twilio_send.await_count == 0
+    assert store_mocks.insert_outbound.await_count == 0
+
+
+def test_allowlist_includes_lead_phone_continues_to_send(
+    fast_env, store_mocks, svc_mocks, client, monkeypatch,
+):
+    """Allowlist explicitly includes lead.phone → normal happy path."""
+    monkeypatch.setenv(
+        "MAYA_WATCH_SEND_ALLOWED_PHONES",
+        f"+972500000111,{_TEST_PHONE},+972500000222",
+    )
+    resp = _post(client, body=_valid_body())
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["ok"] is True
+    assert svc_mocks.twilio_send.await_count == 1
+    assert store_mocks.insert_outbound.await_count == 1
+
+
+def test_allowlist_trims_whitespace_around_entries(
+    fast_env, store_mocks, svc_mocks, client, monkeypatch,
+):
+    """Spaces around comma-separated entries are stripped before match."""
+    monkeypatch.setenv(
+        "MAYA_WATCH_SEND_ALLOWED_PHONES",
+        f"  +972500000111 ,  {_TEST_PHONE}  ,  +972500000222 ",
+    )
+    resp = _post(client, body=_valid_body())
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["ok"] is True
+    assert svc_mocks.twilio_send.await_count == 1
+
+
+def test_caller_supplied_phone_cannot_bypass_allowlist(
+    fast_env, store_mocks, svc_mocks, client, monkeypatch,
+):
+    """A `phone` field in the request body is ignored — server uses
+    only lead.phone (resolved from lead_id), so a caller can't smuggle
+    an allowlisted phone past the gate when their lead is unallowed."""
+    # Allowlist a DIFFERENT phone than the lead's. Caller will try to
+    # bypass by adding that phone to the body.
+    allowlisted_other = "+972500000999"
+    monkeypatch.setenv("MAYA_WATCH_SEND_ALLOWED_PHONES", allowlisted_other)
+    # Body includes an extra phone field — this should be silently ignored.
+    body = _valid_body()
+    body["phone"] = allowlisted_other  # caller's bypass attempt
+    resp = _post(client, body=body)
+    assert resp.status_code == 403
+    assert resp.json()["error_code"] == "send_not_allowed"
+    # No Twilio, no insert. The orchestrator only ever consulted
+    # store_mocks.get_lead.return_value["phone"] (= _TEST_PHONE), never
+    # the body's phone field.
+    assert svc_mocks.twilio_send.await_count == 0
+    assert store_mocks.insert_outbound.await_count == 0

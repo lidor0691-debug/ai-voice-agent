@@ -937,6 +937,31 @@ def _validate_phone(raw: str) -> str:
     return cleaned
 
 
+def _is_phone_allowlisted(phone: str) -> bool:
+    """Hard server-side allowlist for operator-send (Stage 10D).
+
+    Reads MAYA_WATCH_SEND_ALLOWED_PHONES (comma-separated E.164) at call
+    time. Trims whitespace from each entry and skips empties. Returns
+    True only when `phone` exactly matches a non-empty entry.
+
+    **Fail-closed semantics:** when the env var is missing, empty, or
+    parses to a zero-length set after trimming, EVERY send is rejected.
+    This is the gate that keeps the endpoint safe before frontend
+    connects (Stage 10E) and live-fire smoke runs (Stage 10F+).
+
+    Caller must pass the SERVER-RESOLVED, validated E.164 phone — never
+    a caller-supplied value. The orchestrator enforces this by reading
+    only from the lead row.
+    """
+    raw = os.getenv("MAYA_WATCH_SEND_ALLOWED_PHONES", "").strip()
+    if not raw:
+        return False
+    allowed = {p.strip() for p in raw.split(",") if p.strip()}
+    if not allowed:
+        return False
+    return phone in allowed
+
+
 def _sanitize_for_whatsapp(text: str) -> str:
     """Replace Unicode line/paragraph separators that have historically
     crashed our outbound paths (\\u2028, \\u2029). Mirrors the strict
@@ -1053,6 +1078,24 @@ async def send_operator_whatsapp(
         validated_phone = _validate_phone(lead.get("phone") or "")
     except ValueError as exc:
         return {"ok": False, "error_code": "invalid_phone", "error_detail": str(exc)}
+
+    # Step 3.5 — allowlist gate (Stage 10D safety). Hard fail-closed
+    # rejection for any phone not in MAYA_WATCH_SEND_ALLOWED_PHONES. Sits
+    # before message validation, 24h check, agent lookup, Twilio send,
+    # and DB insert — earliest possible cutoff once we know which lead's
+    # phone the send would actually target. Compared against the
+    # SERVER-RESOLVED validated_phone; caller-supplied body fields are
+    # never consulted.
+    if not _is_phone_allowlisted(validated_phone):
+        logger.info(
+            "[MAYA-WATCH] operator_send_blocked_allowlist lead_id=%s phone=%s",
+            lead_id, validated_phone,
+        )
+        return {
+            "ok": False,
+            "error_code": "send_not_allowed",
+            "extra": {"message": "Operator send is not enabled for this phone"},
+        }
 
     # Step 4 — message sanitize + length recheck.
     sanitized = _sanitize_for_whatsapp(message).strip()
