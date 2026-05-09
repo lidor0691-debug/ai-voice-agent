@@ -350,7 +350,11 @@ async def test_voice_entry(request: Request):
     return Response(content=str(response), media_type="application/xml")
 
 
-# ── A/B test entry point — same agent config, model forced to gpt-realtime-2 ─
+# ── A/B test endpoint (TEST-ONLY) ────────────────────────────────────────────
+# Test-only A/B endpoint for GPT-Realtime-2. Do not use for production Hebrew
+# calls until voice quality is approved. Hebrew accent on gpt-realtime-2 is
+# heavier than Gemini Live as of 2026-05-09 — Gemini remains primary.
+#
 # Wire the EXISTING Gemini test number's Voice webhook here for an OpenAI test
 # call (toggle back to /voice-gemini for the Gemini side). No new Twilio number,
 # no new Supabase row — same `To` → same agent_config row.
@@ -764,12 +768,11 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                     event_type = event.get("type")
 
                     if ab_mode:
-                        if _ab_event_count < 20:
+                        # Trimmed: full event dump is huge for session.updated (entire prompt
+                        # + tools + audio config). Keep full dump only for `error`.
+                        if _ab_event_count < 10:
                             _ab_event_count += 1
-                            if event_type in ("session.updated", "error", "response.done", "response.output_item.done"):
-                                print(f"[AB] event_{_ab_event_count} | type={event_type} | full={json.dumps(event, ensure_ascii=False)}")
-                            else:
-                                print(f"[AB] event_{_ab_event_count} | type={event_type}")
+                            print(f"[AB] event_{_ab_event_count} | type={event_type}")
                         if event_type == "error":
                             print(f"[AB] openai_error_event | full_event={json.dumps(event, ensure_ascii=False)}")
 
