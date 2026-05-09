@@ -584,7 +584,21 @@ async def websocket_endpoint(twilio_ws: WebSocket):
     _ab_t_session_open    = asyncio.get_event_loop().time() if ab_mode else None
     _ab_first_audio_logged = False
 
-    async with websockets.connect(openai_url, additional_headers=headers, ping_interval=None) as openai_ws:
+    if ab_mode:
+        print(f"[AB] openai_connect_start | url={openai_url} | headers_keys={list(headers.keys())}")
+
+    try:
+        _openai_cm = websockets.connect(openai_url, additional_headers=headers, ping_interval=None)
+        openai_ws  = await _openai_cm.__aenter__()
+    except Exception as _ab_conn_err:
+        if ab_mode:
+            print(f"[AB] openai_connect_error | type={type(_ab_conn_err).__name__} | err={_ab_conn_err}")
+        raise
+
+    if ab_mode:
+        print(f"[AB] openai_connect_ok | call_sid={call_sid}")
+
+    try:
 
         session_update = {
             "type": "session.update",
@@ -638,6 +652,9 @@ async def websocket_endpoint(twilio_ws: WebSocket):
 
         await openai_ws.send(json.dumps(session_update))
 
+        if ab_mode:
+            print(f"[AB] session_update_sent | removed_temperature=True | reasoning_effort=low")
+
         # Discard audio buffered during setup (ringback / line noise / early "hello").
         # Flushing it before the opening greeting causes phantom user-speech events.
         _pending_audio.clear()
@@ -684,10 +701,21 @@ async def websocket_endpoint(twilio_ws: WebSocket):
 
         async def receive_from_openai():
             nonlocal is_ai_speaking, speech_started_at, lead_sent, _ws_open, opening_greeting_done, listen_after_ts, last_ai_done_ts, user_has_spoken, _ab_first_audio_logged
+            _ab_event_count = 0
             try:
                 async for message in openai_ws:
                     event      = json.loads(message)
                     event_type = event.get("type")
+
+                    if ab_mode:
+                        if _ab_event_count < 5:
+                            _ab_event_count += 1
+                            if event_type in ("session.updated", "error"):
+                                print(f"[AB] event_{_ab_event_count} | type={event_type} | full={json.dumps(event, ensure_ascii=False)}")
+                            else:
+                                print(f"[AB] event_{_ab_event_count} | type={event_type}")
+                        if event_type == "error":
+                            print(f"[AB] openai_error_event | full_event={json.dumps(event, ensure_ascii=False)}")
 
                     # ── Stream AI audio to Twilio ──────────────────────────
                     if event_type == "response.audio.delta":
@@ -815,7 +843,10 @@ async def websocket_endpoint(twilio_ws: WebSocket):
             except Exception as e:
                 print(f"⚠️ OpenAI Receiver Error: {e}")
                 if ab_mode:
-                    print(f"[AB] error | provider=openai | model={ab_model} | call_sid={call_sid} | side=openai | err={e}")
+                    _code   = getattr(e, "code", None)
+                    _reason = getattr(e, "reason", None)
+                    print(f"[AB] error | provider=openai | model={ab_model} | call_sid={call_sid} | side=openai | type={type(e).__name__} | code={_code} | reason={_reason} | err={e}")
+                    print(f"[AB] openai_ws_closed | code={_code} | reason={_reason} | type={type(e).__name__} | err={e}")
 
         # ── Studio keep-alive: prevent Heroku 60s idle timeout on Twilio WebSocket ─
         # Heroku's nginx drops connections when no data is written for 60 seconds.
@@ -885,3 +916,11 @@ async def websocket_endpoint(twilio_ws: WebSocket):
 
         # Cleanup on normal call end
         CALL_CONTEXT.pop(call_sid, None)
+    finally:
+        try:
+            await _openai_cm.__aexit__(None, None, None)
+        except Exception as _ab_close_err:
+            if ab_mode:
+                _code   = getattr(_ab_close_err, "code", None)
+                _reason = getattr(_ab_close_err, "reason", None)
+                print(f"[AB] openai_ws_closed | code={_code} | reason={_reason} | type={type(_ab_close_err).__name__} | err={_ab_close_err}")
