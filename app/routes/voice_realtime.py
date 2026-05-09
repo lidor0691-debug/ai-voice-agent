@@ -733,6 +733,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
         lead_sent              = False  # safety: track if process_agency_lead fired
         last_ai_done_ts        = 0.0     # timestamp of last response.audio.done
         user_has_spoken        = False   # watchdog only arms after first user speech
+        _end_call_started      = False   # block barge-in once end_call goodbye begins
 
         async def receive_from_twilio():
             nonlocal stream_sid
@@ -760,7 +761,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                     print(f"[AB] error | provider=openai | model={ab_model} | call_sid={call_sid} | side=twilio | err={e}")
 
         async def receive_from_openai():
-            nonlocal is_ai_speaking, speech_started_at, lead_sent, _ws_open, opening_greeting_done, listen_after_ts, last_ai_done_ts, user_has_spoken, _ab_first_audio_logged
+            nonlocal is_ai_speaking, speech_started_at, lead_sent, _ws_open, opening_greeting_done, listen_after_ts, last_ai_done_ts, user_has_spoken, _ab_first_audio_logged, _end_call_started
             _ab_event_count = 0
             try:
                 async for message in openai_ws:
@@ -830,11 +831,13 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                             elapsed_ms = (asyncio.get_event_loop().time() - speech_started_at) * 1000
                             speech_ms  = elapsed_ms - _SILENCE_MS
                             if is_ai_speaking and speech_ms >= _MIN_SPEECH_MS:
-                                print(f"[DIAG] barge-in suppressed (speech_ms={speech_ms:.0f}) — clear/cancel disabled for diagnostic")
-                                # DIAGNOSTIC: interrupt disabled
-                                # if _ws_open and stream_sid:
-                                #     await twilio_ws.send_json({"event": "clear", "streamSid": stream_sid})
-                                # await openai_ws.send(json.dumps({"type": "response.cancel"}))
+                                if _end_call_started:
+                                    print(f"[BARGE-IN] ignored during end_call (speech_ms={speech_ms:.0f})")
+                                else:
+                                    print(f"[BARGE-IN] caller spoke {speech_ms:.0f}ms — cancelling Maya")
+                                    if _ws_open and stream_sid:
+                                        await twilio_ws.send_json({"event": "clear", "streamSid": stream_sid})
+                                    await openai_ws.send(json.dumps({"type": "response.cancel"}))
                         speech_started_at = None
                         continue
 
@@ -893,6 +896,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
 
                         if func_name == "end_call":
                             print(f"👋 end_call triggered for '{client_config.get('client_name')}' — disconnecting")
+                            _end_call_started = True
                             CALL_CONTEXT.pop(call_sid, None)
                             await asyncio.sleep(1.2)  # allow goodbye audio generation to begin
                             for _ in range(70):  # poll up to 7s
