@@ -390,7 +390,11 @@ async def voice_ab_entry(request: Request):
     stream_url = f"wss://{host}/voice-ai/stream?call_sid={quote(call_sid, safe='')}&ab=1"
     response   = VoiceResponse()
     connect    = Connect()
-    connect.stream(url=stream_url)
+    stream     = connect.stream(url=stream_url)
+    # Twilio strips arbitrary URL query params on Media Streams; pass ab via
+    # <Parameter> so it arrives in start.customParameters reliably.
+    stream.parameter(name="ab", value="1")
+    stream.parameter(name="call_sid", value=call_sid)
     response.append(connect)
     return Response(content=str(response), media_type="application/xml")
 
@@ -414,6 +418,11 @@ async def websocket_endpoint(twilio_ws: WebSocket):
 
     print(f"[WS] call_sid from query = '{call_sid}'")
 
+    # AB flag may arrive via URL query (best-effort), Twilio customParameters,
+    # or CALL_CONTEXT (set by /voice-ab in this process). Track them all.
+    _ab_from_query  = twilio_ws.query_params.get("ab", "") == "1"
+    _ab_from_custom = False
+
     if not CALL_CONTEXT.get(call_sid):
         # call_sid is missing or not yet in CALL_CONTEXT — wait for start event
         print(f"[WS] call_sid not in CALL_CONTEXT — reading messages until start event")
@@ -423,8 +432,12 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                 if evt["event"] == "start":
                     start_sid  = evt["start"].get("callSid", "")
                     stream_sid = evt["start"].get("streamSid", "")
+                    _custom    = evt["start"].get("customParameters", {}) or {}
+                    if str(_custom.get("ab", "")) == "1":
+                        _ab_from_custom = True
                     print(f"[WS] call_sid from start event  = '{start_sid}'")
                     print(f"[WS] stream_sid from start event = '{stream_sid}'")
+                    print(f"[WS] customParameters            = {_custom}")
                     if start_sid:
                         call_sid = start_sid
                     break
@@ -445,7 +458,11 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                     if not call_sid:
                         call_sid = evt["start"].get("callSid", "")
                     stream_sid = evt["start"].get("streamSid", "")
+                    _custom    = evt["start"].get("customParameters", {}) or {}
+                    if str(_custom.get("ab", "")) == "1":
+                        _ab_from_custom = True
                     print(f"[WS] stream_sid from phase 1.5 = '{stream_sid}'")
+                    print(f"[WS] customParameters (1.5)     = {_custom}")
                     break
                 elif evt["event"] == "media":
                     _pending_audio.append(evt["media"]["payload"])
@@ -545,8 +562,13 @@ async def websocket_endpoint(twilio_ws: WebSocket):
     )
     print("=" * 60)
 
-    ab_mode  = (twilio_ws.query_params.get("ab", "") == "1") or bool(call_ctx and call_ctx.get("ab_test"))
-    ab_model = (call_ctx or {}).get("ab_model", "gpt-realtime-2") if ab_mode else None
+    ab_mode  = _ab_from_query or _ab_from_custom or bool(call_ctx and call_ctx.get("ab_test"))
+    ab_model = (call_ctx or {}).get("ab_model") or "gpt-realtime-2" if ab_mode else None
+    print(
+        f"[AB] resolved | call_sid={call_sid} | ab_mode={ab_mode} | ab_model={ab_model} "
+        f"| query_params={dict(twilio_ws.query_params)} | from_query={_ab_from_query} "
+        f"| from_custom={_ab_from_custom} | from_ctx={bool(call_ctx and call_ctx.get('ab_test'))}"
+    )
 
     if ab_mode:
         openai_url = f"wss://api.openai.com/v1/realtime?model={ab_model}"
