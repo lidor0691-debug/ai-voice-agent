@@ -646,14 +646,16 @@ async def websocket_endpoint(twilio_ws: WebSocket):
         }
 
         if ab_mode:
-            # GA model rejects `temperature`; recommend reasoning.effort=low for voice agents
+            # GA model rejects `temperature`; recommend reasoning.effort=low for voice agents.
+            # GA Realtime requires session.type = "realtime" inside session.update.
             session_update["session"].pop("temperature", None)
             session_update["session"]["reasoning"] = {"effort": "low"}
+            session_update["session"]["type"]      = "realtime"
 
         await openai_ws.send(json.dumps(session_update))
 
         if ab_mode:
-            print(f"[AB] session_update_sent | removed_temperature=True | reasoning_effort=low")
+            print(f"[AB] session_update_sent | removed_temperature=True | reasoning_effort=low | session_type=realtime")
 
         # Discard audio buffered during setup (ringback / line noise / early "hello").
         # Flushing it before the opening greeting causes phantom user-speech events.
