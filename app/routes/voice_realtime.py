@@ -693,8 +693,8 @@ async def websocket_endpoint(twilio_ws: WebSocket):
             if _audio:
                 sess["audio"] = _audio
 
-            if _mods:
-                sess["output_modalities"] = [m for m in _mods if m in ("audio", "text")]
+            # GA accepts only ["text"] OR ["audio"], not both. Twilio bridge needs audio.
+            sess["output_modalities"] = ["audio"]
 
             print(
                 f"[AB] ga_session_keys | keys={list(sess.keys())} "
@@ -704,7 +704,7 @@ async def websocket_endpoint(twilio_ws: WebSocket):
         await openai_ws.send(json.dumps(session_update))
 
         if ab_mode:
-            print(f"[AB] session_update_sent | removed_temperature=True | reasoning_effort=low | session_type=realtime | ga_audio_nested=True")
+            print(f"[AB] session_update_sent | removed_temperature=True | reasoning_effort=low | session_type=realtime | ga_audio_nested=True | output_modalities=['audio']")
 
         # Discard audio buffered during setup (ringback / line noise / early "hello").
         # Flushing it before the opening greeting causes phantom user-speech events.
