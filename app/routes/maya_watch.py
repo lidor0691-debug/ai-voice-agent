@@ -27,8 +27,10 @@ import logging
 import os
 from typing import Optional
 
+import re
+
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 
 from app.services import maya_watch as svc
 
@@ -538,3 +540,129 @@ async def health():
         "risk_after_minutes": svc.RISK_AFTER_MINUTES,
         "no_response_after_hours": svc.NO_RESPONSE_AFTER_HOURS,
     }
+
+
+# ── Operator WhatsApp send (Stage 10C-2) ─────────────────────────────────
+# POST /maya-watch/messages/send
+#
+# Backend-only in 10C-2. The route is reachable but no UI calls it yet —
+# the Next.js server route + SendPreviewModal "שלח עכשיו" button land in
+# Stage 10E behind a feature flag.
+#
+# Sender (whatsapp_number), destination phone, and tenant scope are ALL
+# resolved server-side from lead_id and never trusted from the caller.
+# 24h customer-service window is computed from maya_watch_messages
+# direction='in' rows (not the leaky legacy leads.last_whatsapp_inbound_at).
+
+# UUID v4 — what crypto.randomUUID() emits in the Next.js route. Strict
+# v4 match on bit positions so a v1/v3/v5 (or any free-text string) is
+# rejected at the route layer with 400 invalid_idempotency_key.
+_UUID_V4_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
+
+# error_code → HTTP status. Centralized so the route layer stays a thin
+# mapper over the orchestrator's discriminated dict.
+_ERROR_CODE_HTTP: dict[str, int] = {
+    "invalid_body":              400,
+    "invalid_phone":             400,
+    "invalid_idempotency_key":   400,
+    "lead_unrouted":             400,
+    "lead_not_found":            404,
+    "whatsapp_window_closed":    409,
+    "agent_misconfigured":       500,
+    "twilio_not_configured":     500,
+    "base_url_not_configured":   500,
+    "twilio_send_failed":        502,
+}
+
+
+def _send_error_response(error_code: str, *, detail: Optional[str] = None, extra: Optional[dict] = None) -> JSONResponse:
+    """Build the standardized error response shape (NOT wrapped in `detail`
+    like FastAPI's default HTTPException). Frontend reads `error_code`
+    directly off the top-level body."""
+    body: dict = {"ok": False, "error_code": error_code}
+    if detail:
+        body["detail"] = detail
+    if extra:
+        body.update(extra)
+    http_status = _ERROR_CODE_HTTP.get(error_code, 500)
+    return JSONResponse(status_code=http_status, content=body)
+
+
+@router.post(
+    "/maya-watch/messages/send",
+    dependencies=[Depends(_require_internal_key)],
+)
+async def send_message(
+    request: Request,
+    client_id: Optional[str] = Query(default=None),
+    acted_by: Optional[str] = Header(default=None, alias="X-Maya-Watch-Acted-By"),
+    idempotency_key: Optional[str] = Header(default=None, alias="X-Maya-Watch-Idempotency-Key"),
+):
+    """Send a WhatsApp message on behalf of the operator.
+
+    No frontend caller in 10C-2 — exists for the Stage 10E button to wire
+    against. All external boundaries (tenant, phone, sender) resolved
+    server-side. See app/services/maya_watch.send_operator_whatsapp for
+    the full safety chain.
+    """
+    # ── Header validation ──────────────────────────────────────────────
+    if not idempotency_key or not _UUID_V4_RE.match(idempotency_key):
+        return _send_error_response(
+            "invalid_idempotency_key",
+            detail="X-Maya-Watch-Idempotency-Key must be a UUIDv4",
+        )
+
+    # ── Body parse + validate ──────────────────────────────────────────
+    try:
+        body_data = await request.json()
+    except Exception:
+        return _send_error_response("invalid_body", detail="malformed JSON")
+
+    if not isinstance(body_data, dict):
+        return _send_error_response("invalid_body", detail="body must be a JSON object")
+
+    lead_id = body_data.get("lead_id")
+    message_text = body_data.get("message")
+    decision_id = body_data.get("decision_id")
+    source = body_data.get("source")
+
+    if not isinstance(lead_id, str) or not lead_id.strip():
+        return _send_error_response("invalid_body", detail="lead_id required")
+    if source != "operator_preview":
+        return _send_error_response(
+            "invalid_body",
+            detail="source must be the literal 'operator_preview'",
+        )
+    if not isinstance(message_text, str):
+        return _send_error_response("invalid_body", detail="message must be a string")
+    if len(message_text) == 0:
+        return _send_error_response("invalid_body", detail="message must be non-empty")
+    if len(message_text) > 1500:
+        return _send_error_response(
+            "invalid_body",
+            detail="message exceeds 1500 chars",
+        )
+    if decision_id is not None and not isinstance(decision_id, str):
+        return _send_error_response("invalid_body", detail="decision_id must be a string when present")
+
+    # ── Orchestrator call ──────────────────────────────────────────────
+    result = await svc.send_operator_whatsapp(
+        lead_id=lead_id.strip(),
+        message=message_text,
+        decision_id=decision_id,
+        sent_by=acted_by,
+        idempotency_key=idempotency_key,
+        client_id=client_id,
+    )
+
+    if not result.get("ok"):
+        return _send_error_response(
+            result.get("error_code", "twilio_send_failed"),
+            detail=result.get("error_detail"),
+            extra=result.get("extra"),
+        )
+
+    return result["payload"]
