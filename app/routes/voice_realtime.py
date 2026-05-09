@@ -648,14 +648,63 @@ async def websocket_endpoint(twilio_ws: WebSocket):
         if ab_mode:
             # GA model rejects `temperature`; recommend reasoning.effort=low for voice agents.
             # GA Realtime requires session.type = "realtime" inside session.update.
-            session_update["session"].pop("temperature", None)
-            session_update["session"]["reasoning"] = {"effort": "low"}
-            session_update["session"]["type"]      = "realtime"
+            # GA also restructures audio config: turn_detection / input_audio_format /
+            # output_audio_format / voice / modalities are no longer top-level.
+            sess = session_update["session"]
+            sess.pop("temperature", None)
+            sess["reasoning"] = {"effort": "low"}
+            sess["type"]      = "realtime"
+
+            _vad     = sess.pop("turn_detection", None)
+            _in_fmt  = sess.pop("input_audio_format", None)
+            _out_fmt = sess.pop("output_audio_format", None)
+            _voice   = sess.pop("voice", None)
+            _mods    = sess.pop("modalities", None)
+
+            def _ga_fmt(legacy):
+                # Map preview audio format strings → GA format objects
+                if legacy == "g711_ulaw":
+                    return {"type": "audio/pcmu"}
+                if legacy == "g711_alaw":
+                    return {"type": "audio/pcma"}
+                if legacy == "pcm16":
+                    return {"type": "audio/pcm", "rate": 24000}
+                return None
+
+            _audio_in, _audio_out = {}, {}
+            if _in_fmt:
+                _f = _ga_fmt(_in_fmt)
+                if _f:
+                    _audio_in["format"] = _f
+            if _vad:
+                _audio_in["turn_detection"] = _vad
+            if _out_fmt:
+                _f = _ga_fmt(_out_fmt)
+                if _f:
+                    _audio_out["format"] = _f
+            if _voice:
+                _audio_out["voice"] = _voice
+
+            _audio = {}
+            if _audio_in:
+                _audio["input"] = _audio_in
+            if _audio_out:
+                _audio["output"] = _audio_out
+            if _audio:
+                sess["audio"] = _audio
+
+            if _mods:
+                sess["output_modalities"] = [m for m in _mods if m in ("audio", "text")]
+
+            print(
+                f"[AB] ga_session_keys | keys={list(sess.keys())} "
+                f"| audio_keys={list(sess.get('audio', {}).keys())}"
+            )
 
         await openai_ws.send(json.dumps(session_update))
 
         if ab_mode:
-            print(f"[AB] session_update_sent | removed_temperature=True | reasoning_effort=low | session_type=realtime")
+            print(f"[AB] session_update_sent | removed_temperature=True | reasoning_effort=low | session_type=realtime | ga_audio_nested=True")
 
         # Discard audio buffered during setup (ringback / line noise / early "hello").
         # Flushing it before the opening greeting causes phantom user-speech events.
