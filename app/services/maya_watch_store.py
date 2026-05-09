@@ -183,14 +183,21 @@ async def append_message(
     client_id: Optional[str] = None,
     agent_id: Optional[str] = None,
     source: Optional[str] = None,
+    metadata: Optional[dict] = None,
 ) -> bool:
     """Insert one in/out message row. Returns True on success.
 
     `source` (Stage 10C-1): identifies which writer produced this row.
-    'followup' for Maya's auto-followup; future 'operator_preview' for the
-    operator-driven send endpoint. NULL for legacy rows (treated as
-    'followup' by status-callback mirror logic — the only existing writer
-    of direction='out' rows pre-10C-1 was _send_followup).
+    'followup' for Maya's auto-followup; 'operator_preview' for the
+    operator-driven send endpoint (Stage 10C-2). NULL for legacy rows
+    (treated as 'followup' by status-callback mirror logic — the only
+    existing writer of direction='out' rows pre-10C-1 was _send_followup).
+
+    `metadata` (Stage 10C-2): jsonb passthrough. The operator-send path
+    populates {idempotency_key, decision_id, sent_by} via the dedicated
+    insert_outbound_message helper; this kwarg keeps append_message
+    consistent for any future inbound or test path that needs to attach
+    metadata at insert time.
     """
     if not env_ready() or not phone or direction not in ("in", "out"):
         return False
@@ -206,6 +213,7 @@ async def append_message(
         "ts": _iso(ts) if ts else None,
         "sid": sid,
         "source": source,
+        "metadata": metadata if metadata is not None else {},
     }
     # Drop None-valued ts so DB default (now()) kicks in.
     if payload["ts"] is None:
@@ -853,3 +861,182 @@ async def record_undone(
     result["already_undone"] = bool(inserted.pop("already_acted", False))
     result["row"] = inserted
     return result
+
+
+# ── Operator-send helpers (Stage 10C-2) ──────────────────────────────────
+# Lookups + dedicated outbound insert used by maya_watch.send_operator_whatsapp.
+# Kept here to centralize all DB access in one module.
+
+
+async def get_lead_by_id(
+    lead_id: str,
+    *,
+    client_id: Optional[str] = None,
+) -> Optional[dict]:
+    """Fetch a maya_watch_leads row by uuid, optionally tenant-scoped.
+
+    Returns {id, phone, client_id, agent_id} or None when the row doesn't
+    exist OR (when client_id is provided) the row exists but belongs to a
+    different tenant. The 404 vs cross-tenant distinction is intentionally
+    collapsed into None — the route layer surfaces both as 404
+    `lead_not_found` so cross-tenant existence isn't leaked.
+    """
+    if not env_ready() or not lead_id:
+        return None
+    params: dict = {
+        "id": f"eq.{lead_id}",
+        "select": "id,phone,client_id,agent_id",
+        "limit": "1",
+    }
+    if client_id is not None:
+        params["client_id"] = f"eq.{client_id}"
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            resp = await client.get(
+                f"{_SUPABASE_URL}/rest/v1/{_TABLE_LEADS}",
+                params=params,
+                headers=_read_headers(),
+            )
+            resp.raise_for_status()
+            rows = resp.json()
+        return rows[0] if rows else None
+    except Exception as exc:
+        logger.warning("[MAYA-WATCH] get_lead_by_id failed lead_id=%s: %s", lead_id, exc)
+        return None
+
+
+async def get_last_inbound_ts(lead_id: str) -> Optional[datetime]:
+    """Latest inbound message timestamp for the lead, or None.
+
+    Used by send_operator_whatsapp to validate the WhatsApp 24h customer
+    service window. Maya Watch's own table is the source of truth — does
+    NOT consult the legacy `leads.last_whatsapp_inbound_at` column which
+    has a documented tenant-leak issue.
+
+    Indexed by `idx_maya_watch_messages_lead (lead_id, ts desc)` —
+    single-row lookup, sub-millisecond.
+    """
+    if not env_ready() or not lead_id:
+        return None
+    params = {
+        "lead_id": f"eq.{lead_id}",
+        "direction": "eq.in",
+        "select": "ts",
+        "order": "ts.desc",
+        "limit": "1",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            resp = await client.get(
+                f"{_SUPABASE_URL}/rest/v1/{_TABLE_MESSAGES}",
+                params=params,
+                headers=_read_headers(),
+            )
+            resp.raise_for_status()
+            rows = resp.json()
+        if not rows:
+            return None
+        ts_str = rows[0].get("ts")
+        if not ts_str:
+            return None
+        ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        return ts
+    except Exception as exc:
+        logger.warning("[MAYA-WATCH] get_last_inbound_ts failed lead_id=%s: %s", lead_id, exc)
+        return None
+
+
+async def find_message_by_idempotency_key(key: str) -> Optional[dict]:
+    """Lookup an existing outbound message by metadata.idempotency_key.
+
+    Hits the unique partial index `idx_maya_watch_messages_idempotency`
+    (Stage 10C-2 made it UNIQUE). Returns the full message row dict or
+    None when no row matches.
+
+    Used by send_operator_whatsapp BEFORE calling Twilio to short-circuit
+    duplicate sends, AND after a 409 conflict during insert to fetch the
+    race-winner row.
+    """
+    if not env_ready() or not key:
+        return None
+    params = {
+        "metadata->>idempotency_key": f"eq.{key}",
+        "select": "id,lead_id,client_id,agent_id,direction,body,sid,status,ts,source,metadata",
+        "limit": "1",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            resp = await client.get(
+                f"{_SUPABASE_URL}/rest/v1/{_TABLE_MESSAGES}",
+                params=params,
+                headers=_read_headers(),
+            )
+            resp.raise_for_status()
+            rows = resp.json()
+        return rows[0] if rows else None
+    except Exception as exc:
+        logger.warning("[MAYA-WATCH] find_message_by_idempotency_key failed key=%s: %s", key, exc)
+        return None
+
+
+async def insert_outbound_message(
+    *,
+    lead_id: str,
+    client_id: Optional[str],
+    agent_id: Optional[str],
+    body: str,
+    sid: str,
+    source: str,
+    status: str = "queued",
+    metadata: Optional[dict] = None,
+) -> Optional[dict]:
+    """Direct outbound message insert that bypasses upsert_lead.
+
+    Returns the inserted row dict on success. Returns the sentinel
+    {"_conflict": True} when the unique idempotency index rejects the
+    insert (concurrent same-key race) — caller should re-fetch via
+    find_message_by_idempotency_key. Returns None on any other failure.
+
+    Used by send_operator_whatsapp where the lead_id is already resolved
+    upstream; avoids the redundant phone-based lookup that
+    append_message → upsert_lead would do.
+    """
+    if not env_ready() or not lead_id or not body:
+        return None
+    payload: dict[str, Any] = {
+        "lead_id": lead_id,
+        "client_id": client_id,
+        "agent_id": agent_id,
+        "direction": "out",
+        "body": body,
+        "sid": sid,
+        "source": source,
+        "status": status,
+        "metadata": metadata if metadata is not None else {},
+    }
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            resp = await client.post(
+                f"{_SUPABASE_URL}/rest/v1/{_TABLE_MESSAGES}",
+                json=payload,
+                headers=_headers("return=representation"),
+            )
+            if resp.status_code == 409:
+                # Concurrent same-idempotency-key race — second writer
+                # gets here. Caller re-fetches the winning row.
+                logger.info(
+                    "[MAYA-WATCH] insert_outbound_message conflict lead_id=%s sid=%s — likely idempotency race",
+                    lead_id, sid,
+                )
+                return {"_conflict": True}
+            resp.raise_for_status()
+            rows = resp.json()
+        return rows[0] if rows else None
+    except Exception as exc:
+        logger.error(
+            "[MAYA-WATCH] insert_outbound_message failed lead_id=%s sid=%s: %s",
+            lead_id, sid, exc,
+        )
+        return None

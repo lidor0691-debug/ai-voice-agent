@@ -908,3 +908,275 @@ async def _send_whatsapp(to_phone: str, body: str) -> Optional[str]:
             from_full, to_full, exc,
         )
         return None
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Operator-driven WhatsApp send (Stage 10C-2)
+# Backend-only endpoint orchestration. No frontend caller in 10C-2 — the
+# Next.js route + UI button land in Stage 10E. Until then this code path
+# is reachable but unused by any production caller.
+# ─────────────────────────────────────────────────────────────────────
+
+import re  # noqa: E402
+
+# Mirror of action_api.py:_validate_phone — duplicated (not imported) to
+# keep Maya Watch dependency-free of the legacy /api/actions surface. If
+# either copy changes, update both. Original at app/routes/action_api.py:90.
+_PHONE_DIGIT_RE = re.compile(r"[^\d+]")
+
+
+def _validate_phone(raw: str) -> str:
+    """Normalize to E.164 (+countrycode digits). Raises ValueError if invalid."""
+    cleaned = _PHONE_DIGIT_RE.sub("", (raw or "").strip())
+    if not cleaned.startswith("+") and len(cleaned) >= 10:
+        cleaned = f"+{cleaned}"
+    if not cleaned.startswith("+"):
+        raise ValueError(f"phone must start with +, got: {raw!r}")
+    if len(cleaned) < 10 or len(cleaned) > 16:
+        raise ValueError(f"phone length invalid: {raw!r}")
+    return cleaned
+
+
+def _sanitize_for_whatsapp(text: str) -> str:
+    """Replace Unicode line/paragraph separators that have historically
+    crashed our outbound paths (\\u2028, \\u2029). Mirrors the strict
+    sanitize precedent in app/services/whatsapp_reply.py."""
+    if not text:
+        return ""
+    return text.replace(" ", "\n").replace(" ", "\n")
+
+
+async def _send_operator_via_twilio(
+    *,
+    from_number: str,
+    to_phone: str,
+    body: str,
+    base_url: str,
+) -> str:
+    """Twilio send seam — extracted as a standalone async function so
+    tests can monkeypatch it without exercising the real Twilio SDK.
+    Returns the message SID. Raises any Twilio exception verbatim so the
+    orchestrator can map it to the 502 `twilio_send_failed` response.
+
+    Reads TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN from env at call time
+    (orchestrator already enforced their presence before getting here)."""
+    from twilio.rest import Client
+
+    sid_env = os.getenv("TWILIO_ACCOUNT_SID", "")
+    token_env = os.getenv("TWILIO_AUTH_TOKEN", "")
+    client = Client(sid_env, token_env)
+    msg = await asyncio.to_thread(lambda: client.messages.create(
+        from_=f"whatsapp:{from_number}",
+        to=f"whatsapp:{to_phone}",
+        body=body,
+        status_callback=f"{base_url}/maya-watch/twilio-status",
+    ))
+    return msg.sid
+
+
+def _build_send_response_payload(
+    message_row: dict,
+    *,
+    lead_phone: Optional[str],
+    already_sent: bool,
+) -> dict:
+    """Format a maya_watch_messages row as the operator-send endpoint response."""
+    metadata = message_row.get("metadata") or {}
+    return {
+        "ok": True,
+        "message_id": message_row.get("id"),
+        "twilio_sid": message_row.get("sid"),
+        "status": message_row.get("status"),
+        "lead_id": message_row.get("lead_id"),
+        "phone": lead_phone,
+        "decision_id": metadata.get("decision_id"),
+        "source": message_row.get("source"),
+        "created_at": message_row.get("ts"),
+        "already_sent": already_sent,
+    }
+
+
+async def send_operator_whatsapp(
+    *,
+    lead_id: str,
+    message: str,
+    decision_id: Optional[str],
+    sent_by: Optional[str],
+    idempotency_key: str,
+    client_id: Optional[str],
+) -> dict:
+    """Operator-driven WhatsApp send orchestrator.
+
+    Returns a discriminated dict the route layer maps to HTTP status:
+        {"ok": True,  "payload": {...}}                            → 200
+        {"ok": False, "error_code": "...", "extra": {...}, ...}  → see _ERROR_CODE_HTTP
+
+    Order of operations (each step rejects fast):
+        1. idempotency check  — short-circuit; never call Twilio twice
+        2. lead lookup        — server-side, tenant-scoped if client_id given
+        3. phone validation   — server-side from lead.phone, never caller-supplied
+        4. message sanitize+validate
+        5. 24h window check   — from maya_watch_messages, NOT legacy leads.last_whatsapp_inbound_at
+        6. agent lookup       — server-side from lead.agent_id, resolves whatsapp_number
+        7. env preflight      — BASE_URL + TWILIO creds (fail closed)
+        8. Twilio send
+        9. persist message    — direct insert via store.insert_outbound_message
+       10. race handling      — re-fetch on 409 (concurrent same-key)
+    """
+    # Step 1 — idempotency check first (cheap, avoids all downstream work on retry).
+    existing = await store.find_message_by_idempotency_key(idempotency_key)
+    if existing is not None:
+        # Look up the lead's phone for the response — only on the (rare) hit path.
+        existing_lead = await store.get_lead_by_id(existing.get("lead_id") or "")
+        return {
+            "ok": True,
+            "payload": _build_send_response_payload(
+                existing,
+                lead_phone=(existing_lead or {}).get("phone"),
+                already_sent=True,
+            ),
+        }
+
+    # Step 2 — lead lookup (tenant-scoped if client_id provided).
+    lead = await store.get_lead_by_id(lead_id, client_id=client_id)
+    if not lead:
+        return {"ok": False, "error_code": "lead_not_found"}
+    if not lead.get("agent_id"):
+        return {
+            "ok": False,
+            "error_code": "lead_unrouted",
+            "error_detail": "lead has no agent_id — assign an agent before sending",
+        }
+
+    # Step 3 — phone validation (server-resolved from lead row).
+    try:
+        validated_phone = _validate_phone(lead.get("phone") or "")
+    except ValueError as exc:
+        return {"ok": False, "error_code": "invalid_phone", "error_detail": str(exc)}
+
+    # Step 4 — message sanitize + length recheck.
+    sanitized = _sanitize_for_whatsapp(message).strip()
+    if not sanitized:
+        return {"ok": False, "error_code": "invalid_body", "error_detail": "message empty after trim"}
+    if len(sanitized) > 1500:
+        return {"ok": False, "error_code": "invalid_body", "error_detail": "message too long after sanitization"}
+
+    # Step 5 — 24h WhatsApp customer-service window.
+    last_in_ts = await store.get_last_inbound_ts(lead_id)
+    if last_in_ts is None:
+        return {
+            "ok": False,
+            "error_code": "whatsapp_window_closed",
+            "extra": {"reason": "no_inbound", "last_inbound_at": None},
+        }
+    if (now_utc() - last_in_ts) > timedelta(hours=24):
+        return {
+            "ok": False,
+            "error_code": "whatsapp_window_closed",
+            "extra": {"reason": "too_old", "last_inbound_at": last_in_ts.isoformat()},
+        }
+
+    # Step 6 — agent lookup → whatsapp_number.
+    agent_row = await _agents_config_lookup("id", lead["agent_id"])
+    if not agent_row:
+        return {
+            "ok": False,
+            "error_code": "agent_misconfigured",
+            "error_detail": "agents_config row not found or inactive",
+        }
+    sender_number = (agent_row.get("whatsapp_number") or "").strip()
+    if not sender_number:
+        return {
+            "ok": False,
+            "error_code": "agent_misconfigured",
+            "error_detail": "agent has no whatsapp_number",
+        }
+
+    # Step 7 — env preflight.
+    base_url = os.getenv("BASE_URL", "").strip().rstrip("/")
+    if not base_url:
+        return {"ok": False, "error_code": "base_url_not_configured"}
+    if not (os.getenv("TWILIO_ACCOUNT_SID", "").strip() and os.getenv("TWILIO_AUTH_TOKEN", "").strip()):
+        return {"ok": False, "error_code": "twilio_not_configured"}
+
+    # Step 8 — Twilio send.
+    try:
+        twilio_msg_sid = await _send_operator_via_twilio(
+            from_number=sender_number,
+            to_phone=validated_phone,
+            body=sanitized,
+            base_url=base_url,
+        )
+    except Exception as exc:
+        logger.error(
+            "[MAYA-WATCH] operator_send_twilio_failed lead_id=%s sender=%s to=%s error=%s",
+            lead_id, sender_number, validated_phone, exc,
+        )
+        return {
+            "ok": False,
+            "error_code": "twilio_send_failed",
+            "error_detail": str(exc),
+        }
+
+    # Step 9 — persist outbound message row.
+    metadata: dict = {"idempotency_key": idempotency_key}
+    if decision_id:
+        metadata["decision_id"] = decision_id
+    if sent_by:
+        metadata["sent_by"] = sent_by
+
+    inserted = await store.insert_outbound_message(
+        lead_id=lead_id,
+        client_id=lead.get("client_id"),
+        agent_id=lead.get("agent_id"),
+        body=sanitized,
+        sid=twilio_msg_sid,
+        source="operator_preview",
+        status="queued",
+        metadata=metadata,
+    )
+
+    # Step 10 — handle race: concurrent same-key insert raced ahead.
+    if inserted is not None and inserted.get("_conflict"):
+        logger.warning(
+            "[MAYA-WATCH] operator_send race_resolved key=%s lead_id=%s twilio_sid=%s",
+            idempotency_key, lead_id, twilio_msg_sid,
+        )
+        winner = await store.find_message_by_idempotency_key(idempotency_key)
+        if winner is None:
+            return {
+                "ok": False,
+                "error_code": "twilio_send_failed",
+                "error_detail": "race resolved but winner row not found",
+            }
+        return {
+            "ok": True,
+            "payload": _build_send_response_payload(
+                winner, lead_phone=lead.get("phone"), already_sent=True,
+            ),
+        }
+
+    if inserted is None:
+        # Twilio accepted but we couldn't persist. The message went out;
+        # the dashboard won't show it. Log full context for manual recon.
+        logger.error(
+            "[MAYA-WATCH] post_twilio_insert_failed sid=%s lead_id=%s body=%r — message sent, NOT persisted",
+            twilio_msg_sid, lead_id, sanitized[:80],
+        )
+        return {
+            "ok": False,
+            "error_code": "twilio_send_failed",
+            "error_detail": f"twilio_accepted_sid={twilio_msg_sid} but db insert failed",
+        }
+
+    logger.info(
+        "[MAYA-WATCH] operator_send sent_by=%s lead_id=%s sid=%s source=operator_preview decision_id=%s client_id=%s",
+        sent_by or "-", lead_id, twilio_msg_sid, decision_id or "-", lead.get("client_id") or "-",
+    )
+
+    return {
+        "ok": True,
+        "payload": _build_send_response_payload(
+            inserted, lead_phone=lead.get("phone"), already_sent=False,
+        ),
+    }
