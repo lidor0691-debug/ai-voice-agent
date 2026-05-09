@@ -713,7 +713,12 @@ async def websocket_endpoint(twilio_ws: WebSocket):
         # Small pause so session.update is fully applied before the greeting fires.
         await asyncio.sleep(0.25)
 
-        await openai_ws.send(json.dumps({"type": "response.create"}))
+        if ab_mode:
+            _resp_payload = {"type": "response.create", "response": {"output_modalities": ["audio"]}}
+            print(f"[AB] response_create_sent | payload={json.dumps(_resp_payload, ensure_ascii=False)}")
+        else:
+            _resp_payload = {"type": "response.create"}
+        await openai_ws.send(json.dumps(_resp_payload))
 
         is_ai_speaking         = False
         speech_started_at      = None
@@ -759,9 +764,9 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                     event_type = event.get("type")
 
                     if ab_mode:
-                        if _ab_event_count < 5:
+                        if _ab_event_count < 20:
                             _ab_event_count += 1
-                            if event_type in ("session.updated", "error"):
+                            if event_type in ("session.updated", "error", "response.done", "response.output_item.done"):
                                 print(f"[AB] event_{_ab_event_count} | type={event_type} | full={json.dumps(event, ensure_ascii=False)}")
                             else:
                                 print(f"[AB] event_{_ab_event_count} | type={event_type}")
@@ -769,7 +774,9 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                             print(f"[AB] openai_error_event | full_event={json.dumps(event, ensure_ascii=False)}")
 
                     # ── Stream AI audio to Twilio ──────────────────────────
-                    if event_type == "response.audio.delta":
+                    # GA renames `response.audio.delta` → `response.output_audio.delta`.
+                    # Match GA name only when ab_mode; preview path is untouched.
+                    if event_type == "response.audio.delta" or (ab_mode and event_type == "response.output_audio.delta"):
                         is_ai_speaking = True
                         if ab_mode and not _ab_first_audio_logged and _ab_t_session_open is not None:
                             _ab_first_audio_ms = (asyncio.get_event_loop().time() - _ab_t_session_open) * 1000
@@ -788,12 +795,13 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                         continue
 
                     # ── AI finished speaking ───────────────────────────────
-                    if event_type in ("response.audio.done", "response.cancelled"):
+                    # GA renames `response.audio.done` → `response.output_audio.done`.
+                    if event_type in ("response.audio.done", "response.cancelled") or (ab_mode and event_type == "response.output_audio.done"):
                         is_ai_speaking    = False
                         speech_started_at = None
                         now = asyncio.get_event_loop().time()
                         listen_after_ts   = now + 0.7
-                        if event_type == "response.audio.done":
+                        if event_type in ("response.audio.done", "response.output_audio.done"):
                             last_ai_done_ts = now
                         continue
 
@@ -872,7 +880,12 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                                         "output":  json.dumps({"status": "success"}),
                                     },
                                 }))
-                                await openai_ws.send(json.dumps({"type": "response.create"}))
+                                if ab_mode:
+                                    _resp_p2 = {"type": "response.create", "response": {"output_modalities": ["audio"]}}
+                                    print(f"[AB] response_create_sent | payload={json.dumps(_resp_p2, ensure_ascii=False)}")
+                                else:
+                                    _resp_p2 = {"type": "response.create"}
+                                await openai_ws.send(json.dumps(_resp_p2))
                                 print(f"[LEAD] function_call_output sent → response.create fired (call_id={func_call_id})")
 
                         if func_name == "end_call":
