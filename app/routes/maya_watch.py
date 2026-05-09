@@ -569,6 +569,7 @@ _ERROR_CODE_HTTP: dict[str, int] = {
     "invalid_phone":             400,
     "invalid_idempotency_key":   400,
     "lead_unrouted":             400,
+    "send_not_allowed":          403,  # Stage 10D — server-side allowlist gate
     "lead_not_found":            404,
     "whatsapp_window_closed":    409,
     "agent_misconfigured":       500,
