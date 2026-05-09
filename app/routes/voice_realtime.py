@@ -350,6 +350,51 @@ async def test_voice_entry(request: Request):
     return Response(content=str(response), media_type="application/xml")
 
 
+# ── A/B test entry point — same agent config, model forced to gpt-realtime-2 ─
+# Wire the EXISTING Gemini test number's Voice webhook here for an OpenAI test
+# call (toggle back to /voice-gemini for the Gemini side). No new Twilio number,
+# no new Supabase row — same `To` → same agent_config row.
+@router.post("/voice-ab")
+async def voice_ab_entry(request: Request):
+    form_data = await request.form()
+    raw_to    = form_data.get("To", "")
+    raw_from  = form_data.get("From", "")
+    call_sid  = form_data.get("CallSid", "")
+    norm_to   = normalize_phone_key(raw_to)
+    norm_from = normalize_phone_key(raw_from)
+
+    _cleanup_stale_contexts()
+    CALL_CONTEXT[call_sid] = {
+        "to":         norm_to,
+        "from":       norm_from,
+        "raw_to":     raw_to,
+        "raw_from":   raw_from,
+        "created_at": datetime.now().timestamp(),
+        "ab_test":    True,
+        "ab_model":   "gpt-realtime-2",
+    }
+    print(f"[AB] entry call_sid={call_sid} to={norm_to} from={norm_from} model=gpt-realtime-2")
+
+    try:
+        _sb = await fetch_supabase_agent_config(norm_to)
+        _known = bool(_sb and not _sb.get("fallback_used"))
+    except Exception as _e:
+        print(f"[AB] pre-check error: {_e}")
+        _known = False
+    if not _known:
+        err = VoiceResponse()
+        err.say("מצטערים, אירעה שגיאה. נסו שוב מאוחר יותר.", language="he-IL")
+        return Response(content=str(err), media_type="application/xml")
+
+    host       = request.url.hostname
+    stream_url = f"wss://{host}/voice-ai/stream?call_sid={quote(call_sid, safe='')}&ab=1"
+    response   = VoiceResponse()
+    connect    = Connect()
+    connect.stream(url=stream_url)
+    response.append(connect)
+    return Response(content=str(response), media_type="application/xml")
+
+
 # ── WebSocket / realtime engine ───────────────────────────────────────────────
 
 @router.websocket("/stream")
@@ -500,8 +545,22 @@ async def websocket_endpoint(twilio_ws: WebSocket):
     )
     print("=" * 60)
 
-    openai_url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview"
-    headers    = {"Authorization": f"Bearer {OPENAI_API_KEY}", "OpenAI-Beta": "realtime=v1"}
+    ab_mode  = (twilio_ws.query_params.get("ab", "") == "1") or bool(call_ctx and call_ctx.get("ab_test"))
+    ab_model = (call_ctx or {}).get("ab_model", "gpt-realtime-2") if ab_mode else None
+
+    if ab_mode:
+        openai_url = f"wss://api.openai.com/v1/realtime?model={ab_model}"
+        headers    = {"Authorization": f"Bearer {OPENAI_API_KEY}"}  # GA: no beta header
+        print(
+            f"[AB] WS opening | provider=openai | model={ab_model} | call_sid={call_sid} "
+            f"| agent_id={client_config.get('agent_id')} | client_id={client_config.get('client_id')}"
+        )
+    else:
+        openai_url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview"
+        headers    = {"Authorization": f"Bearer {OPENAI_API_KEY}", "OpenAI-Beta": "realtime=v1"}
+
+    _ab_t_session_open    = asyncio.get_event_loop().time() if ab_mode else None
+    _ab_first_audio_logged = False
 
     async with websockets.connect(openai_url, additional_headers=headers, ping_interval=None) as openai_ws:
 
@@ -550,6 +609,11 @@ async def websocket_endpoint(twilio_ws: WebSocket):
             },
         }
 
+        if ab_mode:
+            # GA model rejects `temperature`; recommend reasoning.effort=low for voice agents
+            session_update["session"].pop("temperature", None)
+            session_update["session"]["reasoning"] = {"effort": "low"}
+
         await openai_ws.send(json.dumps(session_update))
 
         # Discard audio buffered during setup (ringback / line noise / early "hello").
@@ -593,9 +657,11 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                         }))
             except Exception as e:
                 print(f"⚠️ Twilio Receiver Error: {e}")
+                if ab_mode:
+                    print(f"[AB] error | provider=openai | model={ab_model} | call_sid={call_sid} | side=twilio | err={e}")
 
         async def receive_from_openai():
-            nonlocal is_ai_speaking, speech_started_at, lead_sent, _ws_open, opening_greeting_done, listen_after_ts, last_ai_done_ts, user_has_spoken
+            nonlocal is_ai_speaking, speech_started_at, lead_sent, _ws_open, opening_greeting_done, listen_after_ts, last_ai_done_ts, user_has_spoken, _ab_first_audio_logged
             try:
                 async for message in openai_ws:
                     event      = json.loads(message)
@@ -604,6 +670,13 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                     # ── Stream AI audio to Twilio ──────────────────────────
                     if event_type == "response.audio.delta":
                         is_ai_speaking = True
+                        if ab_mode and not _ab_first_audio_logged and _ab_t_session_open is not None:
+                            _ab_first_audio_ms = (asyncio.get_event_loop().time() - _ab_t_session_open) * 1000
+                            print(
+                                f"[AB] first_audio_ms={_ab_first_audio_ms:.0f} | provider=openai "
+                                f"| model={ab_model} | call_sid={call_sid}"
+                            )
+                            _ab_first_audio_logged = True
                         opening_greeting_done = True   # first audio arrived — greeting started
                         if _ws_open and stream_sid:
                             await twilio_ws.send_json({
@@ -658,6 +731,8 @@ async def websocket_endpoint(twilio_ws: WebSocket):
                         func_name = event["name"]
                         args      = json.loads(event["arguments"])
                         print(f"🛠️ Function call: {func_name} | client: {client_config.get('client_name')} | args: {args}")
+                        if ab_mode:
+                            print(f"[AB] tool_call | provider=openai | model={ab_model} | call_sid={call_sid} | name={func_name}")
 
                         if func_name == "process_agency_lead":
                             func_call_id = event.get("call_id", "")
@@ -717,6 +792,8 @@ async def websocket_endpoint(twilio_ws: WebSocket):
 
             except Exception as e:
                 print(f"⚠️ OpenAI Receiver Error: {e}")
+                if ab_mode:
+                    print(f"[AB] error | provider=openai | model={ab_model} | call_sid={call_sid} | side=openai | err={e}")
 
         # ── Studio keep-alive: prevent Heroku 60s idle timeout on Twilio WebSocket ─
         # Heroku's nginx drops connections when no data is written for 60 seconds.
