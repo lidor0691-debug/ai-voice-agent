@@ -495,18 +495,34 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
             print("[GEMINI-LEAD] ⚠️  No caller phone available — lead not saved")
 
         # ── Webhook delivery ──────────────────────────────────────────────────
+        # Booking signal: Make.com uses booking_status to decide whether to fire
+        # the post-call WhatsApp follow-up. Previously the payload only carried
+        # name/topic/notes, so Make had no field to branch on and the follow-up
+        # was never sent. appointment_at + booking_status make the trigger
+        # explicit; followup_target_phone gives Make the WhatsApp destination.
         if caller_phone and webhook_url:
+            _booking_status = "booked" if _appointment_at else "not_booked"
             webhook_payload = {
-                "timestamp":    datetime.now().isoformat(),
-                "source":       "voice_gemini",
-                "client":       client_name,
-                "caller_phone": caller_phone,
-                "call_sid":     call_sid,
-                "name":         extracted.get("name", ""),
-                "phone_number": extracted.get("phone_number") or caller_phone,
-                "topic":        extracted.get("topic", ""),
-                "notes":        extracted.get("notes", ""),
+                "timestamp":             datetime.now().isoformat(),
+                "source":                "voice_gemini",
+                "client":                client_name,
+                "caller_phone":          caller_phone,
+                "call_sid":              call_sid,
+                "name":                  extracted.get("name", ""),
+                "phone_number":          extracted.get("phone_number") or caller_phone,
+                "topic":                 extracted.get("topic", ""),
+                "notes":                 extracted.get("notes", ""),
+                "appointment_day":       _appt_day,
+                "appointment_time":      _appt_time,
+                "appointment_at":        _appointment_at or "",
+                "booking_status":        _booking_status,
+                "followup_target_phone": caller_phone,
             }
+            print(
+                f"[GEMINI-WEBHOOK] booking_status={_booking_status} "
+                f"appointment_at={_appointment_at or '-'} "
+                f"target={caller_phone}"
+            )
             await _send_gemini_webhook(webhook_url, webhook_payload)
         elif not webhook_url:
             print("[GEMINI-WEBHOOK] ⚠️  No webhook URL in agent config — skipping")

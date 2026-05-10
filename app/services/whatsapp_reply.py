@@ -140,6 +140,74 @@ def strict_sanitize(text: str) -> str:
     )
 
 
+# Wrapping quote pairs we strip when they bracket the entire reply (bug #1).
+_WRAP_QUOTE_PAIRS = {
+    '"': '"',
+    "'": "'",
+    "\u201c": "\u201d",  # curly double
+    "\u2018": "\u2019",  # curly single
+    "\u00ab": "\u00bb",  # guillemets
+    "\u05f4": "\u05f4",  # Hebrew gershayim
+    "\u05f3": "\u05f3",  # Hebrew geresh
+    "`": "`",
+}
+
+# Twilio MessageInstance / status-callback values that must never be sent to
+# customers as message bodies (bug #2). If a reply collapses to one of these,
+# suppress it instead of relaying a meaningless status word.
+_TWILIO_STATUS_TOKENS = {
+    "accepted", "queued", "sending", "sent",
+    "delivered", "undelivered", "failed", "read", "receiving", "received",
+}
+
+
+def strip_wrapping_quotes(text: str) -> str:
+    """Strip a single pair of matching quotes that wrap the entire reply."""
+    if not text:
+        return text
+    s = text.strip()
+    if len(s) < 2:
+        return text
+    open_ch = s[0]
+    close_ch = _WRAP_QUOTE_PAIRS.get(open_ch)
+    if close_ch and s[-1] == close_ch:
+        inner = s[1:-1].strip()
+        if inner.count(open_ch) == 0 and inner.count(close_ch) == 0:
+            return inner
+    return text
+
+
+def sanitize_outbound_reply(text: str) -> str:
+    """
+    Final guard before a reply leaves the backend.
+      1. Replace U+2028/U+2029 with spaces.
+      2. Strip wrapping quotes ("\u05e9\u05dc\u05d5\u05dd..." -> \u05e9\u05dc\u05d5\u05dd...).
+      3. Suppress Twilio status words so "accepted" etc. are never customer-facing.
+    """
+    if not isinstance(text, str) or not text:
+        return ""
+    original = text
+    text = _sanitize_output(text)
+    stripped = strip_wrapping_quotes(text)
+    if stripped != text:
+        logger.info(
+            "[WA-OUT] stripped wrapping quotes (was %d chars, now %d)",
+            len(text), len(stripped),
+        )
+        text = stripped
+    if text.strip().lower() in _TWILIO_STATUS_TOKENS:
+        logger.warning(
+            "[WA-OUT] suppressed Twilio-status leak as customer reply: %r (original=%r)",
+            text, original,
+        )
+        return ""
+    logger.info(
+        "[WA-OUT] final reply ready chars=%d preview=%r",
+        len(text), text[:60],
+    )
+    return text
+
+
 async def _call_openai(messages: list[dict]) -> str:
     # STEP5A: build clean_messages
     try:
@@ -506,7 +574,7 @@ async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: st
     except Exception as _exc:
         logger.warning("[LEAD INTELLIGENCE] injection skipped: %s", _exc)
 
-    reply = _sanitize_output(reply)
+    reply = sanitize_outbound_reply(reply)
     messages = [
         {**m, "content": _sanitize_output(m.get("content", ""))}
         for m in updated_messages

@@ -14,7 +14,7 @@ from fastapi import APIRouter, Request, Response
 from pydantic import BaseModel
 
 from app.services.mri_reply_capture import try_capture_probe_reply
-from app.services.whatsapp_reply import generate_whatsapp_reply
+from app.services.whatsapp_reply import generate_whatsapp_reply, sanitize_outbound_reply
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -123,7 +123,8 @@ async def twilio_inbound(request: Request):
         business_phone=business_phone,
         user_message=user_message,
     )
-    reply_text = (result or {}).get("reply") or ""
+    reply_text = sanitize_outbound_reply((result or {}).get("reply") or "")
     if not reply_text:
+        logger.info("[WA-TWILIO] suppressed empty/invalid reply for to=%s", customer_phone)
         return _twiml_empty()
     return _twiml_message(reply_text)
