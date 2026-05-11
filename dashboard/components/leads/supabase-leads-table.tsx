@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Search, Phone, MessageSquare } from "lucide-react";
 import { LeadDetailPanel } from "@/components/dashboard/lead-detail-panel";
-import { formatDate } from "@/lib/utils";
+import { formatDate, displayPhone } from "@/lib/utils";
 import type { SupabaseLead } from "@/types/lead";
 
 const STATUS_CONFIG: Record<string, { label: string; text: string; bg: string; border: string }> = {
@@ -115,7 +115,7 @@ export function SupabaseLeadsTable({ leads }: Props) {
                       </td>
                       {/* Phone */}
                       <td className="px-5 py-3.5 text-gray-500 font-mono text-[12px]">
-                        {lead.phone}
+                        {displayPhone(lead.phone)}
                       </td>
                       {/* Source */}
                       <td className="px-5 py-3.5">

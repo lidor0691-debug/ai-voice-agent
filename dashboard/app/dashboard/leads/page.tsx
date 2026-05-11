@@ -23,6 +23,8 @@ export default async function LeadsPage() {
     const query = client
       .from("leads")
       .select("*")
+      .neq("source", "browser_voice")
+      .not("phone", "is", null)
       .order("created_at", { ascending: false })
       .limit(200);
     if (!ctx.isAdmin) query.eq("client_id", ctx.clientId);

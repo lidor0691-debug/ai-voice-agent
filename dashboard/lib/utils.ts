@@ -11,6 +11,25 @@ export function maskPhone(phone: string): string {
   return phone.slice(0, -4).replace(/\d/g, "*") + phone.slice(-4);
 }
 
+const PHONE_PLACEHOLDER = "לא זמין";
+const PHONE_JUNK_VALUES = new Set(["browser", "unknown", "null", "undefined", ""]);
+
+export function displayPhone(phone: string | null | undefined): string {
+  if (!phone) return PHONE_PLACEHOLDER;
+  const s = String(phone).trim();
+  if (PHONE_JUNK_VALUES.has(s.toLowerCase())) return PHONE_PLACEHOLDER;
+  const digits = s.replace(/\D/g, "");
+  if (digits.length < 6) return PHONE_PLACEHOLDER;
+  return s;
+}
+
+export function isValidPhone(phone: string | null | undefined): boolean {
+  if (!phone) return false;
+  const s = String(phone).trim();
+  if (PHONE_JUNK_VALUES.has(s.toLowerCase())) return false;
+  return s.replace(/\D/g, "").length >= 6;
+}
+
 export function formatDate(iso: string): string {
   try {
     return new Date(iso).toLocaleDateString("he-IL", {
