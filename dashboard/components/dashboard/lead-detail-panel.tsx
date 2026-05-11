@@ -11,6 +11,8 @@ import {
   Clock,
   Bike,
   ExternalLink,
+  Pencil,
+  Check,
 } from "lucide-react";
 import { StatusBadge, Badge } from "@/components/ui/badge";
 import { formatDate, formatTime, addSeconds, displayPhone, displayLeadName, waMeLink } from "@/lib/utils";
@@ -75,9 +77,10 @@ function buildTimeline(lead: Lead): TimelineEvent[] {
 interface LeadDetailPanelProps {
   lead: Lead | null;
   onClose: () => void;
+  onLeadUpdated?: (id: string, patch: { name?: string | null }) => void;
 }
 
-export function LeadDetailPanel({ lead, onClose }: LeadDetailPanelProps) {
+export function LeadDetailPanel({ lead, onClose, onLeadUpdated }: LeadDetailPanelProps) {
   const isOpen = lead !== null;
 
   return (
@@ -97,16 +100,15 @@ export function LeadDetailPanel({ lead, onClose }: LeadDetailPanelProps) {
         }`}
         dir="rtl"
       >
-        {lead && <PanelContent lead={lead} onClose={onClose} />}
+        {lead && <PanelContent lead={lead} onClose={onClose} onLeadUpdated={onLeadUpdated} />}
       </div>
     </>
   );
 }
 
-function PanelContent({ lead, onClose }: { lead: Lead; onClose: () => void }) {
+function PanelContent({ lead, onClose, onLeadUpdated }: { lead: Lead; onClose: () => void; onLeadUpdated?: (id: string, patch: { name?: string | null }) => void }) {
   const timeline = buildTimeline(lead);
   const phoneStr = displayPhone(lead.phone);
-  const nameStr = displayLeadName(lead.name);
   const hasModel = lead.model && lead.model.trim() !== "" && lead.model !== "—";
   const hasIntents = lead.intents.length > 0;
   const sourceLabel = lead.source === "voice" ? "שיחה קולית" : lead.source === "whatsapp" ? "וואטסאפ" : lead.source;
@@ -149,6 +151,59 @@ function PanelContent({ lead, onClose }: { lead: Lead; onClose: () => void }) {
 
   const recentWa = waMessages.slice(-10);
 
+  // ── Inline name edit ────────────────────────────────────────────────────
+  const [displayName, setDisplayName] = useState<string | null>(lead.name || null);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDisplayName(lead.name || null);
+    setEditing(false);
+    setSaveError(null);
+  }, [lead.id, lead.name]);
+
+  const startEdit = () => {
+    setDraft(displayName ?? "");
+    setSaveError(null);
+    setEditing(true);
+  };
+  const cancelEdit = () => {
+    setEditing(false);
+    setSaveError(null);
+  };
+  const saveEdit = async () => {
+    const next = draft.trim();
+    const normalized = next === "" ? null : next;
+    if (normalized === (displayName ?? null)) {
+      setEditing(false);
+      return;
+    }
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const res = await fetch(`/api/leads/${lead.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: normalized }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j?.error || `שגיאה (${res.status})`);
+      }
+      setDisplayName(normalized);
+      setEditing(false);
+      onLeadUpdated?.(lead.id, { name: normalized });
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "שמירה נכשלה");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const shownName = displayName ? displayLeadName(displayName) : displayLeadName(null);
+
   return (
     <>
       {/* Header */}
@@ -157,11 +212,57 @@ function PanelContent({ lead, onClose }: { lead: Lead; onClose: () => void }) {
           <div className="w-10 h-10 rounded-full bg-brand-100 flex items-center justify-center text-brand-700 font-bold text-sm flex-shrink-0">
             {initial}
           </div>
-          <div className="min-w-0">
-            <p className="text-slate-900 font-semibold text-sm truncate">{nameStr}</p>
+          <div className="min-w-0 flex-1">
+            {editing ? (
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="text"
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") saveEdit();
+                    if (e.key === "Escape") cancelEdit();
+                  }}
+                  disabled={saving}
+                  autoFocus
+                  placeholder="שם הלקוחה"
+                  className="text-slate-900 font-semibold text-sm bg-slate-50 border border-slate-300 rounded px-2 py-1 w-full min-w-0 focus:outline-none focus:ring-1 focus:ring-brand-500 focus:border-brand-500"
+                />
+                <button
+                  onClick={saveEdit}
+                  disabled={saving}
+                  className="p-1 rounded hover:bg-emerald-50 text-emerald-600 disabled:opacity-50 flex-shrink-0"
+                  aria-label="שמור"
+                >
+                  <Check className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={cancelEdit}
+                  disabled={saving}
+                  className="p-1 rounded hover:bg-slate-100 text-slate-400 disabled:opacity-50 flex-shrink-0"
+                  aria-label="בטל"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5">
+                <p className="text-slate-900 font-semibold text-sm truncate">{shownName}</p>
+                <button
+                  onClick={startEdit}
+                  className="p-1 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600 flex-shrink-0"
+                  aria-label="ערוך שם"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
             <p className="text-slate-400 text-xs font-mono mt-0.5 truncate">
               {phoneStr}
             </p>
+            {saveError && (
+              <p className="text-red-500 text-xs mt-1">{saveError}</p>
+            )}
           </div>
         </div>
         <button

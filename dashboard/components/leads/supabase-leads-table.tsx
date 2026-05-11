@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Search, Phone, MessageSquare } from "lucide-react";
 import { LeadDetailPanel } from "@/components/dashboard/lead-detail-panel";
 import { formatDate, displayPhone, displayLeadName } from "@/lib/utils";
@@ -20,10 +20,19 @@ interface Props {
   leads: SupabaseLead[];
 }
 
-export function SupabaseLeadsTable({ leads }: Props) {
+export function SupabaseLeadsTable({ leads: leadsProp }: Props) {
+  const [leads, setLeads] = useState<SupabaseLead[]>(leadsProp);
   const [query, setQuery] = useState("");
   const [selectedLead, setSelectedLead] = useState<SupabaseLead | null>(null);
   const [page, setPage] = useState(0);
+
+  // Keep local state in sync if parent re-fetches.
+  useEffect(() => { setLeads(leadsProp); }, [leadsProp]);
+
+  const handleLeadUpdated = (id: string, patch: { name?: string | null }) => {
+    setLeads((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)));
+    setSelectedLead((prev) => (prev && prev.id === id ? { ...prev, ...patch } : prev));
+  };
 
   const filtered = leads.filter((l) => {
     if (!query) return true;
@@ -190,6 +199,7 @@ export function SupabaseLeadsTable({ leads }: Props) {
         <LeadDetailPanel
           lead={adaptedLead}
           onClose={() => setSelectedLead(null)}
+          onLeadUpdated={handleLeadUpdated}
         />
       )}
     </>
