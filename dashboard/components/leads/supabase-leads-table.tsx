@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Search, Phone, MessageSquare } from "lucide-react";
 import { LeadDetailPanel } from "@/components/dashboard/lead-detail-panel";
-import { formatDate, displayPhone } from "@/lib/utils";
+import { formatDate, displayPhone, displayLeadName } from "@/lib/utils";
 import type { SupabaseLead } from "@/types/lead";
 
 const STATUS_CONFIG: Record<string, { label: string; text: string; bg: string; border: string }> = {
@@ -40,17 +40,20 @@ export function SupabaseLeadsTable({ leads }: Props) {
   const adaptedLead = selectedLead
     ? {
         id: selectedLead.id,
-        name: selectedLead.name ?? "—",
+        name: selectedLead.name ?? "",
         phone: selectedLead.phone,
-        model: selectedLead.service ?? "—",
+        model: selectedLead.service ?? "",
         intents: [],
         mileage: "",
-        appointment_time: null,
+        appointment_time: selectedLead.appointment_at ?? null,
         created_at: selectedLead.created_at,
         status: selectedLead.status,
         source: selectedLead.source,
         sms_sent: false,
-        calendar_booked: false,
+        calendar_booked: Boolean(selectedLead.appointment_at),
+        notes: selectedLead.notes ?? null,
+        last_call_topic: selectedLead.last_call_topic ?? null,
+        last_call_summary: selectedLead.last_call_summary ?? null,
       }
     : null;
 
@@ -109,7 +112,7 @@ export function SupabaseLeadsTable({ leads }: Props) {
                             {(lead.name ?? "?").charAt(0).toUpperCase()}
                           </div>
                           <span className="font-medium text-gray-300 group-hover:text-white transition-colors text-[13px]">
-                            {lead.name ?? <span className="text-gray-600">—</span>}
+                            {lead.name ? displayLeadName(lead.name) : <span className="text-gray-600">ללא שם</span>}
                           </span>
                         </div>
                       </td>

@@ -78,17 +78,30 @@ async def _load_row(phone: str) -> Optional[dict]:
         return rows[0] if rows else None
 
 
-async def _upsert_messages(phone: str, messages: list[dict]) -> None:
+async def _upsert_messages(
+    phone: str,
+    messages: list[dict],
+    client_id: Optional[str] = None,
+    agent_id: Optional[str] = None,
+    business_phone: Optional[str] = None,
+) -> None:
     """
     Insert or update the row for this phone with the new messages array.
     on_conflict=phone tells Supabase which column to use for conflict resolution.
     """
     url = f"{_SUPABASE_URL}/rest/v1/{_TABLE}?on_conflict=phone"
     headers = {**_headers(), "Prefer": "resolution=merge-duplicates,return=minimal"}
+    body: dict = {"phone": phone, "messages_json": messages}
+    if client_id:
+        body["client_id"] = client_id
+    if agent_id:
+        body["agent_id"] = agent_id
+    if business_phone:
+        body["business_phone"] = business_phone
     async with httpx.AsyncClient(timeout=5.0) as client:
         resp = await client.post(
             url,
-            json={"phone": phone, "messages_json": messages},
+            json=body,
             headers=headers,
         )
         resp.raise_for_status()
@@ -98,6 +111,9 @@ async def append_whatsapp_messages(
     phone: str,
     user_message: str,
     assistant_message: str,
+    client_id: Optional[str] = None,
+    agent_id: Optional[str] = None,
+    business_phone: Optional[str] = None,
 ) -> list[dict]:
     """
     Load, normalize, append, save, and return the full updated messages array.
@@ -125,7 +141,12 @@ async def append_whatsapp_messages(
 
     # Persist clean JSON array back to Supabase
     try:
-        await _upsert_messages(phone, updated)
+        await _upsert_messages(
+            phone, updated,
+            client_id=client_id,
+            agent_id=agent_id,
+            business_phone=business_phone,
+        )
         logger.info(
             "[WHATSAPP HISTORY] Saved %d messages for %s", len(updated), phone
         )

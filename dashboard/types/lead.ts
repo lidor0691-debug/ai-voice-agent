@@ -13,6 +13,9 @@ export interface Lead {
   source: string;          // column: source
   sms_sent: boolean;       // column: sms_sent
   calendar_booked: boolean;// column: calendar_booked
+  notes?: string | null;
+  last_call_topic?: string | null;
+  last_call_summary?: string | null;
 }
 
 export interface LeadStats {
@@ -33,6 +36,10 @@ export interface SupabaseLead {
   status: string;
   notes: string | null;
   agent_id: string | null;
+  last_call_topic?: string | null;
+  last_call_summary?: string | null;
+  last_call_at?: string | null;
+  appointment_at?: string | null;
 }
 
 export interface LeadsApiResponse {

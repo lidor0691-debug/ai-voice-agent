@@ -23,6 +23,22 @@ export function displayPhone(phone: string | null | undefined): string {
   return s;
 }
 
+const NAME_PLACEHOLDER = "ללא שם";
+
+export function displayLeadName(name: string | null | undefined): string {
+  if (!name) return NAME_PLACEHOLDER;
+  const s = String(name).trim();
+  if (!s || s === "—") return NAME_PLACEHOLDER;
+  return s;
+}
+
+export function waMeLink(phone: string | null | undefined): string | null {
+  if (!phone) return null;
+  const digits = String(phone).replace(/\D/g, "");
+  if (digits.length < 6) return null;
+  return `https://wa.me/${digits}`;
+}
+
 export function isValidPhone(phone: string | null | undefined): boolean {
   if (!phone) return false;
   const s = String(phone).trim();

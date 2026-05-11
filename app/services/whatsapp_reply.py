@@ -515,7 +515,14 @@ async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: st
 
     # ── 6. Persist history via customer_phone ────────────────────────────────
     try:
-        updated_messages = await append_whatsapp_messages(customer_phone, user_message, reply)
+        updated_messages = await append_whatsapp_messages(
+            customer_phone,
+            user_message,
+            reply,
+            client_id=agent.get("client_id") or None,
+            agent_id=agent.get("agent_id") or None,
+            business_phone=business_phone or None,
+        )
     except Exception as exc:
         updated_messages = history + [
             {"role": "user",      "content": user_message},

@@ -432,14 +432,19 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
         print("[GEMINI-WS] Session ended — running end-of-call business logic")
 
         # ── Extract structured lead fields from transcript ────────────────────
+        # IMPORTANT: only feed customer turns (lines prefixed "לקוח:") to the
+        # extractor. Including assistant turns ("מאיה: ...") lets the LLM
+        # latch onto names the assistant mentions (e.g., "קסניה") and save
+        # them as the caller's name.
         extracted: dict = {}
-        transcript_text = "\n".join(_transcript_lines)
+        _customer_lines = [ln for ln in _transcript_lines if ln.startswith("לקוח:")]
+        transcript_text = "\n".join(_customer_lines)
         if transcript_text.strip():
-            print(f"[GEMINI-EXTRACT] Transcript ({len(_transcript_lines)} lines) — running extraction")
+            print(f"[GEMINI-EXTRACT] Customer-only transcript ({len(_customer_lines)} lines) — running extraction")
             extracted = await _extract_lead_from_transcript(transcript_text, caller_phone)
             print(f"[GEMINI-EXTRACT] Result: {extracted}")
         else:
-            print("[GEMINI-EXTRACT] No transcript captured — skipping extraction")
+            print("[GEMINI-EXTRACT] No customer transcript captured — skipping extraction")
 
         # ── Lead persistence: always save a record to Supabase leads table ────
         if caller_phone:
@@ -478,8 +483,11 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
                 except Exception as _exc:
                     print(f"[GEMINI-LEAD] ⚠️ Failed to compute appointment_at: {_exc}")
 
+            # Phone source of truth = normalized Twilio caller_phone.
+            # NEVER use phone extracted from transcript (LLM can hallucinate or pick up
+            # a number mentioned by the assistant or in casual conversation).
             await save_lead({
-                "phone":             extracted.get("phone") or caller_phone,
+                "phone":             caller_phone,
                 "source":            "voice",
                 "status":            "new",
                 "client_id":         client_id,

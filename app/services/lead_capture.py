@@ -78,6 +78,24 @@ async def save_lead(data: dict) -> None:
 
     payload = {k: v for k, v in data.items() if v is not None}
 
+    # Never let a new save overwrite an existing customer name.
+    # If a row already exists for this phone with a non-null name, drop `name`
+    # from the upsert payload — only fill name on first save or when previously null.
+    if payload.get("name") and payload.get("phone"):
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(
+                    f"{_SUPABASE_URL}/rest/v1/{_TABLE}",
+                    params={"phone": f"eq.{payload['phone']}", "select": "name", "limit": "1"},
+                    headers=_headers(),
+                )
+                if resp.status_code == 200:
+                    rows = resp.json()
+                    if rows and rows[0].get("name"):
+                        payload.pop("name", None)
+        except Exception as exc:
+            logger.warning("[LEAD CAPTURE] name-preserve check failed (continuing): %s", exc)
+
     # Upsert on phone — if lead already exists (e.g. from WhatsApp), update it
     # instead of creating a duplicate. Requires unique constraint on leads.phone.
     upsert_headers = {

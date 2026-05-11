@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import {
   X,
   Phone,
@@ -9,10 +10,17 @@ import {
   CalendarCheck,
   Clock,
   Bike,
+  ExternalLink,
 } from "lucide-react";
 import { StatusBadge, Badge } from "@/components/ui/badge";
-import { formatDate, formatTime, addSeconds, displayPhone } from "@/lib/utils";
+import { formatDate, formatTime, addSeconds, displayPhone, displayLeadName, waMeLink } from "@/lib/utils";
 import type { Lead } from "@/types/lead";
+
+interface ConversationMessage {
+  role: string;
+  content: string;
+  timestamp?: string;
+}
 
 interface TimelineEvent {
   Icon: React.ComponentType<{ className?: string }>;
@@ -98,10 +106,44 @@ export function LeadDetailPanel({ lead, onClose }: LeadDetailPanelProps) {
 function PanelContent({ lead, onClose }: { lead: Lead; onClose: () => void }) {
   const timeline = buildTimeline(lead);
   const phoneStr = displayPhone(lead.phone);
+  const nameStr = displayLeadName(lead.name);
   const hasModel = lead.model && lead.model.trim() !== "" && lead.model !== "—";
   const hasIntents = lead.intents.length > 0;
   const sourceLabel = lead.source === "voice" ? "שיחה קולית" : lead.source === "whatsapp" ? "וואטסאפ" : lead.source;
   const initial = (lead.name && lead.name.trim()) ? lead.name.trim().charAt(0) : "?";
+  const waUrl = waMeLink(lead.phone);
+
+  // Summary fields written by voice pipeline (optional, may be absent).
+  const summaryParts = [
+    lead.last_call_topic,
+    lead.last_call_summary,
+    lead.notes,
+  ].filter((s): s is string => Boolean(s && s.trim()));
+  const hasSummary = summaryParts.length > 0;
+
+  // WhatsApp history — fetched only for WhatsApp leads, scoped server-side by client_id.
+  const [waMessages, setWaMessages] = useState<ConversationMessage[]>([]);
+  const [waLoading, setWaLoading] = useState(false);
+  useEffect(() => {
+    if (lead.source !== "whatsapp" || phoneStr === "לא זמין") {
+      setWaMessages([]);
+      return;
+    }
+    let cancelled = false;
+    setWaLoading(true);
+    fetch(`/api/whatsapp-history?phone=${encodeURIComponent(lead.phone)}`)
+      .then((r) => (r.ok ? r.json() : { messages: [] }))
+      .then((data) => {
+        if (cancelled) return;
+        const msgs = Array.isArray(data?.messages) ? data.messages : [];
+        setWaMessages(msgs);
+      })
+      .catch(() => { if (!cancelled) setWaMessages([]); })
+      .finally(() => { if (!cancelled) setWaLoading(false); });
+    return () => { cancelled = true; };
+  }, [lead.id, lead.source, lead.phone, phoneStr]);
+
+  const recentWa = waMessages.slice(-10);
 
   return (
     <>
@@ -112,7 +154,7 @@ function PanelContent({ lead, onClose }: { lead: Lead; onClose: () => void }) {
             {initial}
           </div>
           <div className="min-w-0">
-            <p className="text-slate-900 font-semibold text-sm truncate">{lead.name || "—"}</p>
+            <p className="text-slate-900 font-semibold text-sm truncate">{nameStr}</p>
             <p className="text-slate-400 text-xs font-mono mt-0.5 truncate">
               {phoneStr}
             </p>
@@ -189,6 +231,51 @@ function PanelContent({ lead, onClose }: { lead: Lead; onClose: () => void }) {
           </p>
         </div>
 
+        {/* What the customer asked — voice summary (only if present) */}
+        {hasSummary && (
+          <div className="px-6 py-5 border-b border-slate-100">
+            <p className="text-slate-700 font-semibold text-sm mb-3">מה הלקוחה ביקשה</p>
+            <div className="space-y-2">
+              {summaryParts.map((part, i) => (
+                <p key={i} className="text-slate-700 text-sm leading-relaxed whitespace-pre-wrap">
+                  {part}
+                </p>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* WhatsApp conversation — only for WhatsApp leads, scoped by client_id server-side */}
+        {lead.source === "whatsapp" && (waLoading || recentWa.length > 0) && (
+          <div className="px-6 py-5 border-b border-slate-100">
+            <p className="text-slate-700 font-semibold text-sm mb-3">שיחת וואטסאפ</p>
+            {waLoading && recentWa.length === 0 ? (
+              <p className="text-slate-400 text-xs">טוען…</p>
+            ) : (
+              <div className="space-y-2">
+                {recentWa.map((m, i) => {
+                  const isCustomer = m.role === "user";
+                  return (
+                    <div
+                      key={i}
+                      className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm leading-snug ${
+                        isCustomer
+                          ? "bg-slate-100 text-slate-800 me-auto rounded-bs-sm"
+                          : "bg-brand-500/10 text-slate-800 ms-auto rounded-be-sm"
+                      }`}
+                    >
+                      <p className="text-[10px] font-semibold mb-0.5 text-slate-500">
+                        {isCustomer ? "לקוחה" : "מאיה"}
+                      </p>
+                      <p className="whitespace-pre-wrap break-words">{m.content}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Timeline */}
         <div className="px-6 py-5">
           <p className="text-slate-700 font-semibold text-sm mb-5">ציר זמן הפנייה</p>
@@ -210,6 +297,21 @@ function PanelContent({ lead, onClose }: { lead: Lead; onClose: () => void }) {
           </ol>
         </div>
       </div>
+
+      {/* Footer action — only safe option for today: open WhatsApp manually */}
+      {waUrl && (
+        <div className="px-6 py-4 border-t border-slate-100 flex-shrink-0">
+          <a
+            href={waUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-center gap-2 w-full py-2.5 text-sm font-medium bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg transition-colors"
+          >
+            <ExternalLink className="w-4 h-4" />
+            פתח בוואטסאפ
+          </a>
+        </div>
+      )}
     </>
   );
 }
