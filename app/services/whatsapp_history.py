@@ -19,6 +19,7 @@ Normalization rules:
 import json
 import logging
 import os
+from datetime import datetime
 from typing import Optional
 
 import httpx
@@ -91,7 +92,16 @@ async def _upsert_messages(
     """
     url = f"{_SUPABASE_URL}/rest/v1/{_TABLE}?on_conflict=phone"
     headers = {**_headers(), "Prefer": "resolution=merge-duplicates,return=minimal"}
-    body: dict = {"phone": phone, "messages_json": messages}
+    # Defensive guard: strip "whatsapp:" prefix in case a caller forgot to.
+    # Old rows with the prefix exist; never create new ones.
+    phone = (phone or "").replace("whatsapp:", "").strip()
+    body: dict = {
+        "phone": phone,
+        "messages_json": messages,
+        # Postgres does not auto-refresh updated_at on upsert merge.
+        # Set it explicitly so the dashboard / queries can see freshness.
+        "updated_at": datetime.utcnow().isoformat(),
+    }
     if client_id:
         body["client_id"] = client_id
     if agent_id:
@@ -140,6 +150,10 @@ async def append_whatsapp_messages(
     ]
 
     # Persist clean JSON array back to Supabase
+    logger.info(
+        "[WHATSAPP HISTORY SCOPE] phone=%s client_id=%s agent_id=%s business_phone=%s",
+        phone, client_id, agent_id, business_phone,
+    )
     try:
         await _upsert_messages(
             phone, updated,
@@ -147,10 +161,8 @@ async def append_whatsapp_messages(
             agent_id=agent_id,
             business_phone=business_phone,
         )
-        logger.info(
-            "[WHATSAPP HISTORY] Saved %d messages for %s", len(updated), phone
-        )
+        logger.info("[WHATSAPP HISTORY SAVED] phone=%s msg_count=%d", phone, len(updated))
     except Exception as exc:
-        logger.error("[WHATSAPP HISTORY] Failed to save messages for %s: %s", phone, exc)
+        logger.error("[WHATSAPP HISTORY ERROR] phone=%s error=%s", phone, exc)
 
     return updated
