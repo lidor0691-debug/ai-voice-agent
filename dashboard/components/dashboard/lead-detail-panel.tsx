@@ -133,10 +133,12 @@ function PanelContent({ lead, onClose }: { lead: Lead; onClose: () => void }) {
     }
     let cancelled = false;
     setWaLoading(true);
+    console.log("[lead-drawer] fetch WA history phone=%o source=%s", lead.phone, lead.source);
     fetch(`/api/whatsapp-history?phone=${encodeURIComponent(lead.phone)}`)
       .then((r) => (r.ok ? r.json() : { messages: [] }))
       .then((data) => {
         if (cancelled) return;
+        console.log("[lead-drawer] WA history response", data);
         const msgs = Array.isArray(data?.messages) ? data.messages : [];
         setWaMessages(msgs);
       })

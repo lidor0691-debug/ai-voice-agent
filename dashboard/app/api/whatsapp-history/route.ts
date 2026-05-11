@@ -17,6 +17,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const phone = req.nextUrl.searchParams.get("phone");
+  console.log("[/api/whatsapp-history] phone=%s isAdmin=%s clientId=%s", phone, ctx.isAdmin, ctx.isAdmin ? "(admin)" : ctx.clientId);
   if (!phone) return NextResponse.json({ messages: [] });
 
   const query = client
@@ -30,15 +31,17 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const { data, error } = await query;
   if (error) {
     console.error("[/api/whatsapp-history] Supabase error:", error.message);
-    return NextResponse.json({ messages: [] });
+    return NextResponse.json({ messages: [], debug: { phone, error: error.message } });
   }
 
   const row = (data ?? [])[0];
-  if (!row) return NextResponse.json({ messages: [] });
+  console.log("[/api/whatsapp-history] rows=%d row_client_id=%s", (data ?? []).length, row?.client_id);
+  if (!row) return NextResponse.json({ messages: [], debug: { phone, reason: "no_row" } });
 
   // Defense in depth: even if RLS-bypassed somehow, ensure the row matches the user's client_id.
   if (!ctx.isAdmin && row.client_id !== ctx.clientId) {
-    return NextResponse.json({ messages: [] });
+    console.warn("[/api/whatsapp-history] client_id mismatch: row=%s ctx=%s", row.client_id, ctx.clientId);
+    return NextResponse.json({ messages: [], debug: { phone, reason: "client_mismatch" } });
   }
 
   let messages: ConversationMessage[] = [];
