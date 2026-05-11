@@ -476,13 +476,40 @@ async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: st
     except Exception as exc:
         return {"reply": strict_sanitize(f"DIAG_STEP3_FAIL: {exc}"), "messages": []}
 
-    # First message from this phone — save as a new lead (independent of history loading)
-    if row is None:
+    # Determine is_new_lead by checking the leads table (NOT whatsapp_conversations).
+    # A customer who came in via voice and now sends a first WhatsApp is NOT a new
+    # lead. Only when no lead row exists for (phone, client_id) is this a new lead.
+    _notify_client_id = agent.get("client_id") or None
+    _existing_lead: dict | None = None
+    if _notify_client_id:
+        try:
+            async with httpx.AsyncClient(timeout=3.0) as _lc:
+                _lead_resp = await _lc.get(
+                    f"{_SUPABASE_URL}/rest/v1/leads",
+                    params={
+                        "phone": f"eq.{customer_phone}",
+                        "client_id": f"eq.{_notify_client_id}",
+                        "select": "id,name",
+                        "limit": "1",
+                    },
+                    headers=_headers(),
+                )
+                if _lead_resp.status_code == 200:
+                    _rows = _lead_resp.json()
+                    _existing_lead = _rows[0] if _rows else None
+        except Exception as _exc:
+            logger.warning("[WHATSAPP] lead existence check failed: %s", _exc)
+
+    # If client_id missing, fail safely → notify.is_new_lead = false (computed below).
+    is_new_lead = bool(_notify_client_id) and _existing_lead is None
+
+    # First contact for this client — create the lead row.
+    if is_new_lead:
         await save_lead({
             "phone":     customer_phone,
             "source":    "whatsapp",
             "status":    "new",
-            "client_id": agent.get("client_id") or None,
+            "client_id": _notify_client_id,
         })
 
     # ── Update last_whatsapp_inbound_at for 24h window tracking ──────────
@@ -587,4 +614,19 @@ async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: st
         for m in updated_messages
     ]
 
-    return {"reply": reply, "messages": messages}
+    # ── New-lead notification payload for Make.com ──────────────────────────
+    # Backend does NOT send anything. Make scenarios branch on notify.is_new_lead
+    # and deliver the alert to the owner via their own Twilio module.
+    _lead_name = (_existing_lead or {}).get("name") if _existing_lead else None
+    _lead_summary = (user_message or "").strip().replace("\n", " ")[:80]
+    notify = {
+        "is_new_lead":  is_new_lead,
+        "lead_name":    _lead_name or "ללא שם",
+        "lead_phone":   customer_phone,
+        "lead_source":  "whatsapp",
+        "lead_summary": _lead_summary,
+        "agent_name":   (agent.get("agent_name") or "").strip() or None,
+        "client_id":    _notify_client_id,
+    }
+
+    return {"reply": reply, "messages": messages, "notify": notify}
