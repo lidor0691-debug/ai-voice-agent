@@ -121,11 +121,13 @@ function PanelContent({ lead, onClose }: { lead: Lead; onClose: () => void }) {
   ].filter((s): s is string => Boolean(s && s.trim()));
   const hasSummary = summaryParts.length > 0;
 
-  // WhatsApp history — fetched only for WhatsApp leads, scoped server-side by client_id.
+  // WhatsApp history — fetched for ANY lead with a valid phone, scoped server-side by client_id.
+  // A customer may have called by voice but also exchanged WhatsApp messages — we want to surface
+  // that history regardless of which channel created the lead row.
   const [waMessages, setWaMessages] = useState<ConversationMessage[]>([]);
   const [waLoading, setWaLoading] = useState(false);
   useEffect(() => {
-    if (lead.source !== "whatsapp" || phoneStr === "לא זמין") {
+    if (phoneStr === "לא זמין") {
       setWaMessages([]);
       return;
     }
@@ -141,7 +143,7 @@ function PanelContent({ lead, onClose }: { lead: Lead; onClose: () => void }) {
       .catch(() => { if (!cancelled) setWaMessages([]); })
       .finally(() => { if (!cancelled) setWaLoading(false); });
     return () => { cancelled = true; };
-  }, [lead.id, lead.source, lead.phone, phoneStr]);
+  }, [lead.id, lead.phone, phoneStr]);
 
   const recentWa = waMessages.slice(-10);
 
@@ -245,8 +247,8 @@ function PanelContent({ lead, onClose }: { lead: Lead; onClose: () => void }) {
           </div>
         )}
 
-        {/* WhatsApp conversation — only for WhatsApp leads, scoped by client_id server-side */}
-        {lead.source === "whatsapp" && (waLoading || recentWa.length > 0) && (
+        {/* WhatsApp conversation — shown for any lead with messages on this phone, scoped by client_id server-side */}
+        {(waLoading || recentWa.length > 0) && (
           <div className="px-6 py-5 border-b border-slate-100">
             <p className="text-slate-700 font-semibold text-sm mb-3">שיחת וואטסאפ</p>
             {waLoading && recentWa.length === 0 ? (
