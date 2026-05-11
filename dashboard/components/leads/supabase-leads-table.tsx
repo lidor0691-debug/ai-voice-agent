@@ -29,6 +29,23 @@ export function SupabaseLeadsTable({ leads: leadsProp }: Props) {
   // Keep local state in sync if parent re-fetches.
   useEffect(() => { setLeads(leadsProp); }, [leadsProp]);
 
+  // Expose the currently open lead to the dashboard assistant (Maya FAB).
+  // The FAB lives outside this component tree (DashboardShell), so we use
+  // sessionStorage as a tiny cross-component handoff.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (selectedLead) {
+      sessionStorage.setItem("maya:active_lead_id", selectedLead.id);
+    } else {
+      sessionStorage.removeItem("maya:active_lead_id");
+    }
+    return () => {
+      if (typeof window !== "undefined") {
+        sessionStorage.removeItem("maya:active_lead_id");
+      }
+    };
+  }, [selectedLead]);
+
   const handleLeadUpdated = (id: string, patch: { name?: string | null }) => {
     setLeads((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)));
     setSelectedLead((prev) => (prev && prev.id === id ? { ...prev, ...patch } : prev));

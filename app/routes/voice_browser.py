@@ -293,8 +293,123 @@ def _extract_draft_message(full_out: str) -> str | None:
 
 # ── WebSocket endpoint ───────────────────────────────────────────────────────
 
+async def _fetch_active_lead_context(lead_id: str, client_id: str | None, is_admin: bool) -> str:
+    """
+    Fetch the currently selected lead + last 10 WhatsApp turns, scoped by client_id
+    when the session is not admin. Returns a Hebrew-formatted block ready to inject
+    into the assistant system prompt, or "" if anything is missing/forbidden.
+    Never raises.
+    """
+    if not lead_id:
+        return ""
+    _sb_url = os.getenv("SUPABASE_URL", "")
+    _sb_key = os.getenv("SUPABASE_SERVICE_KEY", "")
+    if not _sb_url or not _sb_key:
+        return ""
+    _h = {"apikey": _sb_key, "Authorization": f"Bearer {_sb_key}"}
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as c:
+            lead_resp = await c.get(
+                f"{_sb_url}/rest/v1/leads",
+                params={
+                    "id": f"eq.{lead_id}",
+                    "select": "id,client_id,name,phone,source,status,notes,last_call_topic,last_call_summary,last_call_at,appointment_at,created_at",
+                    "limit": "1",
+                },
+                headers=_h,
+            )
+            if lead_resp.status_code != 200:
+                logger.warning("[BROWSER-WS] active-lead fetch failed http=%d", lead_resp.status_code)
+                return ""
+            lead_rows = lead_resp.json()
+            if not lead_rows:
+                return ""
+            lead = lead_rows[0]
+            # Tenant isolation: non-admin sessions must match client_id exactly.
+            if not is_admin and lead.get("client_id") != client_id:
+                logger.warning(
+                    "[BROWSER-WS] active-lead client_id mismatch lead=%s row=%s ctx=%s",
+                    lead_id, lead.get("client_id"), client_id,
+                )
+                return ""
+
+            # WhatsApp history — best-effort, scoped by same client_id.
+            wa_lines: list[str] = []
+            phone = (lead.get("phone") or "").strip()
+            if phone:
+                wa_resp = await c.get(
+                    f"{_sb_url}/rest/v1/whatsapp_conversations",
+                    params={
+                        "phone": f"eq.{phone}",
+                        "select": "messages_json,client_id",
+                        "limit": "1",
+                    },
+                    headers=_h,
+                )
+                if wa_resp.status_code == 200:
+                    wa_rows = wa_resp.json()
+                    if wa_rows:
+                        wa_row = wa_rows[0]
+                        if is_admin or wa_row.get("client_id") == client_id:
+                            msgs = wa_row.get("messages_json") or []
+                            if isinstance(msgs, list):
+                                for m in msgs[-10:]:
+                                    role = (m or {}).get("role", "")
+                                    content = ((m or {}).get("content") or "").strip()
+                                    if not content:
+                                        continue
+                                    speaker = "לקוחה" if role == "user" else "מאיה"
+                                    wa_lines.append(f"  {speaker}: {content}")
+    except Exception as exc:
+        logger.warning("[BROWSER-WS] active-lead fetch error: %s", exc)
+        return ""
+
+    name = (lead.get("name") or "").strip() or "ללא שם"
+    phone_str = (lead.get("phone") or "").strip() or "—"
+    source = lead.get("source") or "—"
+    status = lead.get("status") or "—"
+    topic = (lead.get("last_call_topic") or "").strip()
+    summary = (lead.get("last_call_summary") or "").strip()
+    notes = (lead.get("notes") or "").strip()
+    created = (lead.get("created_at") or "").strip()
+    appt = (lead.get("appointment_at") or "").strip()
+
+    lines: list[str] = ["## הליד הפעיל"]
+    lines.append(f"שם: {name}")
+    lines.append(f"טלפון: {phone_str}")
+    lines.append(f"מקור: {source} | סטטוס: {status}")
+    if created:
+        lines.append(f"נוצר: {created}")
+    if topic:
+        lines.append(f"נושא: {topic}")
+    if summary:
+        lines.append(f"סיכום שיחה: {summary}")
+    if notes:
+        lines.append(f"הערות: {notes}")
+    if appt:
+        lines.append(f"תור: {appt}")
+    if wa_lines:
+        lines.append("שיחת וואטסאפ אחרונה (עד 10 הודעות):")
+        lines.extend(wa_lines)
+    else:
+        lines.append("שיחת וואטסאפ: אין הודעות שמורות לליד הזה.")
+    return "\n".join(lines)
+
+
+# Hard guard appended to the assistant prompt — preserves Maya's persona but
+# blocks invented industries/details.
+_ASSISTANT_GUARDRAILS = """
+━━ אמת ועובדות ━━
+את משיבה אך ורק מתוך הנתונים שמופיעים מתחת (snapshot והליד הפעיל, אם קיים).
+אסור להמציא: שם, טלפון, תאריך, מחיר, מיקום, נושא, ענף, או כוונה.
+אם המשתמש שואל על "הליד האחרון" או על ליד ספציפי ואין מידע בנתונים — תעני בדיוק:
+"אין לי מספיק מידע על הליד הזה כרגע. תפתח ליד או תגיד לי לאיזה ליד את מתכוון."
+אסור להזכיר ענפים שלא מופיעים בנתונים (למשל ביטוח), גם אם הם נשמעים סבירים — עני רק על מה שכתוב.
+"""
+
+
 @router.websocket("/ws/voice-browser")
-async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""), mode: str = Query(default="preview"), token: str = Query(default="")):
+async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""), mode: str = Query(default="preview"), token: str = Query(default=""), lead_id: str = Query(default="")):
     """
     Proxy WebSocket: Browser <-> Gemini Live.
     Accepts PCM16 16kHz from browser, forwards to Gemini, returns PCM16 24kHz.
@@ -439,12 +554,26 @@ async def stream_browser(browser_ws: WebSocket, agent_id: str = Query(default=""
         # session's scope (already filtered above for non-admin).
         all_agent_ids = list(_agent_name_map.values())
         biz_context = await fetch_business_context(all_agent_ids)
-        full_context = f"{biz_context}\n\n{snapshot}" if biz_context else snapshot
-        system_instruction = _ASSISTANT_PROMPT.replace("{snapshot}", full_context)
+        # Active-lead context — if the dashboard passed lead_id, fetch the real
+        # lead row + last 10 WhatsApp messages, scoped by the same client_id.
+        active_lead_block = await _fetch_active_lead_context(lead_id, client_id, _is_admin)
+
+        context_parts = []
+        if biz_context:
+            context_parts.append(biz_context)
+        context_parts.append(snapshot)
+        if active_lead_block:
+            context_parts.append(active_lead_block)
+        full_context = "\n\n".join(context_parts)
+
+        system_instruction = (
+            _ASSISTANT_PROMPT.replace("{snapshot}", full_context)
+            + _ASSISTANT_GUARDRAILS
+        )
         first_message = ""  # assistant doesn't use agent's first_message — greeting is in prompt
         logger.info(
-            "[BROWSER-WS] Assistant mode - snapshot loaded (%d chars), biz context (%d chars), scope_client_id=%s",
-            len(snapshot), len(biz_context), _scope_client_id,
+            "[BROWSER-WS] Assistant mode - snapshot=%d biz=%d active_lead=%d scope_client_id=%s lead_id=%s",
+            len(snapshot), len(biz_context), len(active_lead_block), _scope_client_id, lead_id or "(none)",
         )
 
     # ── Resolve voice ────────────────────────────────────────────────────

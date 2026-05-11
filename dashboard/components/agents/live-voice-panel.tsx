@@ -82,7 +82,13 @@ async function buildWsUrl(agentId: string, mode: string): Promise<string> {
   const sb = createSupabaseBrowserClient();
   const { data: { session } } = await sb.auth.getSession();
   const token = session?.access_token ?? "";
-  return `${wsBase}/ws/voice-browser?agent_id=${agentId}&mode=${mode}&token=${encodeURIComponent(token)}`;
+  // Pick up the lead the user is currently looking at (set by the leads page).
+  // Backend uses it to inject "## הליד הפעיל" context, scoped by client_id.
+  const leadId = (mode === "assistant" && typeof window !== "undefined")
+    ? sessionStorage.getItem("maya:active_lead_id") ?? ""
+    : "";
+  const leadQs = leadId ? `&lead_id=${encodeURIComponent(leadId)}` : "";
+  return `${wsBase}/ws/voice-browser?agent_id=${agentId}&mode=${mode}&token=${encodeURIComponent(token)}${leadQs}`;
 }
 
 // ── Component ───────────────────────────────────────────────────────────────
