@@ -17,7 +17,7 @@ generate_whatsapp_reply(phone, user_message) -> dict
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 import httpx
@@ -489,7 +489,7 @@ async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: st
                     params={
                         "phone": f"eq.{customer_phone}",
                         "client_id": f"eq.{_notify_client_id}",
-                        "select": "id,name",
+                        "select": "id,name,status,appointment_at,followup_sent_at,followup_sent_kind",
                         "limit": "1",
                     },
                     headers=_headers(),
@@ -528,6 +528,77 @@ async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: st
     # across clients. Re-enable only after the leads query is scoped by
     # (phone, client_id) and the leads upsert uses a (phone, client_id) key.
     # No-op for now — first WhatsApp turn starts with an empty assistant history.
+
+    # ── 3c. Confirmation-intent pre-router ────────────────────────────────────
+    # If the inbound is an exact-match confirmation word AND this lead has a
+    # future appointment, ACK directly without calling OpenAI. Prevents the
+    # generic sales flow from re-opening a conversation the customer just closed.
+    _CONFIRM_WORDS_STRICT = {
+        "מאשרת", "מאשר", "מאושרת", "אישור",
+        "כן מאשרת", "מגיעה", "נגיע", "סגור", "קבענו",
+    }
+    _CONFIRM_WORDS_WEAK = {"כן"}  # only if a recent template was sent
+
+    try:
+        _stripped = (user_message or "").strip().rstrip("!.?,،׃ ")
+        _has_future_appt = False
+        _recent_template = False
+        if _existing_lead:
+            _appt = _existing_lead.get("appointment_at")
+            if _appt:
+                try:
+                    _appt_dt = datetime.fromisoformat(_appt.replace("Z", "+00:00"))
+                    if _appt_dt.tzinfo is None:
+                        _appt_dt = _appt_dt.replace(tzinfo=timezone.utc)
+                    _has_future_appt = _appt_dt > datetime.now(timezone.utc)
+                except Exception:
+                    _has_future_appt = False
+            _fs_at = _existing_lead.get("followup_sent_at")
+            if _fs_at:
+                try:
+                    _fs_dt = datetime.fromisoformat(_fs_at.replace("Z", "+00:00"))
+                    if _fs_dt.tzinfo is None:
+                        _fs_dt = _fs_dt.replace(tzinfo=timezone.utc)
+                    _recent_template = (datetime.now(timezone.utc) - _fs_dt) <= timedelta(hours=26)
+                except Exception:
+                    _recent_template = False
+
+        _is_strict = _stripped in _CONFIRM_WORDS_STRICT
+        _is_weak = _stripped in _CONFIRM_WORDS_WEAK and _recent_template
+        if _has_future_appt and (_is_strict or _is_weak):
+            ack = "מעולה, אישרתי את ההגעה 🙏 נתראה!"
+            # Update status to 'booked' only if not already a terminal state
+            try:
+                _cur_status = (_existing_lead or {}).get("status") or ""
+                if _cur_status not in ("booked", "closed"):
+                    async with httpx.AsyncClient(timeout=3.0) as _sc:
+                        await _sc.patch(
+                            f"{_SUPABASE_URL}/rest/v1/leads",
+                            params={"id": f"eq.{_existing_lead['id']}"},
+                            json={"status": "booked"},
+                            headers={**_headers(), "Prefer": "return=minimal"},
+                        )
+            except Exception as _exc:
+                logger.warning("[WHATSAPP] confirm status patch failed: %s", _exc)
+            # Persist turn to conversation history so future messages have context
+            try:
+                await append_whatsapp_messages(
+                    customer_phone,
+                    user_message,
+                    ack,
+                    client_id=agent.get("client_id") or None,
+                    agent_id=agent.get("agent_id") or None,
+                    business_phone=business_phone or None,
+                )
+            except Exception as _exc:
+                logger.warning("[WHATSAPP] confirm history append failed: %s", _exc)
+            logger.info(
+                "[WHATSAPP] confirmation-intent matched word=%r lead_id=%s — skipping OpenAI",
+                _stripped, _existing_lead.get("id") if _existing_lead else None,
+            )
+            return {"reply": ack, "messages": []}
+    except Exception as _exc:
+        logger.warning("[WHATSAPP] confirm pre-router error (falling through to AI): %s", _exc)
 
     # ── 4+5. Call OpenAI ──────────────────────────────────────────────────────
     openai_messages = (

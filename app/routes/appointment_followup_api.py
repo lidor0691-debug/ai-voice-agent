@@ -19,8 +19,13 @@ from datetime import datetime, timezone, timedelta
 
 import httpx
 from fastapi import APIRouter, Header, HTTPException
+from pydantic import BaseModel
 
 router = APIRouter()
+
+# Suppress re-sends within this window after a successful send.
+# Covers 1-hour and 2-hour buckets comfortably; the 1-day bucket fires >23h ahead so unaffected.
+_FOLLOWUP_DEDUPE_WINDOW = timedelta(hours=6)
 
 _SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 _SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
@@ -77,7 +82,7 @@ async def get_due_followups(x_followup_secret: str = Header(default="")):
                 params={
                     "client_id": f"eq.{agent['client_id']}",
                     "appointment_at": f"gte.{window_start}",
-                    "select": "id,name,phone,appointment_at,notes",
+                    "select": "id,name,phone,appointment_at,notes,followup_sent_at",
                 },
                 headers=headers,
             )
@@ -85,13 +90,24 @@ async def get_due_followups(x_followup_secret: str = Header(default="")):
             leads = r.json()
 
             # Filter upper bound (Supabase REST doesn't support AND on same field easily)
+            dedupe_cutoff = now - _FOLLOWUP_DEDUPE_WINDOW
             for lead in leads:
                 appt = lead.get("appointment_at")
                 if not appt:
                     continue
                 appt_dt = datetime.fromisoformat(appt.replace("Z", "+00:00"))
-                if now + window[0] <= appt_dt <= now + window[1]:
-                    due.append({
+                if not (now + window[0] <= appt_dt <= now + window[1]):
+                    continue
+                # Idempotency: skip if a follow-up was already marked sent recently.
+                sent_at = lead.get("followup_sent_at")
+                if sent_at:
+                    try:
+                        sent_dt = datetime.fromisoformat(sent_at.replace("Z", "+00:00"))
+                        if sent_dt >= dedupe_cutoff:
+                            continue
+                    except Exception:
+                        pass
+                due.append({
                         "lead_id":        lead["id"],
                         "name":           lead.get("name") or "",
                         "phone":          lead["phone"],
@@ -102,3 +118,41 @@ async def get_due_followups(x_followup_secret: str = Header(default="")):
                     })
 
     return {"due": due, "checked_at": now.isoformat()}
+
+
+class MarkSentBody(BaseModel):
+    lead_id: str
+    kind: str = "booking_confirmation"
+
+
+@router.post("/followup/mark-sent")
+async def mark_followup_sent(
+    body: MarkSentBody,
+    x_followup_secret: str = Header(default=""),
+):
+    """Called by Make.com AFTER a Twilio template send succeeds.
+    Stamps leads.followup_sent_at / followup_sent_kind for idempotency.
+    """
+    if _FOLLOWUP_SECRET and x_followup_secret != _FOLLOWUP_SECRET:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    headers = {
+        "apikey": _SUPABASE_SERVICE_KEY,
+        "Authorization": f"Bearer {_SUPABASE_SERVICE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=minimal",
+    }
+    payload = {
+        "followup_sent_at":   datetime.now(timezone.utc).isoformat(),
+        "followup_sent_kind": body.kind,
+    }
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        r = await client.patch(
+            f"{_SUPABASE_URL}/rest/v1/leads",
+            params={"id": f"eq.{body.lead_id}"},
+            json=payload,
+            headers=headers,
+        )
+        if r.status_code >= 400:
+            raise HTTPException(status_code=502, detail=f"Supabase patch failed: {r.text}")
+    return {"ok": True, "lead_id": body.lead_id, "kind": body.kind}
