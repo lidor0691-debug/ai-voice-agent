@@ -80,19 +80,19 @@ export function TalkToMayaDock({ prompts, lang, onSend, suggestionText, hero }: 
     <>
     <div className="
       sticky bottom-4 mx-auto max-w-[920px] w-full
-      bg-surface-2/85 backdrop-blur-xl
+      bg-[#FFFCF6]/85 backdrop-blur-xl
       border border-border-strong rounded-2xl
       shadow-[0_24px_60px_-24px_rgba(0,0,0,0.7)]
       px-4 py-3
     ">
       <div className="flex items-center gap-2 mb-2.5 overflow-x-auto pb-1">
-        <Sparkles size={11} className="text-brand-200 shrink-0" />
+        <Sparkles size={11} className="text-[#A8884B] shrink-0" />
         <span className="maya-section-label shrink-0 me-1">{t.suggestions[lang]}</span>
         {suggestionText && (
           <button
             type="button"
             onClick={applySuggestion}
-            className="shrink-0 px-3 h-7 rounded-full bg-white/5 hover:bg-white/10 border border-border-subtle text-[11px] text-white/75"
+            className="shrink-0 px-3 h-7 rounded-full bg-[#0B1714]/[0.05] hover:bg-[#0B1714]/[0.08] border border-border-subtle text-[11px] text-[#0B1714]/75"
           >
             {t.smartSuggest[lang]}
           </button>
@@ -101,7 +101,7 @@ export function TalkToMayaDock({ prompts, lang, onSend, suggestionText, hero }: 
           <button
             key={i}
             onClick={() => onSend?.(p)}
-            className="shrink-0 px-3 h-7 rounded-full bg-white/5 hover:bg-white/10 border border-border-subtle text-[11px] text-white/75"
+            className="shrink-0 px-3 h-7 rounded-full bg-[#0B1714]/[0.05] hover:bg-[#0B1714]/[0.08] border border-border-subtle text-[11px] text-[#0B1714]/75"
           >
             {p}
           </button>
@@ -111,7 +111,7 @@ export function TalkToMayaDock({ prompts, lang, onSend, suggestionText, hero }: 
       <div className="flex items-center gap-2">
         <button
           aria-label={watchStrings.dock.listening[lang]}
-          className="w-10 h-10 rounded-xl bg-brand-500/15 hover:bg-brand-500/25 ring-1 ring-brand-400/25 grid place-items-center text-brand-200"
+          className="w-10 h-10 rounded-xl bg-[#12372D]/15 hover:bg-[#12372D]/25 ring-1 ring-[#C9A66B]/25 grid place-items-center text-[#A8884B]"
         >
           <Mic size={16} />
         </button>
@@ -121,7 +121,7 @@ export function TalkToMayaDock({ prompts, lang, onSend, suggestionText, hero }: 
           onChange={e => setText(e.target.value)}
           onKeyDown={e => e.key === "Enter" && handleCopy()}
           placeholder={t.placeholder[lang]}
-          className="input-base flex-1 h-10 px-3 rounded-xl bg-surface-1/80 border border-border-subtle text-[13px] text-white placeholder:text-white/35 focus:outline-none focus:ring-1 focus:ring-brand-400/40"
+          className="input-base flex-1 h-10 px-3 rounded-xl bg-[#FFFCF6]/80 border border-border-subtle text-[13px] text-[#0B1714] placeholder:text-[#0B1714]/35 focus:outline-none focus:ring-1 focus:ring-[#C9A66B]/40"
         />
         {/* Stage 10A — preview button. Visible only when there's a draft AND
             a real hero — quiet/failed states have no lead context worth
@@ -132,7 +132,7 @@ export function TalkToMayaDock({ prompts, lang, onSend, suggestionText, hero }: 
             type="button"
             onClick={() => setPreviewOpen(true)}
             aria-label={t.preview[lang]}
-            className="w-10 h-10 rounded-xl bg-white/5 hover:bg-white/10 ring-1 ring-border-subtle grid place-items-center text-white/75 hover:text-white transition-colors"
+            className="w-10 h-10 rounded-xl bg-[#0B1714]/[0.05] hover:bg-[#0B1714]/[0.08] ring-1 ring-border-subtle grid place-items-center text-[#0B1714]/75 hover:text-[#0B1714] transition-colors"
           >
             <Eye size={16} />
           </button>
@@ -145,7 +145,7 @@ export function TalkToMayaDock({ prompts, lang, onSend, suggestionText, hero }: 
           onClick={handleCopy}
           disabled={!text.trim()}
           aria-label={copied ? t.copied[lang] : t.copy[lang]}
-          className="w-10 h-10 rounded-xl bg-brand-500 hover:bg-brand-400 disabled:bg-brand-500/40 disabled:cursor-not-allowed grid place-items-center text-white transition-colors"
+          className="w-10 h-10 rounded-xl bg-[#12372D] hover:bg-[#1F4A3D] disabled:bg-[#12372D]/40 disabled:cursor-not-allowed grid place-items-center text-[#0B1714] transition-colors"
         >
           {copied ? <Check size={16} /> : <Copy size={16} />}
         </button>

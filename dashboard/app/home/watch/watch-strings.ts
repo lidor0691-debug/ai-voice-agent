@@ -29,9 +29,9 @@ export const watchStrings = {
   },
 
   rails: {
-    voiceCalls:    { he: "שיחות קוליות חיות",      en: "Live voice calls" },
-    whatsapp:      { he: "זרם וואטסאפ",            en: "WhatsApp stream" },
-    leadPipeline:  { he: "צבר לידים",              en: "Lead pipeline" },
+    voiceCalls:    { he: "שיחות שמאיה מטפלת בהן", en: "Calls Maya is handling" },
+    whatsapp:      { he: "ממתינים למענה",           en: "Awaiting your response" },
+    leadPipeline:  { he: "כסף בסיכון",              en: "Money at risk" },
     alerts:        { he: "התראות",                 en: "Alerts" },
     insights:      { he: "תובנות",                 en: "Insights" },
     wins:          { he: "ניצחונות השבוע",          en: "Wins this week" },

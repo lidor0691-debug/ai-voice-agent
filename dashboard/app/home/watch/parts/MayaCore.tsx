@@ -12,7 +12,7 @@ export function MayaCore() {
       <div className="absolute inset-0 grid place-items-center pointer-events-none">
         <div className="text-center">
           <div className="maya-section-label mb-1">MAYA · LIVE</div>
-          <div className="text-white/85 text-sm font-medium">מנטרת 8 לקוחות</div>
+          <div className="text-[#0B1714]/85 text-sm font-medium">מנטרת 8 לקוחות</div>
         </div>
       </div>
     </div>
@@ -46,7 +46,7 @@ export function ConstellationRing({ orbits, max = 6 }: ConstellationProps) {
             style={{ insetInlineStart: `${x}%`, top: `${y}%` }}
           >
             <span className="maya-orbit-dot" />
-            <span className="text-white/85">{o.name}</span>
+            <span className="text-[#0B1714]/85">{o.name}</span>
           </div>
         );
       })}

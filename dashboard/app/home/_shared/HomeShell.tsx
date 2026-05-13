@@ -25,7 +25,7 @@ export function HomeShell({ lang, children }: HomeShellProps) {
         className={[
           "maya-shell",
           lang === "he" ? "maya-hebrew" : "",
-          "fixed inset-0 z-[60] overflow-y-auto bg-surface-0 text-white/90",
+          "fixed inset-0 z-[60] overflow-y-auto bg-[#F8F4EC] text-[#0B1714]/90",
         ].join(" ").trim()}
       >
         {children}

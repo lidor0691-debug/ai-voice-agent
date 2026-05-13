@@ -67,26 +67,26 @@ export function SendPreviewModal({ hero, draftText, lang, onClose }: SendPreview
 
   return (
     <div
-      className="fixed inset-0 z-[100] grid place-items-center bg-black/60 backdrop-blur-sm maya-fade-in"
+      className="fixed inset-0 z-[100] grid place-items-center bg-[#0B1714]/35 backdrop-blur-sm maya-fade-in"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
     >
       <div
-        className="w-full max-w-md mx-4 max-h-[85vh] overflow-y-auto bg-surface-2/95 backdrop-blur-xl border border-border-strong rounded-2xl shadow-[0_30px_80px_-20px_rgba(0,0,0,0.7)]"
+        className="w-full max-w-md mx-4 max-h-[85vh] overflow-y-auto bg-[#FFFCF6]/95 backdrop-blur-xl border border-border-strong rounded-2xl shadow-[0_30px_80px_-20px_rgba(0,0,0,0.7)]"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-white/5">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[#E6DCCB]/70">
           <div className="min-w-0">
-            <div className="text-[14px] text-white/90 truncate">{hero.target}</div>
-            <div className="text-[11px] text-white/50 mt-0.5 flex items-center gap-2">
+            <div className="text-[14px] text-[#0B1714]/90 truncate">{hero.target}</div>
+            <div className="text-[11px] text-[#0B1714]/50 mt-0.5 flex items-center gap-2">
               {hero.phone && (
                 <span dir="ltr" className="tabular-nums [unicode-bidi:isolate]">
                   {hero.phone}
                 </span>
               )}
-              {hero.phone && hero.status && <span className="text-white/30">·</span>}
+              {hero.phone && hero.status && <span className="text-[#0B1714]/30">·</span>}
               {hero.status && <span>{statusLabel}</span>}
             </div>
           </div>
@@ -94,7 +94,7 @@ export function SendPreviewModal({ hero, draftText, lang, onClose }: SendPreview
             type="button"
             onClick={onClose}
             aria-label={t.close[lang]}
-            className="w-8 h-8 grid place-items-center rounded-lg text-white/55 hover:bg-white/5 hover:text-white/85 focus:outline-none focus:ring-1 focus:ring-brand-400/40 shrink-0"
+            className="w-8 h-8 grid place-items-center rounded-lg text-[#0B1714]/55 hover:bg-[#0B1714]/[0.05] hover:text-[#0B1714]/85 focus:outline-none focus:ring-1 focus:ring-[#C9A66B]/40 shrink-0"
           >
             <X size={16} />
           </button>
@@ -114,7 +114,7 @@ export function SendPreviewModal({ hero, draftText, lang, onClose }: SendPreview
           {/* Draft block */}
           <div>
             <div className="maya-section-label mb-1.5">{t.draftLabel[lang]}</div>
-            <div className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2.5 text-[12.5px] text-white/90 leading-snug whitespace-pre-wrap break-words">
+            <div className="rounded-xl border border-[#E6DCCB] bg-[#0B1714]/[0.05] px-3 py-2.5 text-[12.5px] text-[#0B1714]/90 leading-snug whitespace-pre-wrap break-words">
               {draftText}
             </div>
           </div>
@@ -143,7 +143,7 @@ export function SendPreviewModal({ hero, draftText, lang, onClose }: SendPreview
               type="button"
               onClick={handleCopy}
               aria-label={copied ? t.copied[lang] : t.copyButton[lang]}
-              className="btn-primary flex items-center gap-2 px-4 h-9 rounded-lg bg-brand-500 hover:bg-brand-400 text-white text-[13px] font-medium"
+              className="btn-primary flex items-center gap-2 px-4 h-9 rounded-lg bg-[#12372D] hover:bg-[#1F4A3D] text-[#0B1714] text-[13px] font-medium"
             >
               {copied ? <Check size={14} /> : <Copy size={14} />}
               <span>{copied ? t.copied[lang] : t.copyButton[lang]}</span>
@@ -151,7 +151,7 @@ export function SendPreviewModal({ hero, draftText, lang, onClose }: SendPreview
             <button
               type="button"
               onClick={onClose}
-              className="btn-ghost px-3 h-9 rounded-lg text-white/75 hover:bg-white/5 text-[13px]"
+              className="btn-ghost px-3 h-9 rounded-lg text-[#0B1714]/75 hover:bg-[#0B1714]/[0.05] text-[13px]"
             >
               {t.close[lang]}
             </button>
@@ -159,7 +159,7 @@ export function SendPreviewModal({ hero, draftText, lang, onClose }: SendPreview
         </div>
 
         {/* Future hint */}
-        <div className="px-5 py-3 border-t border-white/5 text-[10px] text-white/35">
+        <div className="px-5 py-3 border-t border-[#E6DCCB]/70 text-[10px] text-[#0B1714]/35">
           {t.futureHint[lang]}
         </div>
       </div>

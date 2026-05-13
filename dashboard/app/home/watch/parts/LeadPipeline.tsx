@@ -1,6 +1,6 @@
 "use client";
 
-import { Users } from "lucide-react";
+import Link from "next/link";
 import type { LeadStage } from "../watch-mock";
 import { watchStrings } from "../watch-strings";
 import type { Lang } from "../../_shared/home-strings";
@@ -11,28 +11,49 @@ interface LeadPipelineProps {
 }
 
 export function LeadPipeline({ stages, lang }: LeadPipelineProps) {
+  const total = stages.reduce((s, x) => s + x.n, 0);
+
+  // Even when total is zero, render the funnel stages so the panel keeps
+  // structural mass. Real data (zeros are real). Add a small italic note.
   return (
-    <div className="card bg-surface-2/55 border border-border-subtle rounded-xl p-4">
-      <div className="flex items-center gap-2 mb-3">
-        <Users size={12} className="text-brand-200" />
-        <span className="maya-section-label">{watchStrings.rails.leadPipeline[lang]}</span>
+    <>
+      <div className="maya-card__head">
+        <div className="maya-card__title">
+          {total > 0 && <span className="maya-card__live-dot" aria-hidden />}
+          {watchStrings.rails.leadPipeline[lang]}
+        </div>
+        <span className="maya-card__action">
+          {total > 0
+            ? (lang === "he" ? `${total} סה״כ` : `${total} total`)
+            : (lang === "he" ? "אין פעילים" : "no active")}
+        </span>
       </div>
-      <div className="flex flex-col gap-2.5">
-        {stages.map(s => (
-          <div key={s.stage}>
-            <div className="flex items-baseline justify-between mb-1">
-              <span className="text-[12px] text-white/80">{s.stage}</span>
-              <span className="text-[12px] text-white/55 tabular-nums">{s.n}</span>
+
+      <div className="maya-funnel">
+        {stages.map(s => {
+          const isDown = false; // Lead funnel stages are all forward-state, no down tone.
+          return (
+            <div key={s.stage} className={`maya-funnel-row ${isDown ? "is-down" : ""}`}>
+              <div className="maya-funnel-row__label">
+                <div className="name">{s.stage}</div>
+                <div className="sub">
+                  {lang === "he" ? `${Math.round(s.pct * 100)}% מהשלב הקודם` : `${Math.round(s.pct * 100)}% of previous`}
+                </div>
+              </div>
+              <div className="maya-funnel-row__bar">
+                <i style={{ width: `${Math.max(4, Math.round(s.pct * 100))}%` }} />
+              </div>
+              <div className="maya-funnel-row__val">
+                <span className="v tnum">{s.n}</span>
+              </div>
             </div>
-            <div className="h-1.5 rounded-full bg-white/5 overflow-hidden">
-              <div
-                className="h-full bg-gradient-to-r from-brand-500 to-brand-200"
-                style={{ width: `${Math.round(s.pct * 100)}%` }}
-              />
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
-    </div>
+      <div className="maya-card__viewall">
+        <span className="count">{total} {lang === "he" ? "סה״כ" : "total"}</span>
+        <Link href="/home/leads">{lang === "he" ? "כל הלידים ←" : "All leads →"}</Link>
+      </div>
+    </>
   );
 }

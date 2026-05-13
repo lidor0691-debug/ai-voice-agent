@@ -59,17 +59,20 @@ export default async function WatchPage() {
   // shell never has to guess.
   //
   //   live data        → mapToWatchData (real activity)
+  //   demo (dev only)  → watchMock (rich seeded data, gated by NODE_ENV != prod)
   //   ctx + null fetch → liveFetchFailedState (calm "still monitoring" copy
   //                       with no fake business activity)
-  //   no ctx           → quietLiveState in prod; mock allowed only when
-  //                       explicit dev-demo mode is on
+  //   no ctx           → quietLiveState
   let initialData: WatchData;
   if (live) {
     initialData = mapToWatchData(live, identity);
+  } else if (isDemoMode()) {
+    // Dev-only override: MAYA_WATCH_DEMO=1 surfaces the rich mock even when
+    // the configured user's live fetch fails. isDemoMode() already gates on
+    // NODE_ENV !== "production", so production paths are unchanged.
+    initialData = watchMock;
   } else if (ctx) {
     initialData = liveFetchFailedState(identity);
-  } else if (isDemoMode()) {
-    initialData = watchMock;
   } else {
     initialData = quietLiveState(identity);
   }
