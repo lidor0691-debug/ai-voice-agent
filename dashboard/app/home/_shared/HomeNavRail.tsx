@@ -22,57 +22,60 @@ interface HomeNavRailProps {
   user: { name: string; role: string };
 }
 
+// Primary nav (always visible) vs. settings/utility (below the divider).
+const PRIMARY_KEYS: HomeNavKey[] = ["watch", "calls", "whatsapp", "leads", "insights", "agents", "automate", "reports"];
+const FOOTER_KEYS: HomeNavKey[] = ["settings"];
+
 export function HomeNavRail({ lang, active, user }: HomeNavRailProps) {
+  const initials = user.name.split(" ").map(p => p[0]).slice(0, 2).join("");
+
+  const renderItem = (key: HomeNavKey) => {
+    const entry = NAV_ORDER.find(n => n.key === key);
+    if (!entry) return null;
+    const Icon = ICONS[key];
+    const isActive = key === active;
+    const label = homeStrings.nav[key][lang];
+    const node = (
+      <button
+        type="button"
+        className={`maya-rail__item ${isActive ? "is-active" : ""}`}
+        aria-current={isActive ? "page" : undefined}
+        title={label}
+        disabled={!entry.wired && !isActive}
+      >
+        <span className="maya-rail__item-icon" aria-hidden>
+          <Icon size={18} strokeWidth={1.7} />
+        </span>
+        <span className="maya-rail__item-label">{label}</span>
+      </button>
+    );
+    return entry.wired
+      ? <Link key={key} href={entry.href}>{node}</Link>
+      : <div key={key}>{node}</div>;
+  };
+
   return (
-    <aside
-      className="
-        fixed top-0 bottom-0 w-[200px]
-        hidden lg:flex flex-col
-        bg-surface-1/70 backdrop-blur-xl
-        border-l border-r border-border-subtle
-        z-20
-        rtl:right-0 ltr:left-0
-      "
-    >
-      <div className="px-4 pt-5 pb-4">
-        <div className="text-lg font-semibold tracking-tight text-white">
-          {homeStrings.appName[lang]}
-        </div>
-        <div className="text-[11px] text-white/50 mt-0.5">
-          {homeStrings.appTagline[lang]}
+    <aside className="maya-rail hidden lg:flex" aria-label={homeStrings.appName[lang]}>
+      <div className="maya-rail__brand">
+        <div className="maya-rail__logo" aria-hidden>M</div>
+        <div className="maya-rail__brand-text">
+          <span className="maya-rail__brand-name">{homeStrings.appName[lang]}</span>
+          <span className="maya-rail__brand-sub">{homeStrings.appTagline[lang]}</span>
         </div>
       </div>
 
-      <nav className="flex-1 px-2 py-2 flex flex-col gap-0.5">
-        {NAV_ORDER.map(({ key, href, wired }) => {
-          const Icon = ICONS[key];
-          const isActive = key === active;
-          const baseRow = "flex items-center gap-3 h-10 px-3 rounded-lg text-[13px] transition-colors";
-          const stateClasses = isActive
-            ? "bg-gradient-to-r from-brand-500/20 to-brand-400/5 text-brand-100 ring-1 ring-inset ring-brand-400/30"
-            : wired
-              ? "text-white/75 hover:bg-white/5 hover:text-white"
-              : "text-white/40 hover:bg-white/[0.03]";
-          const Inner = (
-            <div className={`${baseRow} ${stateClasses}`}>
-              <Icon size={16} />
-              <span className="flex-1 truncate">{homeStrings.nav[key][lang]}</span>
-              {isActive && <span className="w-1 h-5 rounded-full bg-brand-400/80 shadow-[0_0_8px_rgba(64,196,180,0.6)]" />}
-            </div>
-          );
-          return wired
-            ? <Link key={key} href={href} aria-current={isActive ? "page" : undefined}>{Inner}</Link>
-            : <div key={key} aria-disabled className="cursor-not-allowed">{Inner}</div>;
-        })}
+      <nav className="maya-rail__nav">
+        {PRIMARY_KEYS.map(renderItem)}
+        <div className="maya-rail__section">
+          {FOOTER_KEYS.map(renderItem)}
+        </div>
       </nav>
 
-      <div className="px-3 py-3 border-t border-border-subtle/60 flex items-center gap-3">
-        <div className="w-8 h-8 rounded-full bg-brand-500/20 ring-1 ring-brand-400/30 grid place-items-center text-[12px] text-brand-100">
-          {user.name.split(" ").map(p => p[0]).slice(0, 2).join("")}
-        </div>
-        <div className="min-w-0">
-          <div className="text-[12px] text-white/85 truncate">{user.name}</div>
-          <div className="text-[10px] text-white/45 truncate">{user.role}</div>
+      <div className="maya-rail__user" title={`${user.name} — ${user.role}`}>
+        <div className="maya-rail__avatar" aria-hidden>{initials || "M"}</div>
+        <div className="maya-rail__user-text">
+          <span className="maya-rail__user-name">{user.name}</span>
+          <span className="maya-rail__user-role">{user.role}</span>
         </div>
       </div>
     </aside>
