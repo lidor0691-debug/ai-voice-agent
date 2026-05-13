@@ -33,9 +33,9 @@ export async function middleware(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
 
-  // If logged in and on login page → redirect to dashboard
+  // If logged in and on login page → land on the new product home.
   if (user && pathname === "/login") {
-    return NextResponse.redirect(new URL("/dashboard", request.url));
+    return NextResponse.redirect(new URL("/home/watch", request.url));
   }
 
   // If not logged in and not on login page → redirect to login
@@ -43,11 +43,11 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
-  // Non-admin on /admin → redirect to dashboard
+  // Non-admin on /admin → send back to the product home (admin gate stays).
   if (user && pathname.startsWith("/admin")) {
     const isAdmin = user.user_metadata?.role === "admin";
     if (!isAdmin) {
-      return NextResponse.redirect(new URL("/dashboard", request.url));
+      return NextResponse.redirect(new URL("/home/watch", request.url));
     }
   }
 

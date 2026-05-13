@@ -22,9 +22,11 @@ interface HomeNavRailProps {
   user: { name: string; role: string };
 }
 
-// Primary nav (always visible) vs. settings/utility (below the divider).
-const PRIMARY_KEYS: HomeNavKey[] = ["watch", "calls", "whatsapp", "leads", "insights", "agents", "automate", "reports"];
-const FOOTER_KEYS: HomeNavKey[] = ["settings"];
+// Phase 1 — only show nav entries that resolve to a real /home/* route.
+// Re-add whatsapp/automate/reports/settings to PRIMARY_KEYS/FOOTER_KEYS
+// once their pages exist; the disabled-link path was confusing operators.
+const PRIMARY_KEYS: HomeNavKey[] = ["watch", "calls", "leads", "insights", "agents"];
+const FOOTER_KEYS: HomeNavKey[] = [];
 
 export function HomeNavRail({ lang, active, user }: HomeNavRailProps) {
   const initials = user.name.split(" ").map(p => p[0]).slice(0, 2).join("");
