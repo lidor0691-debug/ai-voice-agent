@@ -189,6 +189,12 @@ function ThreadModal({ thread, onClose }: { thread: WhatsAppThread; onClose: () 
             </div>
           )
         )}
+        {thread.followup && (
+          <div className="px-5 py-2 border-t border-[#E6DCCB] text-[11px] text-[#0B1714]/55">
+            נשלח פולואפ לפני {thread.followup.ago}
+            {thread.followup.kind && ` · סוג: ${thread.followup.kind}`}
+          </div>
+        )}
       </div>
     </div>
   );

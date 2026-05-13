@@ -72,6 +72,18 @@ export interface WhatsAppThread {
    *   "הודעת שחזור קודמת נשלחה לפני יום · נמסר"
    */
   staleFollowupNote?: string;
+  /** Authoritative followup metadata from `leads.followup_sent_at` /
+   *  `leads.followup_sent_kind`. Present only when the backend has recorded
+   *  that a followup was actually sent. Render is purely additive: when
+   *  absent, nothing renders. */
+  followup?: {
+    /** Relative Hebrew time string, e.g. "12 דק׳" — pre-formatted by the mapper. */
+    ago: string;
+    /** Raw kind enum from the lead row (e.g. 'recovery', 'initial', 'template').
+     *  Displayed verbatim — no translation table, since backend kinds are not
+     *  enumerated in the dashboard. */
+    kind?: string;
+  };
 }
 
 export interface LeadStage {

@@ -587,6 +587,14 @@ def serialize_lead(lead: Lead) -> dict:
         ),
         "booked": lead.booked,
         "booked_at": lead.booked_at.isoformat() if lead.booked_at else None,
+        # Recent message history projection. Uses already-loaded lead.messages
+        # (no extra query). Capped at the last 20, oldest→newest. Only the
+        # fields needed by the dashboard thread modal — sid/status/error stay
+        # on the per-lead followup_* fields above.
+        "messages": [
+            {"direction": m.direction, "body": m.body, "ts": m.ts.isoformat()}
+            for m in lead.messages[-20:]
+        ],
     }
 
 

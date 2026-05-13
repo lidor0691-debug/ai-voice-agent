@@ -126,6 +126,14 @@ export function HeroDetailsModal({ hero, thread, lang, onClose }: HeroDetailsMod
           </div>
         </div>
 
+        {/* Followup metadata — only when the backend recorded a followup_sent_at */}
+        {thread?.followup && (
+          <div className="px-5 py-2 border-t border-[#E6DCCB]/70 text-[11px] text-[#0B1714]/55">
+            נשלח פולואפ לפני {thread.followup.ago}
+            {thread.followup.kind && ` · סוג: ${thread.followup.kind}`}
+          </div>
+        )}
+
         {/* Conversation footer */}
         <div className="px-5 py-3 border-t border-[#E6DCCB]/70">
           <div className="maya-section-label mb-2">{t.conversation[lang]}</div>

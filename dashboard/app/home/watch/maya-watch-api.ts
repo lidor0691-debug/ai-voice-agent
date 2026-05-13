@@ -85,6 +85,7 @@ interface ApiLead {
   last_inbound?: ApiTimedBody | null;
   last_outbound?: ApiTimedBody | null;
   followup_sent_at?: string | null;
+  followup_sent_kind?: string | null;
   followup_body?: string | null;
   // Twilio delivery observability — populated by the status-callback path
   // (added Stage 1). All optional so older payloads still parse.
@@ -95,6 +96,10 @@ interface ApiLead {
   followup_status_at?: string | null;
   booked?: boolean;
   booked_at?: string | null;
+  // Recent message history projection from the backend (last 20, oldest→newest).
+  // Optional so older payloads still parse; mapper falls back to last_inbound /
+  // last_outbound when absent or empty.
+  messages?: { direction?: string; body?: string; ts?: string }[];
 }
 
 interface ApiLeadsResp {
@@ -571,9 +576,30 @@ function buildWhatsAppFromLeads(leads: ApiLead[]): WhatsAppThread[] {
   for (const l of leads) {
     const ib = l.last_inbound;
     const ob = l.last_outbound;
-    if (!ib?.body && !ob?.body) continue;
 
-    const { messages, staleFollowupNote } = buildThreadMessages(ib, ob);
+    // Prefer real per-lead message history when the backend provides it
+    // (backend caps to last 20, oldest→newest). Fall back to the
+    // last_inbound/last_outbound summary when absent or empty so older
+    // payloads keep working.
+    let messages: WhatsAppMessage[];
+    let staleFollowupNote: string | undefined;
+    const apiHistory = (l.messages ?? []).filter(
+      m => (m.direction === "in" || m.direction === "out") && !isGarbledBody(m.body),
+    );
+    if (apiHistory.length > 0) {
+      messages = apiHistory.map(m => ({
+        direction: m.direction as "in" | "out",
+        body: m.body ?? "",
+        ago: relativeAgo(m.ts),
+        prefix: m.direction === "in" ? "שאל" : "שלחה",
+        ts: m.ts ?? undefined,
+      }));
+    } else {
+      if (!ib?.body && !ob?.body) continue;
+      const built = buildThreadMessages(ib, ob);
+      messages = built.messages;
+      staleFollowupNote = built.staleFollowupNote;
+    }
     // Skip threads where every message is garbled — leftover Windows-curl test data.
     if (messages.length === 0) continue;
 
@@ -603,6 +629,15 @@ function buildWhatsAppFromLeads(leads: ApiLead[]): WhatsAppThread[] {
     // any consumer that doesn't read `messages`).
     const preview = lastMsg.body.length > 120 ? lastMsg.body.slice(0, 117) + "…" : lastMsg.body;
 
+    // Authoritative followup metadata from the lead row. Only present when
+    // the backend has recorded that a followup was actually sent.
+    const followup = l.followup_sent_at
+      ? {
+          ago: relativeAgo(l.followup_sent_at),
+          kind: l.followup_sent_kind?.trim() || undefined,
+        }
+      : undefined;
+
     threads.push({
       id: `live:${l.phone ?? leadName}`,
       who,
@@ -617,6 +652,7 @@ function buildWhatsAppFromLeads(leads: ApiLead[]): WhatsAppThread[] {
       leadName,
       messages,
       staleFollowupNote,
+      followup,
     });
     if (threads.length >= 4) break;
   }
