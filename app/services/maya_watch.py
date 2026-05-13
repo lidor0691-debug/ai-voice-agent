@@ -391,6 +391,35 @@ async def register_inbound(
     return lead
 
 
+async def register_inbound_persist_only(
+    phone: str,
+    body: str,
+    name: Optional[str] = None,
+    *,
+    client_id: Optional[str] = None,
+    agent_id: Optional[str] = None,
+) -> None:
+    """Persist an inbound message into Maya Watch tables WITHOUT scheduling
+    any follow-up or risk check.
+
+    Used by the existing /whatsapp/reply pipeline (Make.com → backend) to
+    mirror customer-driven traffic into maya_watch_leads + maya_watch_messages
+    so /home/watch sees real activity. The reply pipeline already owns its
+    own response/follow-up behavior via whatsapp_conversations + Twilio;
+    Maya Watch must NOT layer a second follow-up on top.
+    """
+    phone = normalize_phone(phone)
+    await store.upsert_lead(phone, name=name, client_id=client_id, agent_id=agent_id)
+    await store.append_message(
+        phone, "in", body,
+        client_id=client_id, agent_id=agent_id,
+    )
+    logger.info(
+        "[MAYA-WATCH] mirror inbound phone=%s client_id=%s agent_id=%s body=%r",
+        phone, client_id or "-", agent_id or "-", body[:80],
+    )
+
+
 async def register_outbound(
     phone: str,
     body: str,

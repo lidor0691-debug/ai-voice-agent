@@ -523,6 +523,22 @@ async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: st
     except Exception as _exc:
         logger.warning("[WHATSAPP] Failed to update last_whatsapp_inbound_at: %s", _exc)
 
+    # ── Mirror inbound into Maya Watch (persist-only; NO scheduling) ─────
+    # Captures customer messages that arrive via Make/Twilio into
+    # maya_watch_leads + maya_watch_messages so /home/watch shows real
+    # activity. Wrapped: any failure here must NOT break the reply pipeline.
+    try:
+        from app.services import maya_watch as _mw
+        await _mw.register_inbound_persist_only(
+            customer_phone,
+            user_message,
+            name=(_existing_lead or {}).get("name") if _existing_lead else None,
+            client_id=agent.get("client_id") or None,
+            agent_id=str(agent.get("agent_id") or agent.get("id") or "") or None,
+        )
+    except Exception as _exc:
+        logger.warning("[MAYA-WATCH] inbound mirror skipped: %s", _exc)
+
     # ── 3b. First-WhatsApp-after-call summary injection — DISABLED for tenant isolation
     # Previously injected leads.last_call_summary by phone alone, which leaks
     # across clients. Re-enable only after the leads query is scoped by
@@ -596,6 +612,17 @@ async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: st
                 "[WHATSAPP] confirmation-intent matched word=%r lead_id=%s — skipping OpenAI",
                 _stripped, _existing_lead.get("id") if _existing_lead else None,
             )
+            # Mirror the ack outbound into Maya Watch (persist-only).
+            try:
+                from app.services import maya_watch as _mw
+                await _mw.register_outbound(
+                    customer_phone, ack,
+                    client_id=agent.get("client_id") or None,
+                    agent_id=str(agent.get("agent_id") or agent.get("id") or "") or None,
+                    source="whatsapp_reply",
+                )
+            except Exception as _exc:
+                logger.warning("[MAYA-WATCH] outbound (ack) mirror skipped: %s", _exc)
             return {"reply": ack, "messages": []}
     except Exception as _exc:
         logger.warning("[WHATSAPP] confirm pre-router error (falling through to AI): %s", _exc)
@@ -680,6 +707,22 @@ async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: st
         logger.warning("[LEAD INTELLIGENCE] injection skipped: %s", _exc)
 
     reply = sanitize_outbound_reply(reply)
+
+    # ── Mirror outbound into Maya Watch (persist-only; NO scheduling) ────
+    # Uses the post-sanitize body so /home/watch shows exactly what the
+    # customer received. Wrapped: never break the reply.
+    try:
+        if reply:
+            from app.services import maya_watch as _mw
+            await _mw.register_outbound(
+                customer_phone, reply,
+                client_id=agent.get("client_id") or None,
+                agent_id=str(agent.get("agent_id") or agent.get("id") or "") or None,
+                source="whatsapp_reply",
+            )
+    except Exception as _exc:
+        logger.warning("[MAYA-WATCH] outbound mirror skipped: %s", _exc)
+
     messages = [
         {**m, "content": _sanitize_output(m.get("content", ""))}
         for m in updated_messages
