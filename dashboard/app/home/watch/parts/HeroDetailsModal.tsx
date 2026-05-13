@@ -48,26 +48,26 @@ export function HeroDetailsModal({ hero, thread, lang, onClose }: HeroDetailsMod
 
   return (
     <div
-      className="fixed inset-0 z-[100] grid place-items-center bg-black/60 backdrop-blur-sm maya-fade-in"
+      className="fixed inset-0 z-[100] grid place-items-center bg-[#0B1714]/35 backdrop-blur-sm maya-fade-in"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
     >
       <div
-        className="w-full max-w-md mx-4 max-h-[85vh] overflow-y-auto bg-surface-2/95 backdrop-blur-xl border border-border-strong rounded-2xl shadow-[0_30px_80px_-20px_rgba(0,0,0,0.7)]"
+        className="w-full max-w-md mx-4 max-h-[85vh] overflow-y-auto bg-[#FFFCF6]/95 backdrop-blur-xl border border-border-strong rounded-2xl shadow-[0_30px_80px_-20px_rgba(0,0,0,0.7)]"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-white/5">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[#E6DCCB]/70">
           <div className="min-w-0">
-            <div className="text-[14px] text-white/90 truncate">{hero.target}</div>
-            <div className="text-[11px] text-white/50 mt-0.5 flex items-center gap-2">
+            <div className="text-[14px] text-[#0B1714]/90 truncate">{hero.target}</div>
+            <div className="text-[11px] text-[#0B1714]/50 mt-0.5 flex items-center gap-2">
               {hero.phone && (
                 <span dir="ltr" className="tabular-nums [unicode-bidi:isolate]">
                   {hero.phone}
                 </span>
               )}
-              {hero.phone && hero.status && <span className="text-white/30">·</span>}
+              {hero.phone && hero.status && <span className="text-[#0B1714]/30">·</span>}
               {hero.status && <span>{statusLabel}</span>}
             </div>
           </div>
@@ -75,7 +75,7 @@ export function HeroDetailsModal({ hero, thread, lang, onClose }: HeroDetailsMod
             type="button"
             onClick={onClose}
             aria-label={t.closeAria[lang]}
-            className="w-8 h-8 grid place-items-center rounded-lg text-white/55 hover:bg-white/5 hover:text-white/85 focus:outline-none focus:ring-1 focus:ring-brand-400/40 shrink-0"
+            className="w-8 h-8 grid place-items-center rounded-lg text-[#0B1714]/55 hover:bg-[#0B1714]/[0.05] hover:text-[#0B1714]/85 focus:outline-none focus:ring-1 focus:ring-[#C9A66B]/40 shrink-0"
           >
             <X size={16} />
           </button>
@@ -84,7 +84,7 @@ export function HeroDetailsModal({ hero, thread, lang, onClose }: HeroDetailsMod
         {/* Body */}
         <div className="px-5 py-4 space-y-4">
           {/* Situation */}
-          <div className="text-[14px] text-white/90 leading-snug">
+          <div className="text-[14px] text-[#0B1714]/90 leading-snug">
             {hero.headline}
           </div>
 
@@ -93,8 +93,8 @@ export function HeroDetailsModal({ hero, thread, lang, onClose }: HeroDetailsMod
             <Section title={t.whyItMatters[lang]}>
               <ul className="space-y-1">
                 {hero.why.map((reason, i) => (
-                  <li key={i} className="flex items-start gap-2 text-[12.5px] text-white/80 leading-snug">
-                    <span className="mt-1.5 w-1 h-1 rounded-full bg-brand-200 shrink-0" />
+                  <li key={i} className="flex items-start gap-2 text-[12.5px] text-[#0B1714]/80 leading-snug">
+                    <span className="mt-1.5 w-1 h-1 rounded-full bg-[#C9A66B] shrink-0" />
                     <span>{reason}</span>
                   </li>
                 ))}
@@ -105,21 +105,21 @@ export function HeroDetailsModal({ hero, thread, lang, onClose }: HeroDetailsMod
           {/* Recommendation */}
           {hero.action && hero.action !== "—" && (
             <Section title={t.recommendation[lang]}>
-              <div className="text-[12.5px] text-white/85 leading-snug">{hero.action}</div>
+              <div className="text-[12.5px] text-[#0B1714]/85 leading-snug">{hero.action}</div>
             </Section>
           )}
 
           {/* Suggested message — only when present */}
           {hero.suggestedMessage && (
             <Section title={t.suggestedMessage[lang]}>
-              <div className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2.5 text-[12.5px] text-white/90 leading-snug whitespace-pre-wrap break-words">
+              <div className="rounded-xl border border-[#E6DCCB] bg-[#0B1714]/[0.05] px-3 py-2.5 text-[12.5px] text-[#0B1714]/90 leading-snug whitespace-pre-wrap break-words">
                 {hero.suggestedMessage}
               </div>
             </Section>
           )}
 
           {/* Stats inline */}
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] pt-1 border-t border-white/5">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] pt-1 border-t border-[#E6DCCB]/70">
             <Stat label={t.confidenceLabel[lang]} value={`${hero.confidence}%`} />
             <Stat label={t.impactLabel[lang]} value={hero.impact} valueClass="text-emerald-300" />
             <Stat value={hero.window} />
@@ -127,7 +127,7 @@ export function HeroDetailsModal({ hero, thread, lang, onClose }: HeroDetailsMod
         </div>
 
         {/* Conversation footer */}
-        <div className="px-5 py-3 border-t border-white/5">
+        <div className="px-5 py-3 border-t border-[#E6DCCB]/70">
           <div className="maya-section-label mb-2">{t.conversation[lang]}</div>
           {hasConversation ? (
             <div className="space-y-1.5">
@@ -136,7 +136,7 @@ export function HeroDetailsModal({ hero, thread, lang, onClose }: HeroDetailsMod
               ))}
             </div>
           ) : (
-            <div className="text-[11px] text-white/45">{t.noConversation[lang]}</div>
+            <div className="text-[11px] text-[#0B1714]/45">{t.noConversation[lang]}</div>
           )}
         </div>
       </div>
@@ -156,20 +156,20 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function Stat({ label, value, valueClass }: { label?: string; value: string; valueClass?: string }) {
   return (
     <div className="flex items-baseline gap-1.5">
-      {label && <span className="text-white/45 uppercase tracking-wider">{label}</span>}
-      <span className={`text-white/90 ${valueClass ?? ""}`}>{value}</span>
+      {label && <span className="text-[#0B1714]/45 uppercase tracking-wider">{label}</span>}
+      <span className={`text-[#0B1714]/90 ${valueClass ?? ""}`}>{value}</span>
     </div>
   );
 }
 
 function ConversationRow({ msg }: { msg: WhatsAppMessage }) {
   const isOut = msg.direction === "out";
-  const prefixClass = isOut ? "text-brand-200" : "text-white/55";
+  const prefixClass = isOut ? "text-[#A8884B]" : "text-[#0B1714]/55";
   return (
     <div className="text-[11.5px] leading-snug flex items-baseline gap-1.5">
       <span className={`font-medium shrink-0 ${prefixClass}`}>{msg.prefix}:</span>
-      <span className="text-white/80 truncate flex-1">{msg.body}</span>
-      <span className="text-[10px] text-white/40 shrink-0">{msg.ago}</span>
+      <span className="text-[#0B1714]/80 truncate flex-1">{msg.body}</span>
+      <span className="text-[10px] text-[#0B1714]/40 shrink-0">{msg.ago}</span>
     </div>
   );
 }
