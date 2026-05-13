@@ -637,10 +637,11 @@ async def build_briefing(client_id: Optional[str] = None) -> dict:
     # is independent and adds ~50-100ms; serialized would compound. Each
     # helper has its own fail-safe so partial failures (e.g. actions table
     # blip) don't take down the whole briefing.
-    rows, acted_keys, handled = await asyncio.gather(
+    rows, acted_keys, handled, recent_actions_rows = await asyncio.gather(
         store.get_all_leads_with_messages(client_id=client_id),
         store.list_acted_keys(client_id=client_id),
         store.get_handled_today(client_id=client_id, limit=3),
+        store.get_recent_actions(client_id=client_id, limit=10),
     )
     pairs: list[tuple[Optional[str], Lead]] = [
         (r.get("id"), _lead_from_row(r)) for r in rows
@@ -789,12 +790,27 @@ async def build_briefing(client_id: Optional[str] = None) -> dict:
         ],
     }
 
+    # Recent actions audit feed — last 10 acted/undone rows in scope, newest
+    # first. Joins lead_name from the same in-scope leads dict used above so
+    # we don't hit the leads table again.
+    recent_actions = [
+        {
+            "lead_name": name_by_id.get(r.get("lead_id"), r.get("phone") or "—"),
+            "phone": r.get("phone"),
+            "decision_status": r.get("decision_status"),
+            "action_type": r.get("action_type"),
+            "acted_at": r.get("acted_at"),
+        }
+        for r in recent_actions_rows
+    ]
+
     return {
         "headline": headline,
         "summary_bullets": summary_bullets,
         "decisions": decisions,
         "counts": counts,
         "handled_today": handled_today,
+        "recent_actions": recent_actions,
     }
 
 

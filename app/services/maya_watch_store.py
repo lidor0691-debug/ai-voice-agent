@@ -742,6 +742,45 @@ async def get_handled_today(
         return empty
 
 
+# ── Recent actions (audit feed) ──────────────────────────────────────────
+# Mirrors get_handled_today minus the UTC-midnight filter so the dashboard
+# activity rail can show a "recent activity" timeline beyond today. Read
+# only — no writes, no upstream calls.
+
+async def get_recent_actions(
+    client_id: Optional[str] = None,
+    limit: int = 10,
+) -> list[dict]:
+    """Return the most recent `maya_watch_actions` rows, newest first.
+
+    Shape: list of {lead_id, phone, decision_status, action_type, acted_at}.
+    Tenant-scoped when client_id is provided. Fail-safe: returns [] on any
+    error. lead_name is NOT resolved here — the service layer joins it from
+    the leads dict it already loaded for the briefing.
+    """
+    if not env_ready() or limit <= 0:
+        return []
+    params: dict = {
+        "select": "lead_id,phone,decision_status,action_type,acted_at",
+        "order": "acted_at.desc",
+        "limit": str(limit),
+    }
+    if client_id is not None:
+        params["client_id"] = f"eq.{client_id}"
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            resp = await client.get(
+                f"{_SUPABASE_URL}/rest/v1/{_TABLE_ACTIONS}",
+                params=params,
+                headers=_read_headers(),
+            )
+            resp.raise_for_status()
+            return resp.json() or []
+    except Exception as exc:
+        logger.warning("[MAYA-WATCH] get_recent_actions failed: %s", exc)
+        return []
+
+
 # ── Undo (Stage 8C) ──────────────────────────────────────────────────────
 # Undo is recorded as a NEW row with action_type='undone' for the same
 # (lead_id, decision_status). The original 'acted' row is preserved for

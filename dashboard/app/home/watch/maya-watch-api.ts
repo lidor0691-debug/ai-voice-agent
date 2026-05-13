@@ -64,12 +64,23 @@ interface ApiHandledToday {
   recent?: ApiHandledTodayItem[];
 }
 
+// Recent actions audit feed — read-only, newest first. Sourced from
+// maya_watch_actions; lead_name pre-joined server-side.
+interface ApiRecentAction {
+  lead_name?: string;
+  phone?: string;
+  decision_status?: string;
+  action_type?: string;  // 'acted' | 'undone'
+  acted_at?: string;
+}
+
 interface ApiBriefing {
   headline?: string;
   summary_bullets?: string[];
   decisions?: ApiDecision[];
   counts?: ApiCounts;
   handled_today?: ApiHandledToday;
+  recent_actions?: ApiRecentAction[];
 }
 
 interface ApiTimedBody {
@@ -660,6 +671,11 @@ function buildWhatsAppFromLeads(leads: ApiLead[]): WhatsAppThread[] {
   return threads;
 }
 
+function actionTypeLabelHe(t?: string): string {
+  if (t === "undone") return "ביטול";
+  return "אישור";
+}
+
 function buildAlertsFromBriefing(briefing: ApiBriefing, counts: Required<ApiCounts>): Alert[] {
   const alerts: Alert[] = [];
   for (const d of (briefing.decisions ?? []).slice(0, 3)) {
@@ -679,6 +695,19 @@ function buildAlertsFromBriefing(briefing: ApiBriefing, counts: Required<ApiCoun
       ago: "—",
       who: `${counts.at_risk} לידים בסיכון`,
       body: "ממתין לטיפול. שקול לפנות אליהם בהקדם.",
+    });
+  }
+  // Audit feed: append past acted/undone rows after the open decisions so
+  // the rail shows a unified "recent activity" stream. Distinct prefix +
+  // low severity make these visually separable from open work.
+  for (const a of briefing.recent_actions ?? []) {
+    if (!a?.acted_at) continue;
+    alerts.push({
+      id: `audit:${a.acted_at}:${a.phone ?? ""}`,
+      severity: "low",
+      ago: relativeAgo(a.acted_at),
+      who: `טופל ליד: ${a.lead_name ?? a.phone ?? "—"}`,
+      body: `פעולה: ${actionTypeLabelHe(a.action_type)} · סטטוס: ${statusLabelHe(a.decision_status)}`,
     });
   }
   return alerts;
