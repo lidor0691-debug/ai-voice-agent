@@ -11,6 +11,7 @@ Never raises — errors are logged so callers are not interrupted.
 """
 import logging
 import os
+from datetime import datetime, timezone
 
 import httpx
 
@@ -19,6 +20,7 @@ logger = logging.getLogger(__name__)
 _SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 _SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
 _TABLE = "leads"
+_CALL_LOGS_TABLE = "call_logs"
 
 
 def _headers() -> dict:
@@ -28,6 +30,49 @@ def _headers() -> dict:
         "Content-Type": "application/json",
         "Prefer": "return=minimal",
     }
+
+
+async def _insert_call_log(
+    *,
+    agent_id: str | None,
+    phone_number: str | None,
+) -> None:
+    """Insert one row into public.call_logs after a voice lead is saved.
+
+    Minimal v0 payload — schema is (id, agent_id, phone_number, status,
+    duration, created_at). duration is left null (call may still be in
+    progress at save_lead time); status is a sentinel "captured" until a
+    future end-of-call hook fills the real Twilio status.
+
+    Never raises. Wrapped at the call site too; this helper is allowed to
+    log and swallow any failure so the voice/lead flow proceeds.
+    """
+    if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
+        return
+    if not agent_id:
+        # call_logs.agent_id is required for tenant scoping (no client_id
+        # column). Skip when missing rather than write an orphan row.
+        return
+    payload = {
+        "agent_id": agent_id,
+        "phone_number": phone_number or None,
+        "status": "captured",
+        "duration": None,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.post(
+                f"{_SUPABASE_URL}/rest/v1/{_CALL_LOGS_TABLE}",
+                json=payload,
+                headers=_headers(),
+            )
+            resp.raise_for_status()
+        logger.info(
+            "[CALL-LOG] inserted agent_id=%s phone=%s", agent_id, phone_number,
+        )
+    except Exception as exc:
+        logger.warning("[CALL-LOG] insert skipped: %s", exc)
 
 
 async def update_lead_name(phone: str, name: str) -> None:
@@ -115,3 +160,18 @@ async def save_lead(data: dict) -> None:
         logger.info("[LEAD CAPTURE] Upserted lead phone=%s source=%s", data.get("phone"), data.get("source"))
     except Exception as exc:
         logger.error("[LEAD CAPTURE] Failed to save lead: %s | data=%s", exc, data)
+        # If the lead upsert itself failed, do NOT log a call row — keeps
+        # call_logs aligned with what actually persisted in leads.
+        return
+
+    # Voice-only side-effect: write a minimal call_logs row so /home/calls
+    # shows real activity. Wrapped here AND inside the helper — any failure
+    # must never break the voice/lead capture flow.
+    if data.get("source") in ("voice", "browser_voice"):
+        try:
+            await _insert_call_log(
+                agent_id=data.get("agent_id"),
+                phone_number=data.get("phone"),
+            )
+        except Exception as exc:
+            logger.warning("[CALL-LOG] insert skipped (outer guard): %s", exc)
