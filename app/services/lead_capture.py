@@ -32,10 +32,50 @@ def _headers() -> dict:
     }
 
 
+async def _resolve_agent_for_client(client_id: str) -> str | None:
+    """Return the single active agents_config.id for a client_id, or None.
+
+    Used by _insert_call_log when the voice route passed client_id but no
+    agent_id. Returns None when zero or more-than-one active agents match
+    (call site logs the ambiguity); the call_logs insert is skipped in
+    both cases rather than attributing the call to the wrong agent.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(
+                f"{_SUPABASE_URL}/rest/v1/agents_config",
+                params={
+                    "client_id": f"eq.{client_id}",
+                    "is_active": "eq.true",
+                    "select": "id",
+                    "limit": "2",  # >1 indicates ambiguity; we only need to detect it
+                },
+                headers=_headers(),
+            )
+            if resp.status_code != 200:
+                logger.warning(
+                    "[CALL-LOG] agent resolve HTTP %s for client_id=%s",
+                    resp.status_code, client_id,
+                )
+                return None
+            rows = resp.json() or []
+    except Exception as exc:
+        logger.warning("[CALL-LOG] agent resolve failed for client_id=%s: %s", client_id, exc)
+        return None
+    if len(rows) == 1:
+        return rows[0].get("id")
+    logger.info(
+        "[CALL-LOG] no unique active agent for client_id=%s rows=%d — skipping",
+        client_id, len(rows),
+    )
+    return None
+
+
 async def _insert_call_log(
     *,
     agent_id: str | None,
     phone_number: str | None,
+    client_id: str | None = None,
 ) -> None:
     """Insert one row into public.call_logs after a voice lead is saved.
 
@@ -49,9 +89,17 @@ async def _insert_call_log(
     """
     if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
         return
+    # Resolve agent_id from client_id when the voice route only passed the
+    # client. Voice routes today (gemini, realtime, browser, twilio classic)
+    # don't surface agent_id directly to save_lead, so we infer it from
+    # the active agents_config row for that tenant.
+    if not agent_id and client_id:
+        agent_id = await _resolve_agent_for_client(client_id)
     if not agent_id:
-        # call_logs.agent_id is required for tenant scoping (no client_id
-        # column). Skip when missing rather than write an orphan row.
+        logger.info(
+            "[CALL-LOG] missing agent_id (client_id=%s) — skipping",
+            client_id or "-",
+        )
         return
     payload = {
         "agent_id": agent_id,
@@ -172,6 +220,7 @@ async def save_lead(data: dict) -> None:
             await _insert_call_log(
                 agent_id=data.get("agent_id"),
                 phone_number=data.get("phone"),
+                client_id=data.get("client_id"),
             )
         except Exception as exc:
             logger.warning("[CALL-LOG] insert skipped (outer guard): %s", exc)
