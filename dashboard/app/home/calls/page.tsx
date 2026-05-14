@@ -36,7 +36,7 @@ function fmtDateTime(iso: string | null): string {
   if (!iso) return "—";
   const d = new Date(iso);
   if (isNaN(d.getTime())) return "—";
-  return d.toLocaleString("he-IL", { dateStyle: "short", timeStyle: "short" });
+  return d.toLocaleString("he-IL", { dateStyle: "short", timeStyle: "short", timeZone: "Asia/Jerusalem" });
 }
 
 export default async function CallsPage() {

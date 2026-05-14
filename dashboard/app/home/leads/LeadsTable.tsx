@@ -26,14 +26,14 @@ function fmtDateTime(iso: string | null | undefined): string {
   if (!iso) return "—";
   const d = new Date(iso);
   if (isNaN(d.getTime())) return "—";
-  return d.toLocaleString("he-IL", { dateStyle: "short", timeStyle: "short" });
+  return d.toLocaleString("he-IL", { dateStyle: "short", timeStyle: "short", timeZone: "Asia/Jerusalem" });
 }
 
 function fmtTime(iso: string | undefined): string {
   if (!iso) return "";
   const d = new Date(iso);
   if (isNaN(d.getTime())) return "";
-  return d.toLocaleString("he-IL", { dateStyle: "short", timeStyle: "short" });
+  return d.toLocaleString("he-IL", { dateStyle: "short", timeStyle: "short", timeZone: "Asia/Jerusalem" });
 }
 
 export function LeadsTable({ leads }: { leads: LeadRow[] }) {
