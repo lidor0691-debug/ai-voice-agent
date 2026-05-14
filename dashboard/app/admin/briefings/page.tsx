@@ -94,7 +94,7 @@ const PLAYBOOK: Record<string, FindingPlaybook> = {
   repeated_question_cluster: {
     action_bullet: "לבנות תשובת מחיר קבועה שמכשירה לפני מחיר",
     wa_template:
-      "ברור לגמרי, המחיר תלוי קצת בגיל ובסוג השיעור שמתאים. כדי לא לזרוק לך סתם מספר לא מדויק, בת כמה הילדה ומה המטרה שלכם כרגע? אחרי זה אוכל לכוון אותך בצורה הרבה יותר מדויקת.",
+      "ברור לגמרי. כדי לכוון אותך למחיר הנכון ולא לזרוק סתם מספר, אשמח להבין רגע: בת כמה הילדה ומה אתם מחפשים כרגע — שיעור ניסיון, חוג קבוע או משהו לקראת אירוע? אחרי זה אוכל להגיד לך מה הכי מתאים ומה הטווח.",
     voice_script:
       "ברור, אני אגיד לך בכיף. רק כדי לא לתת לך מחיר שלא מתאים למקרה שלך, בת כמה הילדה ומה אתם מחפשים כרגע — שיעור ניסיון או מסגרת קבועה?",
     when_to_use:
@@ -185,6 +185,28 @@ const PLAYBOOK: Record<string, FindingPlaybook> = {
 
 function playbookFor(t: string): FindingPlaybook | null { return PLAYBOOK[t] ?? null; }
 
+// Deterministic priority bucket per finding_type. Types not mapped fall
+// into "later" (needs more data) so we never invent urgency.
+type PriorityBucket = "now" | "week" | "later";
+
+const PRIORITY: Record<string, PriorityBucket> = {
+  repeated_question_cluster:     "now",
+  faq_candidate:                 "now",
+  price_or_uncertainty_friction: "now",
+  followup_gap:                  "week",
+  no_show_risk:                  "week",
+  warm_dropoff:                  "week",
+  maya_prompt_gap:               "later",
+};
+
+const PRIORITY_LABEL: Record<PriorityBucket, string> = {
+  now:   "לעשות עכשיו",
+  week:  "לעשות השבוע",
+  later: "לעשות אחרי עוד דאטה",
+};
+
+function priorityBucket(t: string): PriorityBucket { return PRIORITY[t] ?? "later"; }
+
 function confidenceBucket(c: number | null): { label: string; tone: "high" | "mid" | "low" | "unknown" } {
   if (c == null) return { label: "—", tone: "unknown" };
   if (c >= 0.7)  return { label: "בינונית-גבוהה", tone: "high" };
@@ -193,9 +215,22 @@ function confidenceBucket(c: number | null): { label: string; tone: "high" | "mi
 }
 
 // ── Display-clean: scrub technical tokens from primary copy. Raw text
-// still appears verbatim inside the collapsed "פרטים טכניים" sections. ──
+// still appears verbatim inside the collapsed "פרטים טכניים" sections.
+// Phrase-level fixes run first to avoid awkward mechanical-cleanups
+// like "בנק הידע של מאיה של הסוכן". ─────────────────────────────────────
 
-const DISPLAY_REPLACEMENTS: Array<[RegExp, string]> = [
+const PHRASE_REPLACEMENTS: Array<[RegExp, string]> = [
+  // Avoid the duplicate "של" when knowledge_items appears with a possessive.
+  [/knowledge_items של הסוכן/g, "בנק הידע של מאיה"],
+  // Followup-column technical sentence → natural Hebrew.
+  [/ש-?followup_sent_at ו-?followup_sent_kind מתעדכנים בכל שליחה/g,
+   "שכל הודעת המשך מתועדת במערכת אחרי השליחה"],
+  // low_data tail in the summary → natural Hebrew explanation.
+  [/חלקן מסומנות כ[-־]?low_data עם המתנה לעדכון/g,
+   "חלק מההמלצות מבוססות על דאטה ראשוני בלבד, ולכן כדאי לעדכן אותן אחרי שיצטברו עוד שיחות ולידים"],
+];
+
+const TOKEN_REPLACEMENTS: Array<[RegExp, string]> = [
   [/\blead_intelligence_insights\b/g, "תובנות"],
   [/\bmaya_watch_messages\b/g,        "הודעות"],
   [/\bmaya_watch_actions\b/g,         "פעולות"],
@@ -212,7 +247,8 @@ const DISPLAY_REPLACEMENTS: Array<[RegExp, string]> = [
 function displayClean(text: string | null | undefined): string {
   if (!text) return "";
   let out = text;
-  for (const [pattern, replacement] of DISPLAY_REPLACEMENTS) out = out.replace(pattern, replacement);
+  for (const [pattern, replacement] of PHRASE_REPLACEMENTS) out = out.replace(pattern, replacement);
+  for (const [pattern, replacement] of TOKEN_REPLACEMENTS)  out = out.replace(pattern, replacement);
   return out;
 }
 
@@ -276,6 +312,28 @@ function topActionBullets(findings: FindingRow[], maxItems = 4): string[] {
     .slice(0, maxItems)
     .map(actionBullet)
     .filter(s => s.length > 0);
+}
+
+/** Group findings into priority buckets (now / week / later), then map
+ *  each finding to its clean playbook action label. Empty buckets are
+ *  filtered out by the renderer so we never display "nothing here". */
+function priorityGroups(findings: FindingRow[]): Array<{ bucket: PriorityBucket; label: string; items: string[] }> {
+  const ranked = [...findings].sort((a, b) =>
+    (b.confidence ?? 0) - (a.confidence ?? 0) ||
+    (b.sample_size ?? 0) - (a.sample_size ?? 0),
+  );
+  const byBucket = new Map<PriorityBucket, string[]>();
+  for (const f of ranked) {
+    const b = priorityBucket(f.finding_type);
+    const list = byBucket.get(b) ?? [];
+    list.push(actionBullet(f));
+    byBucket.set(b, list);
+  }
+  return (["now", "week", "later"] as const).map(b => ({
+    bucket: b,
+    label: PRIORITY_LABEL[b],
+    items: byBucket.get(b) ?? [],
+  }));
 }
 
 // ── Date / summary helpers ───────────────────────────────────────────────
@@ -434,6 +492,7 @@ function BriefingCard({ b, findings }: { b: BriefingRow; findings: FindingRow[] 
   const periodLabel = `${fmtDate(b.period_start)} → ${fmtDate(b.period_end)}`;
   const diagnosis = executiveDiagnosis(findings);
   const actions = topActionBullets(findings, 4);
+  const priorities = priorityGroups(findings).filter(g => g.items.length > 0);
 
   return (
     <article className="border border-border rounded-xl bg-surface-1 overflow-hidden shadow-[0_2px_20px_-10px_rgba(0,0,0,0.4)]">
@@ -471,13 +530,30 @@ function BriefingCard({ b, findings }: { b: BriefingRow; findings: FindingRow[] 
             </ul>
           </div>
         )}
+
+        {priorities.length > 0 && (
+          <div className="mt-5">
+            <div className="text-[12px] uppercase tracking-wider text-gray-500 mb-2">
+              מה לעשות קודם
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {priorities.map(g => (
+                <PriorityGroup key={g.bucket} bucket={g.bucket} label={g.label} items={g.items} />
+              ))}
+            </div>
+          </div>
+        )}
       </section>
 
-      {/* Secondary: full summary_md as "פירוט התדריך" */}
+      {/* Secondary: full summary_md as "פירוט התדריך" — deliberately muted */}
       {b.summary_md && (
-        <section className="px-6 py-5 border-t border-border bg-surface-0/30" dir="rtl">
-          <h3 className="text-white text-[14px] font-semibold mb-2">פירוט התדריך</h3>
-          {renderSummary(b.summary_md)}
+        <section className="px-6 py-4 border-t border-border bg-surface-0/40" dir="rtl">
+          <h3 className="text-gray-400 text-[11.5px] font-medium uppercase tracking-wider mb-2">
+            פירוט התדריך
+          </h3>
+          <div className="text-[12.5px]">
+            {renderSummary(b.summary_md)}
+          </div>
         </section>
       )}
 
@@ -512,6 +588,35 @@ function BriefingCard({ b, findings }: { b: BriefingRow; findings: FindingRow[] 
         </div>
       </details>
     </article>
+  );
+}
+
+function PriorityGroup({
+  bucket, label, items,
+}: { bucket: PriorityBucket; label: string; items: string[] }) {
+  const tone =
+    bucket === "now"   ? "border-rose-500/30 bg-rose-500/[0.05] text-rose-200" :
+    bucket === "week"  ? "border-amber-500/30 bg-amber-500/[0.05] text-amber-200" :
+                          "border-gray-500/30 bg-gray-500/[0.05] text-gray-300";
+  const dot =
+    bucket === "now"  ? "bg-rose-300" :
+    bucket === "week" ? "bg-amber-300" :
+                         "bg-gray-400";
+  return (
+    <div className={`rounded-lg border ${tone} p-3`}>
+      <div className="flex items-center gap-2 mb-2">
+        <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />
+        <span className="text-[12px] font-medium">{label}</span>
+      </div>
+      <ul className="space-y-1">
+        {items.map((it, i) => (
+          <li key={i} className="text-[12.5px] text-gray-200 leading-snug flex items-start gap-1.5">
+            <span className="text-gray-500 shrink-0 mt-0.5">·</span>
+            <span>{it}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
