@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { getUserContext } from "@/lib/user-context";
 import { HomeShell } from "../_shared/HomeShell";
 import { HomeNavRail } from "../_shared/HomeNavRail";
@@ -78,7 +79,14 @@ export default async function InsightsPage() {
 
   let insights: InsightRow[] = [];
   if (ctx) {
-    const query = supabase
+    // TODO(security): Replace this admin-client read with proper RLS SELECT
+    // policies for lead_intelligence_insights once RLS/auth hardening is
+    // handled. Today the table has RLS enabled but zero policies, so the
+    // user-scoped client returns 0 rows. We mirror the same approved
+    // server-side admin-client + code-side client_id scoping pattern used
+    // by /api/whatsapp-history and the /home/leads Maya Watch merge.
+    const admin = createSupabaseAdminClient();
+    const query = admin
       .from("lead_intelligence_insights")
       .select(
         "id, insight_type, title, normalized_text, frequency_count, status, source_type, intent_category, created_at, updated_at, client_id",
@@ -92,7 +100,12 @@ export default async function InsightsPage() {
     if (error) {
       console.error("[home/insights] fetch failed:", error.message);
     } else {
-      insights = (data ?? []) as InsightRow[];
+      const rows = (data ?? []) as InsightRow[];
+      // Defense-in-depth: re-enforce tenant scope in code for non-admins,
+      // since we bypassed RLS via the admin client.
+      insights = ctx.isAdmin
+        ? rows
+        : rows.filter(r => r.client_id === ctx.clientId);
     }
   }
 
