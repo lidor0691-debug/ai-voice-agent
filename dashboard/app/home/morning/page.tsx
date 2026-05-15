@@ -197,7 +197,7 @@ export default async function MorningPage() {
   return (
     <HomeShell lang="he">
       <HomeNavRail lang="he" active="watch" user={identity} />
-      <div className="lg:ps-[200px] min-h-full">
+      <div className="lg:ps-[200px] h-full overflow-y-auto overflow-x-hidden">
         <div className="max-w-3xl mx-auto px-5 sm:px-8 py-8 sm:py-12 space-y-8" dir="rtl">
           {/* Admin preview banner */}
           {isAdminPreview && (
