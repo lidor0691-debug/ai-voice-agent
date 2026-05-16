@@ -224,7 +224,7 @@ export default async function MorningPage() {
             <header>
               <div className="maya-section-label mb-2">תדריך הבוקר של מאיה</div>
               <div className="flex items-baseline gap-3 flex-wrap">
-                <h1 className="text-[26px] sm:text-[28px] font-semibold text-[#0B1714]/90 leading-tight">
+                <h1 className="text-[20px] sm:text-[22px] font-semibold text-[#0B1714]/90 leading-tight">
                   {picked.length > 0
                     ? `בוקר טוב. יש ${picked.length} ${picked.length === 1 ? "פעולה שממתינה" : "פעולות שממתינות"} לאישור שלך.`
                     : "בוקר טוב. אין פעולות שממתינות לאישור כרגע."}
@@ -270,7 +270,7 @@ export default async function MorningPage() {
           {briefing && (
             <section className="space-y-3">
               <h2 className="text-[15px] font-semibold text-[#0B1714]/80">
-                מה מאיה כבר עוקבת אחריה
+                מה מאיה בודקת ברקע
               </h2>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                 {WATCH_ITEMS.map(item => {
@@ -340,10 +340,15 @@ function ActionCard({ t }: { t: FindingType }) {
       </div>
 
       {/* Disabled-look chips — read-only, no onClick */}
-      <div className="mt-4 flex flex-wrap gap-2" aria-hidden="true">
-        <DisabledChip label="אישור בקרוב" />
-        <DisabledChip label="עריכה בקרוב" />
-        <DisabledChip label="אוטומציה בהרשאה" />
+      <div className="mt-4" aria-hidden="true">
+        <div className="text-[10.5px] uppercase tracking-wider text-[#0B1714]/40 mb-1.5">
+          יכולות שיופעלו בהמשך
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <DisabledChip label="אישור בקרוב" />
+          <DisabledChip label="עריכה בקרוב" />
+          <DisabledChip label="אוטומציה בהרשאה" />
+        </div>
       </div>
 
       {/* Collapsed explanation */}
@@ -368,7 +373,7 @@ function DisabledChip({ label }: { label: string }) {
   return (
     <span
       aria-disabled="true"
-      className="inline-flex items-center text-[11.5px] text-[#0B1714]/45 bg-[#0B1714]/[0.04] border border-[#0B1714]/10 rounded-full px-2.5 py-0.5"
+      className="inline-flex items-center text-[10.5px] text-[#0B1714]/40 bg-[#0B1714]/[0.025] border border-[#0B1714]/[0.06] rounded-full px-2 py-0.5 cursor-default select-none opacity-80"
     >
       {label}
     </span>
