@@ -226,8 +226,8 @@ export default async function MorningPage() {
               <div className="flex items-baseline gap-3 flex-wrap">
                 <h1 className="text-[26px] sm:text-[28px] font-semibold text-[#0B1714]/90 leading-tight">
                   {picked.length > 0
-                    ? `בוקר טוב. מאיה מצאה ${picked.length} ${picked.length === 1 ? "פעולה שיכולה" : "פעולות שיכולות"} לשפר היום את ההמרות.`
-                    : "בוקר טוב. אין פעולות דחופות להיום."}
+                    ? `בוקר טוב. יש ${picked.length} ${picked.length === 1 ? "פעולה שממתינה" : "פעולות שממתינות"} לאישור שלך.`
+                    : "בוקר טוב. אין פעולות שממתינות לאישור כרגע."}
                 </h1>
                 {lowData && (
                   <span className="inline-flex items-center gap-1.5 text-[11px] text-amber-800 bg-amber-100/80 border border-amber-300/60 rounded-full px-2 py-0.5">
@@ -236,6 +236,16 @@ export default async function MorningPage() {
                   </span>
                 )}
               </div>
+              {picked.length > 0 && (
+                <p className="mt-2.5 text-[13.5px] text-[#0B1714]/60 leading-relaxed max-w-2xl">
+                  מאיה כבר הכינה את ההודעות והשלבים הבאים. אפשר לעבור עליהן ולהחליט מה לאשר כשנפעיל ביצוע.
+                </p>
+              )}
+              <div className="mt-3">
+                <span className="inline-flex items-center text-[11px] text-[#0B1714]/55 bg-[#0B1714]/[0.04] border border-[#0B1714]/10 rounded-full px-2.5 py-0.5">
+                  תצוגה בלבד — אישור וביצוע יתווספו בשלב הבא
+                </span>
+              </div>
             </header>
           )}
 
@@ -243,7 +253,7 @@ export default async function MorningPage() {
           {briefing && picked.length > 0 && (
             <section className="space-y-4">
               <h2 className="text-[15px] font-semibold text-[#0B1714]/80">
-                הפעולות שמאיה ממליצה לעשות היום
+                מה מחכה לאישור
               </h2>
               <div className="space-y-4">
                 {picked.map(t => <ActionCard key={t} t={t} />)}
@@ -318,7 +328,7 @@ function ActionCard({ t }: { t: FindingType }) {
       {/* Permission + after-approval */}
       <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
-          <div className="text-[11px] uppercase tracking-wider text-[#0B1714]/45 mb-1">הרשאה</div>
+          <div className="text-[11px] uppercase tracking-wider text-[#0B1714]/45 mb-1">מצב פעולה</div>
           <div className="text-[13px] text-[#0B1714]/75">{a.permission}</div>
         </div>
         <div>
@@ -331,9 +341,9 @@ function ActionCard({ t }: { t: FindingType }) {
 
       {/* Disabled-look chips — read-only, no onClick */}
       <div className="mt-4 flex flex-wrap gap-2" aria-hidden="true">
-        <DisabledChip label="אישור יתווסף בשלב הבא" />
-        <DisabledChip label="עריכה תתווסף בשלב הבא" />
-        <DisabledChip label="ביצוע אוטומטי יתווסף בהרשאה" />
+        <DisabledChip label="אישור בקרוב" />
+        <DisabledChip label="עריכה בקרוב" />
+        <DisabledChip label="אוטומציה בהרשאה" />
       </div>
 
       {/* Collapsed explanation */}
