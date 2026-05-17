@@ -26,8 +26,11 @@ from pydantic import BaseModel, Field
 from app.services.maya_action_generator import (
     BriefingNotFound,
     GeneratorAbort,
+    create_one_from_briefing,
     generate_dry_run,
 )
+
+_CREATE_CONFIRM_TOKEN = "CREATE_ONE_SUGGESTION"
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +42,11 @@ _SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
 
 class GenerateRequest(BaseModel):
     briefing_id: str = Field(..., min_length=8, max_length=64)
+
+
+class CreateRequest(BaseModel):
+    briefing_id: str = Field(..., min_length=8, max_length=64)
+    confirm: str    = Field(..., min_length=1, max_length=64)
 
 
 async def _require_admin(authorization: Optional[str]) -> str:
@@ -109,6 +117,38 @@ async def generate_from_briefing(
         }
     except RuntimeError as exc:
         logger.error("[admin/maya-actions] runtime error: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    return result
+
+
+@router.post("/admin/maya-actions/create-from-briefing")
+async def create_from_briefing(
+    body: CreateRequest,
+    authorization: Optional[str] = Header(default=None),
+) -> dict:
+    """Phase 3.8F: admin-only single-row INSERT into maya_action_suggestions.
+
+    Requires explicit confirm token. Reuses the dry-run generator as the shared
+    evaluator, then validates via the SQL validator and inserts at most ONE row.
+    Never sends WhatsApp, never calls Twilio, never executes the suggestion."""
+    admin_uid = await _require_admin(authorization)
+
+    if body.confirm != _CREATE_CONFIRM_TOKEN:
+        # Friction token; intentionally not a security boundary.
+        raise HTTPException(status_code=400, detail="invalid_confirm")
+
+    logger.info(
+        "[admin/maya-actions] create requested admin_uid=%s briefing_id=%s",
+        admin_uid, body.briefing_id,
+    )
+
+    try:
+        result = await create_one_from_briefing(body.briefing_id)
+    except BriefingNotFound:
+        raise HTTPException(status_code=404, detail="briefing_not_found")
+    except RuntimeError as exc:
+        logger.error("[admin/maya-actions] create runtime error: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc))
 
     return result

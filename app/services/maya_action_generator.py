@@ -1,20 +1,31 @@
 """
 app/services/maya_action_generator.py
 =====================================
-Phase 3.8B — DRY-RUN ONLY Maya action suggestion generator.
+Phase 3.8B + 3.8F — Maya action suggestion generator.
 
-Reads an analyst briefing + its findings + candidate leads + permission row
-and returns a `would_create[]` preview plus a per-reason `skipped` breakdown.
-Writes nothing to the database.
+Two public entry points:
+
+  - generate_dry_run(briefing_id)         → READ-ONLY evaluation. Writes nothing.
+                                            Returns a `would_create[]` preview plus
+                                            a per-reason `skipped` breakdown.
+
+  - create_one_from_briefing(briefing_id) → admin-only single-row INSERT path.
+                                            Reuses generate_dry_run for evaluation,
+                                            then calls the SQL validator and inserts
+                                            at most ONE row into
+                                            public.maya_action_suggestions.
 
 Strict invariants
 -----------------
-1. The only Supabase verbs used here are GET (PostgREST SELECT).
-2. No INSERT/UPDATE/DELETE statements anywhere in this module.
-3. No Twilio, no message sending, no RPC calls into approve/skip/edit/set_permission.
-4. The mirrored Python validator (`_validate_message_he`) must stay byte-for-byte
-   aligned with the SQL function `public.maya_validate_action_message_he`. If you
-   change one side, change the other.
+1. generate_dry_run uses ONLY GET against PostgREST. Never insert/update/delete.
+2. create_one_from_briefing is the ONLY write path in this module. It performs
+   at most one INSERT into public.maya_action_suggestions and zero writes elsewhere.
+3. No Twilio. No WhatsApp send. No RPC calls into approve/skip/edit/set_permission.
+4. No execution. Created rows are pending proposals (status='suggested').
+5. The mirrored Python validator (`_validate_message_he`) must stay byte-for-byte
+   aligned with the SQL function `public.maya_validate_action_message_he`. The
+   create path additionally invokes the SQL validator before insert as the
+   canonical safety check; the Python mirror remains the hot path for dry-run.
 """
 
 from __future__ import annotations
@@ -446,3 +457,306 @@ def _parse_iso(value: Any) -> datetime | None:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Phase 3.8F — single-row INSERT path. ONLY write path in this module.
+# Reuses generate_dry_run as the shared evaluator (single source of truth).
+# ═════════════════════════════════════════════════════════════════════════════
+
+# Pre-insert guard: refuse to insert a suggestion whose expires_at is within
+# this many seconds of now. Prevents the row from being marked 'expired' on
+# the very next read.
+_MIN_EXPIRY_HEADROOM = timedelta(minutes=1)
+
+
+async def create_one_from_briefing(briefing_id: str) -> dict:
+    """
+    Phase 3.8F admin-only single-row INSERT path.
+
+    Evaluates the briefing the exact same way generate_dry_run does, then
+    inserts at most ONE row into public.maya_action_suggestions if (and only
+    if) the SQL validator approves the message and no duplicate exists.
+
+    Never sends WhatsApp. Never calls Twilio. Never executes the suggestion.
+    Returns a structured dict; never raises GeneratorAbort upward (caught here
+    and surfaced as `created: false, reason: …`).
+    """
+    if not _is_configured():
+        raise RuntimeError("supabase_not_configured")
+
+    started = datetime.now(timezone.utc)
+    run_id = str(uuid.uuid4())
+
+    # 1) Shared evaluation. Same code path the dry-run endpoint uses.
+    try:
+        eval_resp = await generate_dry_run(briefing_id)
+    except GeneratorAbort as ab:
+        # permission_disabled / permission_drift surface as no-insert reasons.
+        duration_ms = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
+        _log_create(run_id, briefing_id, None, None, None, None, None,
+                    False, None, ab.reason, duration_ms)
+        return {
+            "ok": True,
+            "run_id": run_id,
+            "dry_run": False,
+            "created": False,
+            "reason": ab.reason,
+            "error_he": ab.error_he,
+            "briefing_id": briefing_id,
+            "duration_ms": duration_ms,
+        }
+
+    candidates = eval_resp.get("would_create") or []
+    skipped    = eval_resp.get("skipped") or {}
+    client_id  = eval_resp.get("client_id")
+    agent_id   = eval_resp.get("agent_id")
+
+    # 2) Candidate count semantics
+    if len(candidates) == 0:
+        reason = _infer_no_insert_reason(skipped)
+        duration_ms = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
+        _log_create(run_id, briefing_id, client_id, agent_id, None, None, None,
+                    False, None, reason, duration_ms)
+        return {
+            "ok": True,
+            "run_id": run_id,
+            "dry_run": False,
+            "created": False,
+            "reason": reason,
+            "skipped": skipped,
+            "briefing_id": briefing_id,
+            "client_id": client_id,
+            "duration_ms": duration_ms,
+        }
+
+    if len(candidates) > 1:
+        # Hard invariant: generator's MAX_SUGGESTIONS_PER_RUN is 1. If this
+        # ever produces more, it's a regression — fail closed, no insert.
+        duration_ms = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
+        logger.error(
+            "maya_action_generator.invariant_violation run_id=%s briefing_id=%s candidates=%d",
+            run_id, briefing_id, len(candidates),
+        )
+        return {
+            "ok": False,
+            "run_id": run_id,
+            "dry_run": False,
+            "created": False,
+            "error": "invariant_error",
+            "expected_len": 1,
+            "got": len(candidates),
+            "duration_ms": duration_ms,
+        }
+
+    cand = candidates[0]
+    finding_id    = (cand.get("source") or {}).get("finding_id")
+    lead_id       = cand.get("lead_id")
+    message_he    = cand.get("message_he") or ""
+    payload       = cand.get("payload") or {}
+    rationale_he  = cand.get("rationale_he") or ""
+    risk_level    = cand.get("risk_level") or "low"
+    perm_mode     = cand.get("permission_mode_at_creation") or "require_approval"
+    expires_at    = _parse_iso(cand.get("expires_at"))
+
+    if expires_at is None:
+        return _no_insert(run_id, briefing_id, client_id, agent_id, finding_id, lead_id,
+                          "expired_before_insert", started)
+
+    # 3) Expiry headroom guard
+    now = datetime.now(timezone.utc)
+    if expires_at <= now + _MIN_EXPIRY_HEADROOM:
+        return _no_insert(run_id, briefing_id, client_id, agent_id, finding_id, lead_id,
+                          "expired_before_insert", started)
+
+    async with httpx.AsyncClient(timeout=10.0, headers=_headers()) as http:
+        # 4) Finding-level dedup pre-check (lead-level was checked inside the
+        # evaluator). Clean error before relying on the DB unique constraint.
+        existing_finding_row = await _existing_finding_action(http, finding_id)
+        if existing_finding_row is not None:
+            return _no_insert(run_id, briefing_id, client_id, agent_id, finding_id, lead_id,
+                              "duplicate_finding_action", started,
+                              existing_suggestion_id=existing_finding_row.get("id"))
+
+        # 5) SQL validator (canonical safety check before insert).
+        sql_v = await _sql_validate_message_he(http, message_he)
+        if (sql_v or {}).get("ok") is not True:
+            return _no_insert(run_id, briefing_id, client_id, agent_id, finding_id, lead_id,
+                              "validation_failed", started,
+                              error_he=(sql_v or {}).get("error_he"))
+
+        # 6) INSERT. Service-role bypasses RLS; no client-side INSERT policy exists.
+        row = {
+            "client_id":                   client_id,
+            "agent_id":                    agent_id,
+            "lead_id":                     lead_id,
+            "briefing_id":                 briefing_id,
+            "finding_id":                  finding_id,
+            "action_type":                 ACTION_TYPE,
+            "status":                      "suggested",
+            "permission_mode_at_creation": perm_mode,
+            "risk_level":                  risk_level,
+            "payload":                     payload,
+            "rationale_he":                rationale_he,
+            "expires_at":                  expires_at.isoformat(),
+        }
+        inserted, race_err = await _insert_suggestion(http, row)
+        if race_err is not None:
+            return _no_insert(run_id, briefing_id, client_id, agent_id, finding_id, lead_id,
+                              "duplicate_finding_action_race", started)
+        if inserted is None:
+            return _no_insert(run_id, briefing_id, client_id, agent_id, finding_id, lead_id,
+                              "insert_failed", started)
+
+    duration_ms = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
+
+    _log_create(run_id, briefing_id, client_id, agent_id, finding_id, lead_id,
+                perm_mode, True, inserted.get("id"), None, duration_ms,
+                expires_at=expires_at.isoformat())
+
+    return {
+        "ok": True,
+        "run_id": run_id,
+        "dry_run": False,
+        "created": True,
+        "suggestion_id": inserted.get("id"),
+        "briefing_id": briefing_id,
+        "client_id": client_id,
+        "lead_id": lead_id,
+        "action_type": ACTION_TYPE,
+        "status": inserted.get("status") or "suggested",
+        "permission_mode_at_creation": perm_mode,
+        "risk_level": risk_level,
+        "expires_at": expires_at.isoformat(),
+        "version": inserted.get("version") or 1,
+        "message_preview": message_he,
+        "duration_ms": duration_ms,
+    }
+
+
+def _no_insert(run_id: str, briefing_id: str, client_id: Any, agent_id: Any,
+               finding_id: Any, lead_id: Any, reason: str, started: datetime,
+               *, existing_suggestion_id: str | None = None,
+               error_he: str | None = None) -> dict:
+    duration_ms = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
+    _log_create(run_id, briefing_id, client_id, agent_id, finding_id, lead_id,
+                None, False, None, reason, duration_ms)
+    out: dict = {
+        "ok": True,
+        "run_id": run_id,
+        "dry_run": False,
+        "created": False,
+        "reason": reason,
+        "briefing_id": briefing_id,
+        "client_id": client_id,
+        "lead_id": lead_id,
+        "duration_ms": duration_ms,
+    }
+    if existing_suggestion_id:
+        out["existing_suggestion_id"] = existing_suggestion_id
+    if error_he:
+        out["error_he"] = error_he
+    return out
+
+
+def _infer_no_insert_reason(skipped: dict[str, int]) -> str:
+    """Pick the most informative skip reason when the evaluator produced zero
+    candidates. Falls back to a generic code if nothing matched."""
+    priority = [
+        "duplicate_open_suggestion",
+        "validation_failed",
+        "outside_24h_window",
+        "session_status_unknown",
+        "phone_missing",
+        "no_target_lead",
+        "non_mvp_type",
+        "cap_reached",
+        "other",
+    ]
+    for key in priority:
+        if skipped.get(key, 0) > 0:
+            return key
+    return "no_eligible_suggestion"
+
+
+def _log_create(run_id: str, briefing_id: str, client_id: Any, agent_id: Any,
+                finding_id: Any, lead_id: Any, perm_mode: Any,
+                created: bool, created_suggestion_id: Any,
+                reason: Any, duration_ms: int,
+                *, expires_at: str | None = None) -> None:
+    # Single structured event. PII-safe: no phone, no full payload, no message body.
+    logger.info(
+        "maya_action_generator.create run_id=%s briefing_id=%s client_id=%s "
+        "agent_id=%s finding_id=%s lead_id=%s created=%s suggestion_id=%s "
+        "perm_mode=%s reason=%s expires_at=%s template_version=%s duration_ms=%d",
+        run_id, briefing_id, client_id, agent_id, finding_id, lead_id,
+        created, created_suggestion_id, perm_mode, reason, expires_at,
+        _TEMPLATE_VERSION, duration_ms,
+    )
+
+
+# ── Internal: PostgREST endpoints used only by the create path ───────────────
+async def _existing_finding_action(http: httpx.AsyncClient, finding_id: str) -> dict | None:
+    url = f"{_SUPABASE_URL}/rest/v1/maya_action_suggestions"
+    params = {
+        "finding_id":  f"eq.{finding_id}",
+        "action_type": f"eq.{ACTION_TYPE}",
+        "select":      "id,status",
+        "limit":       1,
+    }
+    r = await http.get(url, params=params)
+    r.raise_for_status()
+    rows = r.json()
+    return rows[0] if rows else None
+
+
+async def _sql_validate_message_he(http: httpx.AsyncClient, message_he: str) -> dict:
+    """Call public.maya_validate_action_message_he via PostgREST RPC.
+    Service-role is granted EXECUTE on this function (3.7B grants check)."""
+    url = f"{_SUPABASE_URL}/rest/v1/rpc/maya_validate_action_message_he"
+    r = await http.post(url, json={"p_message_he": message_he})
+    if r.status_code != 200:
+        logger.warning(
+            "maya_action_generator.sql_validator_unexpected_status status=%d body=%s",
+            r.status_code, (r.text or "")[:200],
+        )
+        return {"ok": False, "error_code": "validator_unreachable",
+                "error_he": "כשל בבדיקת ההודעה"}
+    return r.json() if isinstance(r.json(), dict) else {
+        "ok": False, "error_code": "validator_unreachable",
+        "error_he": "כשל בבדיקת ההודעה",
+    }
+
+
+async def _insert_suggestion(http: httpx.AsyncClient, row: dict
+                             ) -> tuple[dict | None, str | None]:
+    """
+    INSERT one row into public.maya_action_suggestions.
+
+    Returns (inserted_row, None) on success.
+    Returns (None, "unique_violation") on SQLSTATE 23505 (partial unique on
+      finding_id+action_type). All other non-2xx return (None, "http_<code>").
+    """
+    url = f"{_SUPABASE_URL}/rest/v1/maya_action_suggestions"
+    headers = dict(_headers())
+    headers["Prefer"] = "return=representation"
+    r = await http.post(url, json=row, headers=headers)
+    if r.status_code in (200, 201):
+        body = r.json()
+        if isinstance(body, list) and body:
+            return body[0], None
+        if isinstance(body, dict):
+            return body, None
+        return None, "empty_representation"
+    # PostgREST surfaces unique-violation as 409 with JSON body containing "code":"23505"
+    try:
+        err = r.json()
+    except Exception:
+        err = {}
+    if r.status_code == 409 or (isinstance(err, dict) and err.get("code") == "23505"):
+        return None, "unique_violation"
+    logger.error(
+        "maya_action_generator.insert_failed status=%d code=%s body=%s",
+        r.status_code, (err or {}).get("code"), (r.text or "")[:300],
+    )
+    return None, f"http_{r.status_code}"
