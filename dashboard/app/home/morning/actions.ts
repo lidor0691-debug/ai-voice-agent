@@ -5,8 +5,6 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
 
 export type ActionState = { ok: boolean; code?: string; message?: string };
 
-const INITIAL_OK: ActionState = { ok: true };
-
 type RpcEnvelope = {
   ok?: boolean;
   error_code?: string | null;
@@ -120,5 +118,3 @@ export async function editAction(
   revalidatePath("/home/morning");
   return { ok: true };
 }
-
-export { INITIAL_OK as INITIAL_ACTION_STATE };
