@@ -6,6 +6,8 @@ import { getUserContext } from "@/lib/user-context";
 import { HomeShell } from "../_shared/HomeShell";
 import { HomeNavRail } from "../_shared/HomeNavRail";
 import { resolveHomeIdentity } from "../_shared/identity";
+import { SuggestionCard } from "./suggestion-card";
+import { approveAction, skipAction, editAction } from "./actions";
 
 // Privacy: do not select or render lead_id, phone, raw payload, raw evidence,
 // or internal analysis fields. The query intentionally omits lead_id and never
@@ -213,7 +215,7 @@ export default async function MorningPage() {
                 {heroLine(visible.length)}
               </h1>
               <p className="mt-2.5 text-[13.5px] text-[#0B1714]/60 leading-relaxed max-w-2xl">
-                מאיה הכינה עבורך הודעות המשך. בשלב הזה אפשר לראות אותן בלבד. אישור ושליחה יתווספו בהמשך.
+                מאיה הכינה עבורך הודעות המשך. בשלב הזה אפשר לאשר, לערוך או לדלג על פעולות. שליחה בפועל תתווסף בשלב הבא.
               </p>
             </header>
           )}
@@ -225,7 +227,45 @@ export default async function MorningPage() {
                 מה מחכה לאישור
               </h2>
               <div className="space-y-4">
-                {visible.map(row => <SuggestionCard key={row.id} row={row} />)}
+                {visible.map(row => {
+                  const { text: messageHe, missing: messageMissing } = resolveMessageHe(row);
+                  const display = {
+                    statusLabel:     statusLabel(row.status),
+                    messageText:     messageHe,
+                    messageMissing,
+                    rationale:       resolveRationale(row),
+                    expiryText:      relativeHebrew(row.expires_at),
+                    permissionLabel: permissionLabel(row.permission_mode_at_creation),
+                    firstName:       resolveFirstName(row),
+                  };
+                  const isReadOnly = row.permission_mode_at_creation === "suggest_only";
+                  // Opaque per-render key. Suggestion id and version intentionally
+                  // stay out of the client boundary; they exist only inside the
+                  // bound server action closures below. A fresh UUID per render
+                  // also force-remounts the client island after revalidatePath,
+                  // which resets editing/skipping mode after a successful edit
+                  // and avoids index-position state leakage after approve/skip.
+                  const cardKey = `suggestion-card-${crypto.randomUUID()}`;
+                  if (isReadOnly) {
+                    return (
+                      <SuggestionCard
+                        key={cardKey}
+                        isReadOnly={true}
+                        {...display}
+                      />
+                    );
+                  }
+                  return (
+                    <SuggestionCard
+                      key={cardKey}
+                      isReadOnly={false}
+                      {...display}
+                      approveAction={approveAction.bind(null, row.id, row.version)}
+                      skipAction={skipAction.bind(null, row.id, row.version)}
+                      editAction={editAction.bind(null, row.id, row.version)}
+                    />
+                  );
+                })}
               </div>
               {overflowExtra > 0 && (
                 <p className="text-[12.5px] text-[#0B1714]/50 pr-1">
@@ -238,101 +278,6 @@ export default async function MorningPage() {
         </div>
       </div>
     </HomeShell>
-  );
-}
-
-// ── Card ─────────────────────────────────────────────────────────────────
-
-function SuggestionCard({ row }: { row: SuggestionRow }) {
-  const firstName = resolveFirstName(row);
-  const { text: messageHe, missing: messageMissing } = resolveMessageHe(row);
-  const rationale = resolveRationale(row);
-  const expiry = relativeHebrew(row.expires_at);
-  const sLabel = statusLabel(row.status);
-  const pLabel = permissionLabel(row.permission_mode_at_creation);
-  const suggestOnly = row.permission_mode_at_creation === "suggest_only";
-
-  return (
-    <article className="rounded-2xl border border-[#0B1714]/10 bg-white/75 px-5 sm:px-6 py-5 shadow-[0_1px_2px_rgba(11,23,20,0.04)]">
-      {/* Header: title + status pill */}
-      <div className="flex items-baseline justify-between gap-3 flex-wrap">
-        <h3 className="text-[16px] font-semibold text-[#0B1714]/90 leading-snug">
-          {firstName
-            ? `פעולה שממתינה לאישור · ${firstName}`
-            : "פעולה שממתינה לאישור"}
-        </h3>
-        <span className="inline-flex items-center text-[11px] text-[#0B1714]/70 bg-[#0B1714]/[0.05] border border-[#0B1714]/10 rounded-full px-2 py-0.5">
-          {sLabel}
-        </span>
-      </div>
-
-      {/* Message preview */}
-      <div className="mt-4">
-        <div className="text-[11px] uppercase tracking-wider text-[#0B1714]/45 mb-1.5">
-          הודעה שמאיה הכינה
-        </div>
-        <div
-          className={[
-            "rounded-lg border px-3.5 py-2.5 text-[13.5px] leading-relaxed whitespace-pre-wrap",
-            messageMissing
-              ? "border-[#0B1714]/10 bg-[#0B1714]/[0.02] text-[#0B1714]/45 italic"
-              : "border-[#0B1714]/10 bg-[#FAF6EE]/80 text-[#0B1714]/85",
-          ].join(" ")}
-        >
-          {messageHe}
-        </div>
-      </div>
-
-      {/* Rationale + expiry + permission mode */}
-      <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <div>
-          <div className="text-[11px] uppercase tracking-wider text-[#0B1714]/45 mb-1">למה מאיה מציעה את זה</div>
-          <div className="text-[13px] text-[#0B1714]/75 leading-relaxed">{rationale}</div>
-        </div>
-        <div>
-          <div className="text-[11px] uppercase tracking-wider text-[#0B1714]/45 mb-1">תוקף ההצעה</div>
-          <div className="text-[13px] text-[#0B1714]/75">{expiry}</div>
-        </div>
-        <div>
-          <div className="text-[11px] uppercase tracking-wider text-[#0B1714]/45 mb-1">מצב פעולה</div>
-          <div className="text-[13px] text-[#0B1714]/75">{pLabel}</div>
-        </div>
-      </div>
-
-      {/* suggest_only inline note (only when applicable) */}
-      {suggestOnly && (
-        <p className="mt-3 text-[12px] text-[#0B1714]/55">
-          הערה: במצב הזה ההמלצה תישאר לתצוגה בלבד גם לאחר השלב הבא, עד לשינוי ההרשאה.
-        </p>
-      )}
-
-      {/* Disabled chips (inert, no onClick, no <button>) */}
-      <div className="mt-4" aria-hidden="true">
-        <div className="text-[10.5px] uppercase tracking-wider text-[#0B1714]/40 mb-1.5">
-          יכולות שיופעלו בהמשך
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <DisabledChip label="אישור בקרוב" />
-          <DisabledChip label="עריכה בקרוב" />
-        </div>
-      </div>
-
-      {/* Footer line (intentionally no em dash, per locked copy rule) */}
-      <p className="mt-3 text-[11.5px] text-[#0B1714]/50">
-        שליחה תתאפשר רק לאחר אישור, בשלב הבא.
-      </p>
-    </article>
-  );
-}
-
-function DisabledChip({ label }: { label: string }) {
-  return (
-    <span
-      aria-disabled="true"
-      className="inline-flex items-center text-[10.5px] text-[#0B1714]/40 bg-[#0B1714]/[0.025] border border-[#0B1714]/[0.06] rounded-full px-2 py-0.5 cursor-default select-none opacity-80"
-    >
-      {label}
-    </span>
   );
 }
 
