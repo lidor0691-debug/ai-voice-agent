@@ -7,141 +7,114 @@ import { HomeShell } from "../_shared/HomeShell";
 import { HomeNavRail } from "../_shared/HomeNavRail";
 import { resolveHomeIdentity } from "../_shared/identity";
 
+// Privacy: do not select or render lead_id, phone, raw payload, raw evidence,
+// or internal analysis fields. The query intentionally omits lead_id and never
+// joins leads. Rendering whitelists only payload.message_he / payload_edited.message_he,
+// payload.first_name, and payload.safety.template_version. No raw payload dump.
+
 // ── Types ────────────────────────────────────────────────────────────────
 
-interface BriefingRow {
+type SuggestionStatus =
+  | "suggested"
+  | "pending_approval"
+  | "edited"
+  | "approved"
+  | "executing"
+  | "executed"
+  | "failed"
+  | "skipped"
+  | "cancelled"
+  | "expired";
+
+interface SuggestionRow {
   id: string;
   client_id: string;
-  generated_at: string;
-  status: string;
-  visibility: string;
-  volume_warning: string | null;
+  agent_id: string | null;
+  action_type: string;
+  status: SuggestionStatus;
+  permission_mode_at_creation: string;
+  risk_level: string;
+  payload: unknown;
+  payload_edited: unknown;
+  rationale_he: string | null;
+  expires_at: string;
+  created_at: string;
+  updated_at: string;
+  version: number;
 }
 
-interface FindingRow {
-  id: string;
-  briefing_id: string;
-  finding_type: string;
-  confidence: number | null;
-}
+// Statuses safe to render in 3.9. `approved` is intentionally NOT here:
+// no executor exists yet, so surfacing it would imply imminent send.
+const VISIBLE_STATUSES = ["suggested", "pending_approval", "edited"] as const;
 
-// ── Action templates (display-only, no DB writes) ────────────────────────
-// Keyed by finding_type. Order in ACTION_ORDER is the deterministic
-// priority used to pick the top-3 cards.
-
-type FindingType =
-  | "repeated_question_cluster"
-  | "faq_candidate"
-  | "followup_gap"
-  | "no_show_risk"
-  | "price_or_uncertainty_friction";
-
-interface ActionTemplate {
-  title: string;
-  why: string;
-  wa: string;
-  permission: string;
-  afterApproval: string;
-  reasons: string[];
-}
-
-const ACTION_ORDER: FindingType[] = [
-  "repeated_question_cluster",
-  "faq_candidate",
-  "followup_gap",
-  "no_show_risk",
-  "price_or_uncertainty_friction",
-];
-
-const ACTIONS: Record<FindingType, ActionTemplate> = {
-  repeated_question_cluster: {
-    title: "לאשר תשובת מחיר חדשה",
-    why: "לקוחות שואלים מחיר מוקדם מדי, לפני שמאיה הספיקה להבין התאמה.",
-    wa: "ברור לגמרי. כדי לכוון אותך למחיר הנכון ולא לזרוק סתם מספר, אשמח להבין רגע: בת כמה הילדה ומה אתם מחפשים כרגע — שיעור ניסיון, חוג קבוע או משהו לקראת אירוע? אחרי זה אוכל להגיד לך מה הכי מתאים ומה הטווח.",
-    permission: "דורש אישור לפני שימוש",
-    afterApproval: "מאיה תוכל להשתמש בנוסח הזה כשלקוח שואל מחיר לפני שיש מספיק הקשר.",
-    reasons: [
-      "מאיה זיהתה שזה חזר בשיחות או בלידים.",
-      "מבוסס על הדאטה האחרון של העסק.",
-      "נבדק מול ספר המשחקים המקצועי של מאיה.",
-    ],
-  },
-  faq_candidate: {
-    title: "להוסיף תשובת מיקום קבועה",
-    why: "לקוחות שואלים איפה זה מתקיים, וזה מידע שכדאי לתת מוקדם יותר.",
-    wa: "השיעורים מתקיימים ב-[כתובת / אזור מדויק]. אם אתם מגיעים מאזור אחר בצפון, כתבו לי מאיפה ואתאים לכם את האפשרות הכי נוחה.",
-    permission: "דורש אישור לפני שימוש",
-    afterApproval: "מאיה תוכל לענות על שאלות מיקום בצורה עקבית אחרי שהעסק יאשר את הכתובת או האזור.",
-    reasons: [
-      "מאיה זיהתה שזה חזר בשיחות או בלידים.",
-      "מבוסס על הדאטה האחרון של העסק.",
-      "נבדק מול ספר המשחקים המקצועי של מאיה.",
-    ],
-  },
-  followup_gap: {
-    title: "להפעיל הודעת המשך ללידים שקטים",
-    why: "יש לידים שהתעניינו ונעלמו, ומאיה יכולה להחזיר אותם בעדינות לשיחה.",
-    wa: "היי, רק רציתי לוודא שלא פספסנו אותך. אם עדיין רלוונטי לכם שיעור ניסיון, אשמח לכוון אתכם לזמן שמתאים.",
-    permission: "יכול להיות אוטומטי אם תאשרו מראש",
-    afterApproval: "מאיה תוכל לשלוח הודעת המשך אחת בלבד ללידים שהתעניינו ולא חזרו.",
-    reasons: [
-      "מאיה זיהתה לידים שלא חזרו לשיחה אחרי שהתעניינו.",
-      "מבוסס על הדאטה האחרון של העסק.",
-      "נבדק מול ספר המשחקים המקצועי של מאיה.",
-    ],
-  },
-  no_show_risk: {
-    title: "לאשר הודעת אישור פגישה",
-    why: "פגישות שלא מקבלות אישור מחדש עלולות להפוך לאי-הגעה.",
-    wa: "היי, מזכירים שיש לכם שיעור/פגישה ב-[יום/שעה]. אפשר לאשר שהכול מתאים?",
-    permission: "יכול להיות אוטומטי אם תאשרו מראש",
-    afterApproval: "מאיה תוכל לשלוח הודעת אישור לפני פגישה ולסמן מי אישר ומי לא.",
-    reasons: [
-      "מאיה זיהתה פגישות שעשויות לדרוש אישור מחדש.",
-      "מבוסס על הדאטה האחרון של העסק.",
-      "נבדק מול ספר המשחקים המקצועי של מאיה.",
-    ],
-  },
-  price_or_uncertainty_friction: {
-    title: "להוביל מתלבטים לשיעור ניסיון",
-    why: "חלק מהלקוחות לא באמת שואלים רק מחיר, אלא מחפשים ביטחון לפני החלטה.",
-    wa: "מובן לגמרי. הרבה פעמים הכי נכון להתחיל משיעור ניסיון כדי להבין אם זה מתאים לפני שמתחייבים. תרצו שאבדוק לכם שתי אפשרויות לזמן קרוב?",
-    permission: "דורש אישור לפני שימוש",
-    afterApproval: "מאיה תוכל להשתמש בנוסח שמוביל לשיעור ניסיון במקום לרוץ ישר למחיר.",
-    reasons: [
-      "מאיה זיהתה התלבטות שמופיעה לצד שאלת מחיר.",
-      "מבוסס על הדאטה האחרון של העסק.",
-      "נבדק מול ספר המשחקים המקצועי של מאיה.",
-    ],
-  },
+const STATUS_LABEL_HE: Record<string, string> = {
+  suggested:        "ממתין לאישור",
+  pending_approval: "ממתין לאישור",
+  edited:           "נערך וממתין לאישור",
 };
 
-// Passive "מה מאיה כבר עוקבת אחריו" cards — derived from finding_type
-// presence in the briefing. Display-only, no counts.
-const WATCH_ITEMS: Array<{ key: FindingType[]; label: string }> = [
-  { key: ["repeated_question_cluster", "faq_candidate"], label: "שאלות שחוזרות מלקוחות" },
-  { key: ["followup_gap"],                                label: "לידים שלא חזרו לשיחה" },
-  { key: ["no_show_risk"],                                label: "פגישות שדורשות אישור" },
-  { key: ["price_or_uncertainty_friction"],               label: "פערים בתשובות של מאיה" },
-];
+// ── Pure helpers ─────────────────────────────────────────────────────────
 
-function isKnownType(t: string): t is FindingType {
-  return (ACTION_ORDER as readonly string[]).includes(t);
+function isNonEmptyString(v: unknown): v is string {
+  return typeof v === "string" && v.trim().length > 0;
 }
 
-// Pick top-3 actions. Within finding_type, prefer highest confidence.
-// Across types, follow deterministic ACTION_ORDER. Returns mappable count
-// total so we can render "יש עוד X פעולות בהמשך".
-function rankActions(findings: FindingRow[]): { picked: FindingType[]; totalMappable: number } {
-  const bestPerType = new Map<FindingType, number>();
-  for (const f of findings) {
-    if (!isKnownType(f.finding_type)) continue;
-    const prev = bestPerType.get(f.finding_type) ?? -Infinity;
-    const c = f.confidence ?? 0;
-    if (c > prev) bestPerType.set(f.finding_type, c);
+function getPayloadField(payload: unknown, key: string): unknown {
+  if (!payload || typeof payload !== "object") return undefined;
+  return (payload as Record<string, unknown>)[key];
+}
+
+function resolveMessageHe(row: SuggestionRow): { text: string; missing: boolean } {
+  const edited = getPayloadField(row.payload_edited, "message_he");
+  if (isNonEmptyString(edited)) return { text: edited.trim(), missing: false };
+  const original = getPayloadField(row.payload, "message_he");
+  if (isNonEmptyString(original)) return { text: original.trim(), missing: false };
+  return { text: "הודעה מוכנה לא זמינה", missing: true };
+}
+
+function resolveFirstName(row: SuggestionRow): string | null {
+  const fn = getPayloadField(row.payload, "first_name");
+  return isNonEmptyString(fn) ? fn.trim() : null;
+}
+
+function resolveRationale(row: SuggestionRow): string {
+  if (isNonEmptyString(row.rationale_he)) return row.rationale_he.trim();
+  return "מאיה זיהתה שכדאי לבדוק את הליד הזה בזמן.";
+}
+
+function relativeHebrew(iso: string): string {
+  const ts = Date.parse(iso);
+  if (Number.isNaN(ts)) return "";
+  const diffMs = ts - Date.now();
+  if (diffMs <= 0) return "פג תוקף";
+  const hours = diffMs / (1000 * 60 * 60);
+  if (hours < 1) return "בעוד פחות משעה";
+  if (hours < 24) {
+    const h = Math.floor(hours);
+    return h === 1 ? "בעוד שעה" : `בעוד ${h} שעות`;
   }
-  const ordered = ACTION_ORDER.filter(t => bestPerType.has(t));
-  return { picked: ordered.slice(0, 3), totalMappable: ordered.length };
+  const days = Math.floor(hours / 24);
+  return days === 1 ? "בעוד יום" : `בעוד ${days} ימים`;
+}
+
+function permissionLabel(mode: string): string {
+  if (mode === "suggest_only")     return "במצב הזה ההמלצה היא לתצוגה בלבד.";
+  if (mode === "require_approval") return "נדרש אישור לפני שליחה";
+  return "נדרש אישור לפני שליחה";
+}
+
+function statusLabel(status: string): string {
+  return STATUS_LABEL_HE[status] ?? "ממתין לאישור";
+}
+
+function heroLine(count: number): string {
+  if (count === 1) return "בוקר טוב. יש פעולה אחת שממתינה לאישור שלך.";
+  return `בוקר טוב. יש ${count} פעולות שממתינות לאישור שלך.`;
+}
+
+function overflowLine(extraCount: number): string {
+  if (extraCount === 1) return "ועוד פעולה אחת ממתינה";
+  return `ועוד ${extraCount} פעולות ממתינות`;
 }
 
 // ── Page ─────────────────────────────────────────────────────────────────
@@ -154,192 +127,186 @@ export default async function MorningPage() {
   if (!ctx) redirect("/login");
   const identity = resolveHomeIdentity(user);
 
-  // Build the briefing query. Admin: latest of any status/visibility (so
-  // BPM draft/admin_only is previewable). Non-admin: only client-visible
-  // published rows scoped to their client_id; RLS enforces the rest.
-  let q = supabase
-    .from("analyst_briefings")
-    .select("id, client_id, generated_at, status, visibility, volume_warning")
-    .order("generated_at", { ascending: false })
-    .limit(1);
-  if (!ctx.isAdmin) {
-    q = q
-      .eq("status", "published")
-      .eq("visibility", "client")
-      .eq("client_id", ctx.clientId);
+  // Admin without a client_id has no client to display. Surface a small hint
+  // pointing to /admin/briefings and render no cards. We do NOT aggregate
+  // across clients on /home/morning.
+  //
+  // getUserContext intentionally hides client_id for admins, so for the
+  // admin path we peek at user.user_metadata.client_id directly. Treat
+  // missing, null, undefined, and empty-string as "no client".
+  const userMeta = (user.user_metadata ?? {}) as Record<string, unknown>;
+  function adminClientIdFromMeta(): string | null {
+    const raw = userMeta.client_id;
+    if (typeof raw !== "string") return null;
+    const trimmed = raw.trim();
+    return trimmed.length > 0 ? trimmed : null;
   }
-  const { data: briefingRaw, error: briefingErr } = await q;
-  if (briefingErr) console.error("[home/morning] briefing fetch failed:", briefingErr.message);
-  const briefing = ((briefingRaw ?? []) as unknown as BriefingRow[])[0] ?? null;
+  const effectiveClientId: string | null = ctx.isAdmin
+    ? adminClientIdFromMeta()
+    : ctx.clientId;
+  const adminNoClient = ctx.isAdmin && !effectiveClientId;
 
-  let findings: FindingRow[] = [];
-  if (briefing) {
-    const { data: findingsRaw, error: findingsErr } = await supabase
-      .from("analyst_briefing_findings")
-      .select("id, briefing_id, finding_type, confidence")
-      .eq("briefing_id", briefing.id);
-    if (findingsErr) console.error("[home/morning] findings fetch failed:", findingsErr.message);
-    findings = (findingsRaw ?? []) as unknown as FindingRow[];
+  // Read-only query against maya_action_suggestions. RLS enforces scoping by
+  // client_id; we additionally filter to the effective client for clarity.
+  // Privacy: lead_id is intentionally NOT selected. No join to leads.
+  let suggestions: SuggestionRow[] = [];
+  if (effectiveClientId) {
+    const nowIso = new Date().toISOString();
+    const { data, error } = await supabase
+      .from("maya_action_suggestions")
+      .select(
+        "id, client_id, agent_id, action_type, status, " +
+        "permission_mode_at_creation, risk_level, " +
+        "payload, payload_edited, rationale_he, " +
+        "expires_at, created_at, updated_at, version",
+      )
+      .eq("client_id", effectiveClientId)
+      .in("status", VISIBLE_STATUSES as unknown as string[])
+      .gt("expires_at", nowIso)
+      .order("expires_at", { ascending: true })
+      .order("created_at", { ascending: false })
+      .limit(4);
+    if (error) console.error("[home/morning] suggestions fetch failed:", error.message);
+    suggestions = (data ?? []) as unknown as SuggestionRow[];
   }
 
-  const isAdminPreview =
-    !!briefing && ctx.isAdmin &&
-    (briefing.status !== "published" || briefing.visibility !== "client");
-
-  const { picked, totalMappable } = briefing
-    ? rankActions(findings)
-    : { picked: [], totalMappable: 0 };
-  const remaining = Math.max(0, totalMappable - picked.length);
-  const lowData = briefing?.volume_warning === "low_data";
-
-  const presentTypes = new Set(findings.map(f => f.finding_type));
+  const visible = suggestions.slice(0, 3);
+  const overflowExtra = Math.max(0, suggestions.length - 3);
 
   return (
     <HomeShell lang="he">
       <HomeNavRail lang="he" active="watch" user={identity} />
       <div className="lg:ps-[200px] h-full overflow-y-auto overflow-x-hidden">
         <div className="max-w-3xl mx-auto px-5 sm:px-8 py-8 sm:py-12 space-y-8" dir="rtl">
-          {/* Admin preview banner */}
-          {isAdminPreview && (
-            <div className="rounded-lg border border-amber-400/40 bg-amber-50/70 px-4 py-2.5 text-[12px] text-amber-900/90">
-              תצוגת אדמין — הלקוח עדיין לא רואה את זה
-            </div>
-          )}
 
-          {/* Empty state */}
-          {!briefing && (
+          {/* Admin without client → admin hint, no cards */}
+          {adminNoClient && (
             <section className="rounded-2xl border border-[#0B1714]/10 bg-white/60 px-6 py-10 text-center">
               <div className="maya-section-label mb-2">תדריך הבוקר של מאיה</div>
               <h1 className="text-[20px] font-semibold text-[#0B1714]/85 mb-2">
-                עדיין אין תדריך מוכן
+                אין לקוח משויך לתצוגה הזו
               </h1>
               <p className="text-[13.5px] text-[#0B1714]/60 leading-relaxed max-w-md mx-auto">
-                מאיה תציג כאן פעולות יומיות אחרי שיצטבר מספיק מידע משיחות, הודעות ולידים.
+                לניהול תובנות עבור לקוחות, עבור לעמוד /admin/briefings.
               </p>
             </section>
           )}
 
-          {/* Hero */}
-          {briefing && (
+          {/* Empty state (client with zero visible suggestions, or admin-with-client zero) */}
+          {!adminNoClient && visible.length === 0 && (
+            <section className="rounded-2xl border border-[#0B1714]/10 bg-white/60 px-6 py-10 text-center">
+              <div className="maya-section-label mb-2">תדריך הבוקר של מאיה</div>
+              <h1 className="text-[20px] font-semibold text-[#0B1714]/85 mb-2">
+                אין כרגע פעולות שממתינות לאישור
+              </h1>
+              <p className="text-[13.5px] text-[#0B1714]/60 leading-relaxed max-w-md mx-auto">
+                מאיה עדיין לא מחכה לאישור שלך. כשהיא תזהה פעולה שכדאי לאשר, היא תציג אותה כאן.
+              </p>
+            </section>
+          )}
+
+          {/* Hero (with suggestions) */}
+          {!adminNoClient && visible.length > 0 && (
             <header>
               <div className="maya-section-label mb-2">תדריך הבוקר של מאיה</div>
-              <div className="flex items-baseline gap-3 flex-wrap">
-                <h1 className="text-[20px] sm:text-[22px] font-semibold text-[#0B1714]/90 leading-tight">
-                  {picked.length > 0
-                    ? `בוקר טוב. יש ${picked.length} ${picked.length === 1 ? "פעולה שממתינה" : "פעולות שממתינות"} לאישור שלך.`
-                    : "בוקר טוב. אין פעולות שממתינות לאישור כרגע."}
-                </h1>
-                {lowData && (
-                  <span className="inline-flex items-center gap-1.5 text-[11px] text-amber-800 bg-amber-100/80 border border-amber-300/60 rounded-full px-2 py-0.5">
-                    <span className="w-1 h-1 rounded-full bg-amber-600" />
-                    דאטה ראשוני בלבד
-                  </span>
-                )}
-              </div>
-              {picked.length > 0 && (
-                <p className="mt-2.5 text-[13.5px] text-[#0B1714]/60 leading-relaxed max-w-2xl">
-                  מאיה כבר הכינה את ההודעות והשלבים הבאים. אפשר לעבור עליהן ולהחליט מה לאשר כשנפעיל ביצוע.
-                </p>
-              )}
-              <div className="mt-3">
-                <span className="inline-flex items-center text-[11px] text-[#0B1714]/55 bg-[#0B1714]/[0.04] border border-[#0B1714]/10 rounded-full px-2.5 py-0.5">
-                  תצוגה בלבד — אישור וביצוע יתווספו בשלב הבא
-                </span>
-              </div>
+              <h1 className="text-[20px] sm:text-[22px] font-semibold text-[#0B1714]/90 leading-tight">
+                {heroLine(visible.length)}
+              </h1>
+              <p className="mt-2.5 text-[13.5px] text-[#0B1714]/60 leading-relaxed max-w-2xl">
+                מאיה הכינה עבורך הודעות המשך. בשלב הזה אפשר לראות אותן בלבד. אישור ושליחה יתווספו בהמשך.
+              </p>
             </header>
           )}
 
-          {/* Actions */}
-          {briefing && picked.length > 0 && (
+          {/* Cards */}
+          {!adminNoClient && visible.length > 0 && (
             <section className="space-y-4">
               <h2 className="text-[15px] font-semibold text-[#0B1714]/80">
                 מה מחכה לאישור
               </h2>
               <div className="space-y-4">
-                {picked.map(t => <ActionCard key={t} t={t} />)}
+                {visible.map(row => <SuggestionCard key={row.id} row={row} />)}
               </div>
-              {remaining > 0 && (
+              {overflowExtra > 0 && (
                 <p className="text-[12.5px] text-[#0B1714]/50 pr-1">
-                  יש עוד {remaining} {remaining === 1 ? "פעולה" : "פעולות"} בהמשך
+                  {overflowLine(overflowExtra)}
                 </p>
               )}
             </section>
           )}
 
-          {/* Passive watch row */}
-          {briefing && (
-            <section className="space-y-3">
-              <h2 className="text-[15px] font-semibold text-[#0B1714]/80">
-                מה מאיה בודקת ברקע
-              </h2>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                {WATCH_ITEMS.map(item => {
-                  const active = item.key.some(k => presentTypes.has(k));
-                  return (
-                    <div
-                      key={item.label}
-                      className={[
-                        "rounded-lg border px-3 py-3 text-[12.5px] leading-snug",
-                        active
-                          ? "border-[#0B1714]/15 bg-white/70 text-[#0B1714]/80"
-                          : "border-[#0B1714]/8 bg-white/30 text-[#0B1714]/40",
-                      ].join(" ")}
-                    >
-                      <span className="inline-flex items-center gap-1.5">
-                        <span
-                          className={[
-                            "w-1.5 h-1.5 rounded-full",
-                            active ? "bg-emerald-500/70" : "bg-[#0B1714]/20",
-                          ].join(" ")}
-                        />
-                        {item.label}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-          )}
         </div>
       </div>
     </HomeShell>
   );
 }
 
-// ── Action card ──────────────────────────────────────────────────────────
+// ── Card ─────────────────────────────────────────────────────────────────
 
-function ActionCard({ t }: { t: FindingType }) {
-  const a = ACTIONS[t];
+function SuggestionCard({ row }: { row: SuggestionRow }) {
+  const firstName = resolveFirstName(row);
+  const { text: messageHe, missing: messageMissing } = resolveMessageHe(row);
+  const rationale = resolveRationale(row);
+  const expiry = relativeHebrew(row.expires_at);
+  const sLabel = statusLabel(row.status);
+  const pLabel = permissionLabel(row.permission_mode_at_creation);
+  const suggestOnly = row.permission_mode_at_creation === "suggest_only";
+
   return (
     <article className="rounded-2xl border border-[#0B1714]/10 bg-white/75 px-5 sm:px-6 py-5 shadow-[0_1px_2px_rgba(11,23,20,0.04)]">
-      <h3 className="text-[17px] font-semibold text-[#0B1714]/90 leading-snug">{a.title}</h3>
-      <p className="mt-1.5 text-[13.5px] text-[#0B1714]/65 leading-relaxed">{a.why}</p>
+      {/* Header: title + status pill */}
+      <div className="flex items-baseline justify-between gap-3 flex-wrap">
+        <h3 className="text-[16px] font-semibold text-[#0B1714]/90 leading-snug">
+          {firstName
+            ? `פעולה שממתינה לאישור · ${firstName}`
+            : "פעולה שממתינה לאישור"}
+        </h3>
+        <span className="inline-flex items-center text-[11px] text-[#0B1714]/70 bg-[#0B1714]/[0.05] border border-[#0B1714]/10 rounded-full px-2 py-0.5">
+          {sLabel}
+        </span>
+      </div>
 
-      {/* WhatsApp preview */}
+      {/* Message preview */}
       <div className="mt-4">
         <div className="text-[11px] uppercase tracking-wider text-[#0B1714]/45 mb-1.5">
-          הודעת וואטסאפ מוכנה
+          הודעה שמאיה הכינה
         </div>
-        <div className="rounded-lg border border-[#0B1714]/10 bg-[#FAF6EE]/80 px-3.5 py-2.5 text-[13.5px] text-[#0B1714]/85 leading-relaxed whitespace-pre-wrap">
-          {a.wa}
+        <div
+          className={[
+            "rounded-lg border px-3.5 py-2.5 text-[13.5px] leading-relaxed whitespace-pre-wrap",
+            messageMissing
+              ? "border-[#0B1714]/10 bg-[#0B1714]/[0.02] text-[#0B1714]/45 italic"
+              : "border-[#0B1714]/10 bg-[#FAF6EE]/80 text-[#0B1714]/85",
+          ].join(" ")}
+        >
+          {messageHe}
         </div>
       </div>
 
-      {/* Permission + after-approval */}
-      <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+      {/* Rationale + expiry + permission mode */}
+      <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div>
+          <div className="text-[11px] uppercase tracking-wider text-[#0B1714]/45 mb-1">למה מאיה מציעה את זה</div>
+          <div className="text-[13px] text-[#0B1714]/75 leading-relaxed">{rationale}</div>
+        </div>
+        <div>
+          <div className="text-[11px] uppercase tracking-wider text-[#0B1714]/45 mb-1">תוקף ההצעה</div>
+          <div className="text-[13px] text-[#0B1714]/75">{expiry}</div>
+        </div>
         <div>
           <div className="text-[11px] uppercase tracking-wider text-[#0B1714]/45 mb-1">מצב פעולה</div>
-          <div className="text-[13px] text-[#0B1714]/75">{a.permission}</div>
-        </div>
-        <div>
-          <div className="text-[11px] uppercase tracking-wider text-[#0B1714]/45 mb-1">
-            מה יקרה אחרי אישור
-          </div>
-          <div className="text-[13px] text-[#0B1714]/75">{a.afterApproval}</div>
+          <div className="text-[13px] text-[#0B1714]/75">{pLabel}</div>
         </div>
       </div>
 
-      {/* Disabled-look chips — read-only, no onClick */}
+      {/* suggest_only inline note (only when applicable) */}
+      {suggestOnly && (
+        <p className="mt-3 text-[12px] text-[#0B1714]/55">
+          הערה: במצב הזה ההמלצה תישאר לתצוגה בלבד גם לאחר השלב הבא, עד לשינוי ההרשאה.
+        </p>
+      )}
+
+      {/* Disabled chips (inert, no onClick, no <button>) */}
       <div className="mt-4" aria-hidden="true">
         <div className="text-[10.5px] uppercase tracking-wider text-[#0B1714]/40 mb-1.5">
           יכולות שיופעלו בהמשך
@@ -347,24 +314,13 @@ function ActionCard({ t }: { t: FindingType }) {
         <div className="flex flex-wrap gap-2">
           <DisabledChip label="אישור בקרוב" />
           <DisabledChip label="עריכה בקרוב" />
-          <DisabledChip label="אוטומציה בהרשאה" />
         </div>
       </div>
 
-      {/* Collapsed explanation */}
-      <details className="mt-4 group">
-        <summary className="cursor-pointer select-none text-[12.5px] text-[#0B1714]/55 hover:text-[#0B1714]/80 transition-colors">
-          למה מאיה ממליצה על זה?
-        </summary>
-        <ul className="mt-2 space-y-1.5 pr-1">
-          {a.reasons.map((r, i) => (
-            <li key={i} className="text-[12.5px] text-[#0B1714]/70 leading-relaxed flex items-start gap-2">
-              <span className="text-[#0B1714]/30 mt-1 shrink-0">•</span>
-              <span>{r}</span>
-            </li>
-          ))}
-        </ul>
-      </details>
+      {/* Footer line (intentionally no em dash, per locked copy rule) */}
+      <p className="mt-3 text-[11.5px] text-[#0B1714]/50">
+        שליחה תתאפשר רק לאחר אישור, בשלב הבא.
+      </p>
     </article>
   );
 }
