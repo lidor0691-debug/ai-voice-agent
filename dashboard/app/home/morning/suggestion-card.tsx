@@ -18,6 +18,8 @@ type SkipChip = typeof SKIP_CHIPS[number];
 const MAX_MESSAGE_LEN = 2000;
 const MAX_OTHER_LEN = 200;
 
+// ── Display props shared by every variant ────────────────────────────────
+
 type DisplayProps = {
   statusLabel: string;
   messageText: string;
@@ -29,29 +31,47 @@ type DisplayProps = {
 };
 
 export type SuggestionCardProps = DisplayProps & (
-  | { isReadOnly: true }
+  | { variant: "read_only" }
   | {
-      isReadOnly: false;
-      approveAction: BoundAction;
+      variant: "actionable";
+      sendAction: BoundAction;
       skipAction: BoundAction;
       editAction: BoundAction;
+    }
+  | {
+      variant: "in_flight";
+      flightStatus: "executing" | "failed";
+      failureCode?: string;
+      failureMessage?: string;
     }
 );
 
 // ── Wrapper (hookless) ───────────────────────────────────────────────────
 
 export function SuggestionCard(props: SuggestionCardProps) {
-  if (props.isReadOnly) {
-    const { isReadOnly: _ro, ...display } = props;
-    void _ro;
+  if (props.variant === "read_only") {
+    const { variant: _v, ...display } = props;
+    void _v;
     return <ReadOnlySuggestionCard {...display} />;
   }
-  const { isReadOnly: _ro, approveAction, skipAction, editAction, ...display } = props;
-  void _ro;
+  if (props.variant === "in_flight") {
+    const { variant: _v, flightStatus, failureCode, failureMessage, ...display } = props;
+    void _v;
+    return (
+      <InFlightSuggestionCard
+        {...display}
+        flightStatus={flightStatus}
+        failureCode={failureCode}
+        failureMessage={failureMessage}
+      />
+    );
+  }
+  const { variant: _v, sendAction, skipAction, editAction, ...display } = props;
+  void _v;
   return (
     <ActionableSuggestionCard
       {...display}
-      approveAction={approveAction}
+      sendAction={sendAction}
       skipAction={skipAction}
       editAction={editAction}
     />
@@ -78,25 +98,64 @@ export function ReadOnlySuggestionCard(props: DisplayProps) {
   );
 }
 
+// ── In-flight card (zero hooks) ──────────────────────────────────────────
+
+type InFlightProps = DisplayProps & {
+  flightStatus: "executing" | "failed";
+  failureCode?: string;
+  failureMessage?: string;
+};
+
+export function InFlightSuggestionCard(props: InFlightProps) {
+  return (
+    <CardShell
+      statusLabel={props.statusLabel}
+      firstName={props.firstName}
+      messageText={props.messageText}
+      messageMissing={props.messageMissing}
+      rationale={props.rationale}
+      expiryText={props.expiryText}
+      permissionLabel={props.permissionLabel}
+    >
+      {props.flightStatus === "executing" && (
+        <p className="mt-4 text-[12.5px] text-[#0B1714]/55">
+          שולחת עכשיו…
+        </p>
+      )}
+      {props.flightStatus === "failed" && (
+        <div className="mt-4">
+          <FailureBanner
+            code={props.failureCode}
+            message={props.failureMessage}
+          />
+        </div>
+      )}
+    </CardShell>
+  );
+}
+
 // ── Actionable card (all hooks top-level, unconditional) ─────────────────
 
 type ActionableProps = DisplayProps & {
-  approveAction: BoundAction;
+  sendAction: BoundAction;
   skipAction: BoundAction;
   editAction: BoundAction;
 };
 
 export function ActionableSuggestionCard(props: ActionableProps) {
   // Hook calls: all three, at the top, in fixed order, unconditional.
-  const [approveState, runApprove, approvePending] = useActionState(props.approveAction, INITIAL);
+  const [sendState, runSend, sendPending] = useActionState(props.sendAction, INITIAL);
   const [skipState, runSkip, skipPending] = useActionState(props.skipAction, INITIAL);
   const [editState, runEdit, editPending] = useActionState(props.editAction, INITIAL);
 
-  const [mode, setMode] = useState<"default" | "editing" | "skipping">("default");
+  const [mode, setMode] = useState<"default" | "confirming" | "editing" | "skipping">("default");
   const [draftMessage, setDraftMessage] = useState<string>(props.messageText);
   const [selectedChip, setSelectedChip] = useState<SkipChip | null>(null);
   const [otherText, setOtherText] = useState<string>("");
 
+  function openConfirm() {
+    setMode("confirming");
+  }
   function openEdit() {
     setDraftMessage(props.messageText);
     setMode("editing");
@@ -234,11 +293,40 @@ export function ActionableSuggestionCard(props: ActionableProps) {
         </form>
       )}
 
+      {/* Inline send-confirm panel */}
+      {mode === "confirming" && (
+        <form action={runSend} className="mt-4 space-y-2.5">
+          {sendState.ok === false && (
+            <ErrorBanner code={sendState.code} message={sendState.message} />
+          )}
+          <p className="text-[13.5px] text-[#0B1714]/85 leading-relaxed">
+            שליחת הודעה ב-WhatsApp ללקוח?
+          </p>
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={cancelToDefault}
+              disabled={sendPending}
+              className="text-[12.5px] text-[#0B1714]/55 hover:text-[#0B1714]/80 disabled:opacity-50 px-2 py-1"
+            >
+              ביטול
+            </button>
+            <button
+              type="submit"
+              disabled={sendPending}
+              className="text-[12.5px] text-white bg-[#0B1714]/85 hover:bg-[#0B1714] disabled:opacity-50 rounded-md px-3 py-1.5"
+            >
+              אישור סופי
+            </button>
+          </div>
+        </form>
+      )}
+
       {/* Default action row */}
       {mode === "default" && (
         <div className="mt-4 space-y-2">
-          {approveState.ok === false && (
-            <ErrorBanner code={approveState.code} message={approveState.message} />
+          {sendState.ok === false && (
+            <ErrorBanner code={sendState.code} message={sendState.message} />
           )}
           <div className="flex items-center justify-end gap-2">
             <button
@@ -255,15 +343,13 @@ export function ActionableSuggestionCard(props: ActionableProps) {
             >
               ערוך
             </button>
-            <form action={runApprove}>
-              <button
-                type="submit"
-                disabled={approvePending}
-                className="text-[12.5px] text-white bg-[#0B1714]/85 hover:bg-[#0B1714] disabled:opacity-50 rounded-md px-3 py-1.5"
-              >
-                אשר
-              </button>
-            </form>
+            <button
+              type="button"
+              onClick={openConfirm}
+              className="text-[12.5px] text-white bg-[#0B1714]/85 hover:bg-[#0B1714] rounded-md px-3 py-1.5"
+            >
+              שלח
+            </button>
           </div>
         </div>
       )}
@@ -336,12 +422,13 @@ function CardShell(props: CardShellProps) {
   );
 }
 
-// ── Error banner ─────────────────────────────────────────────────────────
+// ── Error banner mapping ─────────────────────────────────────────────────
 
 const ERROR_COPY_HE: Record<string, string> = {
   stale_version: "הכרטיס עודכן במקום אחר. רעננו ונסו שוב.",
   expired: "ההצעה פגה. רעננו את הדף.",
   already_acted: "הצעה זו כבר טופלה.",
+  already_executed: "ההודעה כבר נשלחה.",
   wrong_status: "הצעה זו כבר טופלה.",
   invalid_status: "הצעה זו כבר טופלה.",
   invalid_payload: "הקלט אינו תקין. בדקו את ההודעה ונסו שוב.",
@@ -353,24 +440,49 @@ const ERROR_COPY_HE: Record<string, string> = {
   validation_failed_currency: "אין לציין סכומי כסף בהודעה.",
   validation_failed_control_chars: "ההודעה מכילה תווי בקרה שאינם מותרים.",
   skip_reason_required: "בחרו סיבה לדילוג.",
+  // 3.11 execution-side codes
+  missing_phone: "חסר מספר טלפון של הליד.",
+  session_expired: "חלון 24 השעות של WhatsApp נסגר.",
+  twilio_error: "שליחה נכשלה אצל ספק ההודעות.",
+  config_missing: "תצורת השליחה חסרה.",
+  permission_drift: "מצב הפעולה השתנה. הפעולה לא נשלחה.",
+  invalid_message: "ההודעה אינה תקינה.",
+  invalid_input: "קלט לא תקין.",
+  supabase_rpc_network_error: "לא ניתן להתחבר לשרת.",
 };
 
 const UNKNOWN_COPY_HE = "הפעולה נכשלה. נסו שוב.";
 
+function resolveErrorCopy(code: string | undefined, message: string | undefined): string {
+  // For invalid_payload / invalid_message the server returns a specific
+  // Hebrew reason in `error_he` (forwarded as `message`). Prefer it.
+  const preferServerMessage =
+    (code === "invalid_payload" || code === "invalid_message") &&
+    typeof message === "string" &&
+    message.length > 0;
+  if (preferServerMessage) return message as string;
+  if (code && ERROR_COPY_HE[code]) return ERROR_COPY_HE[code];
+  return UNKNOWN_COPY_HE;
+}
+
 function ErrorBanner({ code, message }: { code?: string; message?: string }) {
-  // For invalid_payload, the SQL validator returns a precise Hebrew reason in
-  // `error_he` (forwarded as `message`). Prefer the server's specific copy
-  // over the generic fallback in that case.
-  const preferServerMessage = code === "invalid_payload" && typeof message === "string" && message.length > 0;
-  const text = preferServerMessage
-    ? (message as string)
-    : (code && ERROR_COPY_HE[code]) || UNKNOWN_COPY_HE;
   return (
     <div
       role="alert"
       className="rounded-md border border-red-200 bg-red-50/70 text-[12.5px] text-red-800 px-3 py-1.5"
     >
-      {text}
+      {resolveErrorCopy(code, message)}
+    </div>
+  );
+}
+
+function FailureBanner({ code, message }: { code?: string; message?: string }) {
+  return (
+    <div
+      role="alert"
+      className="rounded-md border border-red-200 bg-red-50/70 text-[13px] text-red-800 px-3 py-2"
+    >
+      {resolveErrorCopy(code, message)}
     </div>
   );
 }

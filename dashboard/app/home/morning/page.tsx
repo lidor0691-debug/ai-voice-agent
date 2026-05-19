@@ -7,7 +7,7 @@ import { HomeShell } from "../_shared/HomeShell";
 import { HomeNavRail } from "../_shared/HomeNavRail";
 import { resolveHomeIdentity } from "../_shared/identity";
 import { SuggestionCard } from "./suggestion-card";
-import { approveAction, skipAction, editAction } from "./actions";
+import { sendAction, skipAction, editAction } from "./actions";
 
 // Privacy: do not select or render lead_id, phone, raw payload, raw evidence,
 // or internal analysis fields. The query intentionally omits lead_id and never
@@ -28,6 +28,16 @@ type SuggestionStatus =
   | "cancelled"
   | "expired";
 
+// Server-side projection of one row of the embedded
+// maya_action_execution_logs relation. We surface only the fields needed
+// to drive the failed-card banner. No log id, no provider_message_sid,
+// no provider_status, no timestamps, no client/lead identifiers.
+interface ExecutionLogProjection {
+  outcome: string | null;
+  error_code: string | null;
+  error_message: string | null;
+}
+
 interface SuggestionRow {
   id: string;
   client_id: string;
@@ -43,16 +53,16 @@ interface SuggestionRow {
   created_at: string;
   updated_at: string;
   version: number;
+  // PostgREST embed alias; see SELECT below.
+  execution_logs: ExecutionLogProjection[] | null;
 }
-
-// Statuses safe to render in 3.9. `approved` is intentionally NOT here:
-// no executor exists yet, so surfacing it would imply imminent send.
-const VISIBLE_STATUSES = ["suggested", "pending_approval", "edited"] as const;
 
 const STATUS_LABEL_HE: Record<string, string> = {
   suggested:        "ממתין לאישור",
   pending_approval: "ממתין לאישור",
   edited:           "נערך וממתין לאישור",
+  executing:        "שולחת עכשיו",
+  failed:           "השליחה נכשלה",
 };
 
 // ── Pure helpers ─────────────────────────────────────────────────────────
@@ -150,21 +160,37 @@ export default async function MorningPage() {
 
   // Read-only query against maya_action_suggestions. RLS enforces scoping by
   // client_id; we additionally filter to the effective client for clarity.
-  // Privacy: lead_id is intentionally NOT selected. No join to leads.
+  // Privacy: lead_id / phone / raw payload are intentionally NOT selected.
+  // The execution_logs embed is scoped to only error_code/error_message/outcome
+  // so failed cards can display a user-safe Hebrew banner without exposing
+  // log ids, provider sids, statuses, or any tenant-internal metadata.
   let suggestions: SuggestionRow[] = [];
   if (effectiveClientId) {
-    const nowIso = new Date().toISOString();
+    const nowIso    = new Date().toISOString();
+    const dayAgoIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    // Visibility:
+    //   (a) actionable rows:  status in (suggested,pending_approval,edited)
+    //                         AND expires_at > now
+    //   (b) executing rows:   status = executing                (no expiry filter)
+    //   (c) recently-failed:  status = failed
+    //                         AND updated_at > now - 24h        (no expiry filter)
+    // approved / executed / skipped / cancelled / expired are excluded.
+    const visibilityFilter = [
+      `and(status.in.(suggested,pending_approval,edited),expires_at.gt.${nowIso})`,
+      `status.eq.executing`,
+      `and(status.eq.failed,updated_at.gt.${dayAgoIso})`,
+    ].join(",");
     const { data, error } = await supabase
       .from("maya_action_suggestions")
       .select(
         "id, client_id, agent_id, action_type, status, " +
         "permission_mode_at_creation, risk_level, " +
         "payload, payload_edited, rationale_he, " +
-        "expires_at, created_at, updated_at, version",
+        "expires_at, created_at, updated_at, version, " +
+        "execution_logs:maya_action_execution_logs(outcome,error_code,error_message)",
       )
       .eq("client_id", effectiveClientId)
-      .in("status", VISIBLE_STATUSES as unknown as string[])
-      .gt("expires_at", nowIso)
+      .or(visibilityFilter)
       .order("expires_at", { ascending: true })
       .order("created_at", { ascending: false })
       .limit(4);
@@ -215,7 +241,7 @@ export default async function MorningPage() {
                 {heroLine(visible.length)}
               </h1>
               <p className="mt-2.5 text-[13.5px] text-[#0B1714]/60 leading-relaxed max-w-2xl">
-                מאיה הכינה עבורך הודעות המשך. בשלב הזה אפשר לאשר, לערוך או לדלג על פעולות. שליחה בפועל תתווסף בשלב הבא.
+                מאיה הכינה עבורך הודעות המשך. שליחה אמיתית פעילה. אישור סופי ישלח הודעה ב-WhatsApp.
               </p>
             </header>
           )}
@@ -238,29 +264,64 @@ export default async function MorningPage() {
                     permissionLabel: permissionLabel(row.permission_mode_at_creation),
                     firstName:       resolveFirstName(row),
                   };
-                  const isReadOnly = row.permission_mode_at_creation === "suggest_only";
                   // Opaque per-render key. Suggestion id and version intentionally
                   // stay out of the client boundary; they exist only inside the
                   // bound server action closures below. A fresh UUID per render
                   // also force-remounts the client island after revalidatePath,
-                  // which resets editing/skipping mode after a successful edit
-                  // and avoids index-position state leakage after approve/skip.
+                  // which resets local mode after a successful action and avoids
+                  // any position-based state leakage.
                   const cardKey = `suggestion-card-${crypto.randomUUID()}`;
-                  if (isReadOnly) {
+
+                  // suggest_only rows are display-only regardless of status.
+                  if (row.permission_mode_at_creation === "suggest_only") {
                     return (
                       <SuggestionCard
                         key={cardKey}
-                        isReadOnly={true}
+                        variant="read_only"
                         {...display}
                       />
                     );
                   }
+
+                  // executing / failed → in-flight read-only card.
+                  if (row.status === "executing" || row.status === "failed") {
+                    let failureCode: string | undefined;
+                    let failureMessage: string | undefined;
+                    if (row.status === "failed") {
+                      const logs = row.execution_logs ?? [];
+                      const failedLog = logs.find(l => l && l.outcome === "failed");
+                      if (failedLog) {
+                        if (typeof failedLog.error_code === "string" && failedLog.error_code.length > 0) {
+                          failureCode = failedLog.error_code;
+                        }
+                        if (typeof failedLog.error_message === "string" && failedLog.error_message.length > 0) {
+                          failureMessage = failedLog.error_message;
+                        }
+                      }
+                    }
+                    return (
+                      <SuggestionCard
+                        key={cardKey}
+                        variant="in_flight"
+                        flightStatus={row.status}
+                        failureCode={failureCode}
+                        failureMessage={failureMessage}
+                        {...display}
+                      />
+                    );
+                  }
+
+                  // Actionable rows: suggested / pending_approval / edited / approved.
+                  // sendAction carries the row's id, current version, and status in
+                  // its bound closure — never exposed as props or hidden inputs.
+                  const cardStatus = row.status as
+                    | "suggested" | "pending_approval" | "edited" | "approved";
                   return (
                     <SuggestionCard
                       key={cardKey}
-                      isReadOnly={false}
+                      variant="actionable"
                       {...display}
-                      approveAction={approveAction.bind(null, row.id, row.version)}
+                      sendAction={sendAction.bind(null, row.id, row.version, cardStatus)}
                       skipAction={skipAction.bind(null, row.id, row.version)}
                       editAction={editAction.bind(null, row.id, row.version)}
                     />
