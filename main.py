@@ -72,6 +72,7 @@ from app.routes.mri_api import router as mri_router
 from app.routes.maya_watch import router as maya_watch_router
 from app.routes.attribution_api import router as attribution_router
 from app.routes.admin_maya_actions import router as admin_maya_actions_router
+from app.routes.maya_actions_execute import router as maya_actions_execute_router
 
 app = FastAPI()
 
@@ -105,6 +106,7 @@ app.include_router(mri_router)
 app.include_router(maya_watch_router)
 app.include_router(attribution_router)
 app.include_router(admin_maya_actions_router)
+app.include_router(maya_actions_execute_router)
 
 # Serve mockup files for development (skip if directory doesn't exist, e.g. Railway)
 import pathlib
