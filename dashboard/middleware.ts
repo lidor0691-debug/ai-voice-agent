@@ -33,6 +33,21 @@ export async function middleware(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
 
+  // ── Public marketing landing — no auth required ──
+  // Static assets the landing page depends on (the page itself + its video).
+  // Fonts load from Google's CDN, so nothing else needs whitelisting here.
+  if (pathname === "/landing.html" || pathname.startsWith("/videos/")) {
+    return supabaseResponse;
+  }
+  // Root: logged-out visitors see the premium marketing landing; logged-in
+  // users continue to the product home exactly as before.
+  if (pathname === "/") {
+    if (!user) {
+      return NextResponse.rewrite(new URL("/landing.html", request.url));
+    }
+    return NextResponse.redirect(new URL("/home/watch", request.url));
+  }
+
   // If logged in and on login page → land on the new product home.
   if (user && pathname === "/login") {
     return NextResponse.redirect(new URL("/home/watch", request.url));

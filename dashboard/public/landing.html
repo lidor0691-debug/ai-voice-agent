@@ -1,0 +1,2852 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>מאיה — Clinic Revenue OS</title>
+<meta name="description" content="מערכת הפעלה לקליניקות פרימיום שמנטרת וואטסאפ, שיחות, טפסים ופולואפים, מזהה נזילות הכנסה ומציפה בדיוק איפה צריך לפעול." />
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Frank+Ruhl+Libre:wght@300;400;500;700;900&family=Heebo:wght@200;300;400;500;700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
+
+<style>
+  /* ─────────────── Design tokens ─────────────── */
+  :root {
+    /* Dark luxury emerald atmosphere */
+    --bg-0:        oklch(0.155 0.030 162);
+    --bg-1:        oklch(0.185 0.038 162);
+    --bg-2:        oklch(0.225 0.046 162);
+    --emerald-1:   oklch(0.30  0.080 165);
+    --emerald-2:   oklch(0.42  0.095 162);
+    --emerald-3:   oklch(0.56  0.110 160);
+
+    /* Cream / ivory product surfaces */
+    --cream-0:     oklch(0.965 0.018 88);
+    --cream-1:     oklch(0.945 0.022 88);
+    --cream-2:     oklch(0.920 0.026 86);
+    --cream-3:     oklch(0.880 0.028 84);
+    --cream-line:  oklch(0.78  0.045 76 / 0.40);
+    --cream-line-soft: oklch(0.80 0.030 78 / 0.28);
+
+    /* Ink on cream */
+    --ink-c1:      oklch(0.22  0.030 165);
+    --ink-c2:      oklch(0.36  0.030 162);
+    --ink-c3:      oklch(0.52  0.024 90);
+    --ink-c4:      oklch(0.68  0.020 88);
+
+    /* Brass / luxe gold */
+    --gold-1:      oklch(0.82  0.085 78);
+    --gold-2:      oklch(0.70  0.095 72);
+    --gold-3:      oklch(0.60  0.105 68);
+    --gold-4:      oklch(0.48  0.090 64);
+    --gold-5:      oklch(0.34  0.080 62);
+
+    /* Ink on dark */
+    --ink-1:       oklch(0.96  0.012 88);
+    --ink-2:       oklch(0.82  0.018 88);
+    --ink-3:       oklch(0.66  0.020 88);
+    --ink-4:       oklch(0.46  0.020 165);
+    --hairline:    oklch(0.34  0.030 165 / 0.55);
+
+    --font-display: "Frank Ruhl Libre", "Heebo", ui-serif, Georgia, serif;
+    --font-sans:    "Heebo", ui-sans-serif, system-ui, -apple-system, sans-serif;
+    --font-mono:    "JetBrains Mono", ui-monospace, "SF Mono", monospace;
+
+    /* Layout */
+    --content-w: min(1180px, 92vw);
+    --section-y: clamp(64px, 9vw, 128px);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: var(--font-sans);
+    background: var(--bg-0);
+    color: var(--ink-1);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    letter-spacing: 0.005em;
+    line-height: 1.55;
+  }
+
+  img, video, svg { display: block; max-width: 100%; }
+  a { color: inherit; text-decoration: none; }
+
+  /* ─────────────── Reusable ─────────────── */
+  .wrap { width: var(--content-w); margin: 0 auto; }
+
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.26em;
+    text-transform: uppercase;
+    color: var(--gold-3);
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .eyebrow.on-cream { color: var(--gold-4); }
+  .eyebrow .dot {
+    width: 6px; height: 6px; border-radius: 999px;
+    background: var(--gold-2);
+    box-shadow: 0 0 12px var(--gold-2);
+  }
+
+  .display {
+    font-family: var(--font-display);
+    font-weight: 300;
+    letter-spacing: -0.012em;
+    line-height: 1.18;
+    text-wrap: balance;
+  }
+
+  .gold {
+    color: var(--gold-1);
+  }
+  .gold-on-cream {
+    color: var(--gold-4);
+  }
+  .ink-soft { color: var(--ink-3); }
+  .ink-soft-cream { color: var(--ink-c3); }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 14px 26px;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    font-family: var(--font-sans);
+    font-size: 15px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    cursor: pointer;
+    transition: transform 220ms cubic-bezier(.2,.7,.2,1),
+                box-shadow 220ms ease,
+                background 220ms ease,
+                border-color 220ms ease,
+                color 220ms ease;
+    white-space: nowrap;
+  }
+  .btn:hover { transform: translateY(-1px); }
+  .btn:active { transform: translateY(0); }
+
+  .btn-primary {
+    background: linear-gradient(180deg, var(--gold-1), var(--gold-3));
+    color: oklch(0.18 0.04 90);
+    box-shadow:
+      0 0 0 1px oklch(0.60 0.10 70 / 0.45),
+      0 20px 40px -16px oklch(0.55 0.10 70 / 0.45),
+      inset 0 1px 0 oklch(1 0 0 / 0.3);
+  }
+  .btn-primary:hover {
+    box-shadow:
+      0 0 0 1px oklch(0.65 0.11 70 / 0.65),
+      0 28px 56px -16px oklch(0.55 0.10 70 / 0.6),
+      inset 0 1px 0 oklch(1 0 0 / 0.4);
+  }
+  .btn-primary.on-cream {
+    box-shadow:
+      0 0 0 1px oklch(0.60 0.10 70 / 0.45),
+      0 14px 32px -14px oklch(0.55 0.10 70 / 0.35),
+      inset 0 1px 0 oklch(1 0 0 / 0.4);
+  }
+
+  .btn-secondary {
+    background: transparent;
+    color: var(--ink-1);
+    border-color: var(--hairline);
+  }
+  .btn-secondary:hover { border-color: var(--gold-3); color: var(--gold-1); }
+  .btn-secondary.on-cream {
+    color: var(--ink-c1);
+    border-color: var(--cream-line);
+  }
+  .btn-secondary.on-cream:hover { border-color: var(--gold-3); color: var(--gold-4); }
+
+  .btn svg { width: 18px; height: 18px; }
+
+  /* ─────────────── Topbar ─────────────── */
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    background: oklch(0.155 0.030 162 / 0.78);
+    backdrop-filter: blur(18px) saturate(140%);
+    -webkit-backdrop-filter: blur(18px) saturate(140%);
+    border-bottom: 1px solid oklch(0.30 0.030 162 / 0.4);
+  }
+  .topbar .row {
+    width: var(--content-w);
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 0;
+  }
+  .topbar .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-family: var(--font-display);
+    font-size: 18px;
+    color: var(--ink-1);
+    letter-spacing: 0.03em;
+  }
+  .topbar .brand .mark {
+    width: 28px; height: 28px; border-radius: 999px;
+    display: grid; place-items: center;
+    background: radial-gradient(circle at 30% 30%, oklch(0.42 0.06 70), oklch(0.20 0.04 165) 70%);
+    border: 1px solid oklch(0.55 0.10 70 / 0.4);
+    color: var(--gold-1);
+    font-size: 13px;
+    box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.06);
+  }
+  .topbar .brand .sub {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin-inline-start: 4px;
+  }
+  .topbar .topcta {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink-2);
+    padding: 8px 16px;
+    border: 1px solid var(--hairline);
+    border-radius: 999px;
+    transition: all 200ms;
+  }
+  .topbar .topcta:hover { color: var(--gold-1); border-color: var(--gold-3); }
+
+  /* ─────────────── Hero ─────────────── */
+  .hero {
+    position: relative;
+    overflow: hidden;
+    padding: calc(var(--section-y) * 1.1) 0 var(--section-y);
+    background:
+      radial-gradient(80% 60% at 50% 0%, oklch(0.28 0.08 158 / 0.55), transparent 70%),
+      radial-gradient(60% 50% at 100% 100%, oklch(0.20 0.06 76 / 0.20), transparent 70%),
+      var(--bg-0);
+  }
+  .hero::before {
+    content: "";
+    position: absolute; inset: 0; pointer-events: none;
+    opacity: 0.045;
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 1 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  }
+  .hero::after {
+    content: "";
+    position: absolute; inset: 0; pointer-events: none;
+    background: linear-gradient(to bottom, transparent 70%, var(--cream-0) 100%);
+  }
+
+  .hero .wrap {
+    position: relative;
+    z-index: 2;
+    display: grid;
+    justify-items: center;
+    text-align: center;
+    gap: 28px;
+  }
+
+  .hero .mark-ring {
+    width: 84px;
+    height: 84px;
+    border-radius: 999px;
+    display: grid;
+    place-items: center;
+    position: relative;
+  }
+  .hero .mark-ring::before, .hero .mark-ring::after {
+    content: "";
+    position: absolute;
+    border-radius: 999px;
+    border: 1px solid oklch(0.55 0.10 70 / 0.35);
+  }
+  .hero .mark-ring::before { inset: 0; }
+  .hero .mark-ring::after  { inset: -14px; border-color: oklch(0.55 0.10 70 / 0.16); }
+  .hero .mark-ring span {
+    font-family: var(--font-display);
+    font-size: 32px;
+    color: var(--gold-1);
+    letter-spacing: 0.04em;
+    line-height: 1;
+    direction: rtl;
+  }
+
+  .hero h1 {
+    font-family: var(--font-display);
+    font-weight: 300;
+    font-size: clamp(32px, 5vw, 64px);
+    line-height: 1.12;
+    letter-spacing: -0.018em;
+    color: var(--ink-1);
+    text-wrap: balance;
+    max-width: 18ch;
+    margin: 0;
+  }
+  .hero h1 .accent { color: var(--gold-1); font-weight: 400; }
+
+  .hero .sub {
+    font-family: var(--font-sans);
+    font-weight: 300;
+    font-size: clamp(15px, 1.4vw, 18px);
+    line-height: 1.65;
+    color: var(--ink-2);
+    max-width: 60ch;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  .hero .cta-row {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-top: 8px;
+  }
+
+  /* ─────────────── Video section ─────────────── */
+  .video-section {
+    background: linear-gradient(180deg, var(--cream-0), var(--cream-1) 60%, var(--cream-2));
+    padding: var(--section-y) 0;
+    position: relative;
+  }
+  .video-section .wrap { display: grid; gap: 22px; }
+  .video-section .head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+  .video-section h2 {
+    font-family: var(--font-display);
+    font-weight: 300;
+    font-size: clamp(22px, 2.6vw, 32px);
+    color: var(--ink-c1);
+    margin: 0;
+    letter-spacing: -0.01em;
+  }
+  .video-section .head .micro {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--ink-c3);
+  }
+
+  .video-frame {
+    position: relative;
+    border-radius: 22px;
+    overflow: hidden;
+    aspect-ratio: 16 / 9;
+    background:
+      linear-gradient(180deg, oklch(0.18 0.045 162), oklch(0.11 0.03 162));
+    border: 1px solid oklch(0.60 0.10 70 / 0.35);
+    box-shadow:
+      0 0 0 1px oklch(0.60 0.10 70 / 0.08) inset,
+      0 60px 120px -40px oklch(0.30 0.05 162 / 0.45),
+      0 0 0 1px var(--cream-line);
+  }
+  .video-frame video {
+    width: 100%; height: 100%;
+    object-fit: cover;
+    background: transparent;
+  }
+  /* Fallback content shown until the video loads (or if missing) */
+  .video-frame .placeholder {
+    position: absolute; inset: 0;
+    display: grid; place-items: center;
+    color: var(--gold-1);
+    font-family: var(--font-display);
+    font-size: clamp(40px, 6vw, 80px);
+    letter-spacing: 0.04em;
+    direction: rtl;
+    user-select: none;
+    pointer-events: none;
+    opacity: 0.5;
+  }
+  .video-frame .placeholder::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(45% 60% at 50% 50%, oklch(0.55 0.10 70 / 0.18), transparent 75%);
+  }
+  /* Hide placeholder once video starts playing */
+  .video-frame video:not([data-empty]) ~ .placeholder { opacity: 0; transition: opacity 400ms; }
+
+  .video-section .caption {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 16px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink-c3);
+    margin-top: 6px;
+  }
+
+  /* ─────────────── Problem section (dark, restrained) ─────────────── */
+  .problem {
+    padding: var(--section-y) 0;
+    background:
+      radial-gradient(60% 50% at 50% 100%, oklch(0.22 0.06 162 / 0.6), transparent 70%),
+      var(--bg-0);
+    color: var(--ink-1);
+    position: relative;
+  }
+  .problem::before {
+    content: "";
+    position: absolute; inset: 0; pointer-events: none;
+    opacity: 0.04;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  }
+  .problem .wrap {
+    position: relative; z-index: 2;
+    display: grid;
+    gap: 28px;
+    text-align: right;
+    max-width: min(880px, 92vw);
+  }
+  .problem h2 {
+    font-family: var(--font-display);
+    font-weight: 300;
+    font-size: clamp(26px, 3.2vw, 42px);
+    line-height: 1.28;
+    color: var(--ink-1);
+    margin: 0;
+    text-wrap: balance;
+  }
+  .problem p {
+    font-size: clamp(15px, 1.3vw, 17px);
+    line-height: 1.75;
+    color: var(--ink-2);
+    margin: 0;
+    text-wrap: pretty;
+  }
+
+  /* ─────────────── Capabilities (4 cards) ─────────────── */
+  .capabilities {
+    padding: var(--section-y) 0;
+    background: linear-gradient(180deg, var(--cream-0), var(--cream-1));
+  }
+  .capabilities .wrap { display: grid; gap: 36px; }
+  .capabilities .head { display: grid; gap: 16px; }
+  .capabilities h2 {
+    font-family: var(--font-display);
+    font-weight: 300;
+    font-size: clamp(26px, 3.2vw, 42px);
+    color: var(--ink-c1);
+    line-height: 1.18;
+    letter-spacing: -0.015em;
+    margin: 0;
+    max-width: 22ch;
+    text-wrap: balance;
+  }
+  .capabilities .head p {
+    font-size: clamp(14px, 1.2vw, 16px);
+    color: var(--ink-c2);
+    max-width: 56ch;
+    margin: 0;
+  }
+  .capabilities .grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 18px;
+  }
+  .cap {
+    padding: 26px 24px 24px;
+    border-radius: 16px;
+    background: linear-gradient(180deg, oklch(0.985 0.012 88), oklch(0.94 0.022 86));
+    border: 1px solid var(--cream-line-soft);
+    border-top: 1.5px solid oklch(0.60 0.10 70 / 0.55);
+    box-shadow:
+      0 1px 0 oklch(1 0 0 / 0.5) inset,
+      0 30px 60px -34px oklch(0 0 0 / 0.20);
+    display: grid;
+    gap: 14px;
+    align-content: start;
+  }
+  .cap .glyph {
+    width: 34px; height: 34px; border-radius: 10px;
+    display: grid; place-items: center;
+    background: linear-gradient(180deg, oklch(0.30 0.075 162), oklch(0.20 0.05 162));
+    border: 1px solid oklch(0.55 0.10 70 / 0.4);
+    color: var(--gold-1);
+    box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.08);
+  }
+  .cap .glyph svg { width: 18px; height: 18px; stroke: currentColor; stroke-width: 1.6; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+  .cap h3 {
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size: 20px;
+    color: var(--ink-c1);
+    margin: 0;
+    line-height: 1.25;
+  }
+  .cap p {
+    font-size: 13.5px;
+    line-height: 1.6;
+    color: var(--ink-c2);
+    margin: 0;
+  }
+  .cap .micro {
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--gold-4);
+    margin-bottom: -6px;
+  }
+
+  /* ─────────────── Modules (MRI + Watch) ─────────────── */
+  .modules {
+    padding: var(--section-y) 0;
+    background: linear-gradient(180deg, var(--cream-1), var(--cream-2));
+    position: relative;
+  }
+  .modules .wrap { display: grid; gap: 36px; }
+  .modules .head {
+    display: grid; gap: 14px;
+    text-align: center;
+    justify-items: center;
+  }
+  .modules h2 {
+    font-family: var(--font-display);
+    font-weight: 300;
+    font-size: clamp(26px, 3.2vw, 42px);
+    color: var(--ink-c1);
+    margin: 0;
+    line-height: 1.2;
+    max-width: 24ch;
+    text-wrap: balance;
+  }
+  .modules .head p {
+    font-size: clamp(14px, 1.2vw, 16px);
+    color: var(--ink-c2);
+    max-width: 56ch;
+    margin: 0;
+  }
+  .modules h2 .italic {
+    font-style: italic;
+    color: var(--gold-4);
+    font-weight: 400;
+  }
+  .modules .pair {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+  }
+  .module-card {
+    padding: 28px;
+    border-radius: 18px;
+    background:
+      linear-gradient(180deg, oklch(0.985 0.012 88), oklch(0.945 0.022 86)),
+      radial-gradient(120% 80% at 100% 0%, oklch(0.70 0.09 72 / 0.06), transparent 50%);
+    border: 1px solid var(--cream-line);
+    border-top: 2px solid oklch(0.60 0.10 70 / 0.6);
+    box-shadow:
+      0 1px 0 oklch(1 0 0 / 0.5) inset,
+      0 40px 80px -42px oklch(0 0 0 / 0.30);
+    display: grid;
+    gap: 16px;
+    position: relative;
+    overflow: hidden;
+  }
+  .module-card .header-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .module-card .glyph {
+    width: 40px; height: 40px; border-radius: 12px;
+    display: grid; place-items: center;
+    background: linear-gradient(180deg, oklch(0.30 0.075 162), oklch(0.18 0.05 162));
+    border: 1px solid oklch(0.55 0.10 70 / 0.5);
+    color: var(--gold-1);
+    box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.08), 0 6px 20px -10px oklch(0.55 0.10 70 / 0.4);
+  }
+  .module-card .glyph svg { width: 22px; height: 22px; stroke: currentColor; stroke-width: 1.5; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+  .module-card .title-block { display: grid; gap: 4px; flex: 1; }
+  .module-card .module-eyebrow {
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+    color: var(--gold-4);
+  }
+  .module-card h3 {
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size: 26px;
+    color: var(--ink-c1);
+    margin: 0;
+    line-height: 1;
+    letter-spacing: 0.01em;
+  }
+  .module-card .lede {
+    font-size: 15px;
+    line-height: 1.6;
+    color: var(--ink-c1);
+    margin: 0;
+  }
+  .module-card .body-rule {
+    height: 1px;
+    background: var(--cream-line-soft);
+  }
+  .module-card .telemetry {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink-c3);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .module-card .telemetry .pulse {
+    width: 6px; height: 6px; border-radius: 999px;
+    background: var(--gold-3);
+    box-shadow: 0 0 0 0 oklch(0.62 0.10 70 / 0.6);
+    animation: pulse-soft 2.2s cubic-bezier(.4,0,.2,1) infinite;
+  }
+  @keyframes pulse-soft {
+    0% { box-shadow: 0 0 0 0 oklch(0.62 0.10 70 / 0.55); }
+    70% { box-shadow: 0 0 0 12px oklch(0.62 0.10 70 / 0); }
+    100% { box-shadow: 0 0 0 0 oklch(0.62 0.10 70 / 0); }
+  }
+
+  /* ─────────────── Who it's for ─────────────── */
+  .who {
+    padding: var(--section-y) 0;
+    background:
+      radial-gradient(60% 50% at 50% 0%, oklch(0.24 0.06 162 / 0.55), transparent 70%),
+      var(--bg-0);
+    color: var(--ink-1);
+    position: relative;
+  }
+  .who .wrap {
+    display: grid;
+    gap: 28px;
+    justify-items: center;
+    text-align: center;
+  }
+  .who h2 {
+    font-family: var(--font-display);
+    font-weight: 300;
+    font-size: clamp(24px, 2.8vw, 36px);
+    color: var(--ink-1);
+    margin: 0;
+    line-height: 1.25;
+    max-width: 24ch;
+    text-wrap: balance;
+  }
+  .who .chips {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 10px;
+    max-width: 880px;
+  }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 16px;
+    border-radius: 999px;
+    background: oklch(0.22 0.04 165 / 0.55);
+    border: 1px solid var(--hairline);
+    font-size: 13px;
+    color: var(--ink-2);
+    backdrop-filter: blur(6px);
+  }
+  .chip::before {
+    content: "";
+    width: 5px; height: 5px; border-radius: 999px;
+    background: var(--gold-3);
+    box-shadow: 0 0 8px var(--gold-3);
+  }
+
+  /* ─────────────── Final CTA ─────────────── */
+  .final-cta {
+    padding: calc(var(--section-y) * 1.1) 0;
+    background: linear-gradient(180deg, var(--bg-0), oklch(0.13 0.03 162));
+    color: var(--ink-1);
+    position: relative;
+    overflow: hidden;
+  }
+  .final-cta::before {
+    content: "";
+    position: absolute;
+    inset: -10%;
+    background: radial-gradient(40% 30% at 50% 100%, oklch(0.30 0.09 72 / 0.18), transparent 70%);
+    pointer-events: none;
+  }
+  .final-cta .wrap {
+    position: relative; z-index: 2;
+    display: grid;
+    justify-items: center;
+    text-align: center;
+    gap: 28px;
+  }
+  .final-cta h2 {
+    font-family: var(--font-display);
+    font-weight: 300;
+    font-size: clamp(30px, 4.2vw, 56px);
+    line-height: 1.18;
+    color: var(--ink-1);
+    margin: 0;
+    text-wrap: balance;
+    max-width: 22ch;
+    letter-spacing: -0.015em;
+  }
+  .final-cta h2 .accent { color: var(--gold-1); }
+  .final-cta .sub {
+    color: var(--ink-3);
+    font-size: clamp(13px, 1.1vw, 15px);
+    max-width: 52ch;
+    margin: 0;
+  }
+
+  /* ─────────────── Footer ─────────────── */
+  footer {
+    padding: 40px 0;
+    background: oklch(0.115 0.025 162);
+    color: var(--ink-3);
+    border-top: 1px solid oklch(0.26 0.04 162 / 0.45);
+  }
+  footer .row {
+    width: var(--content-w);
+    margin: 0 auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 16px;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+  }
+  footer .row .left { display: flex; align-items: center; gap: 14px; }
+  footer .row a { color: var(--ink-3); transition: color 200ms; }
+  footer .row a:hover { color: var(--gold-1); }
+
+  /* ─────────────── Pricing ─────────────── */
+  .pricing {
+    padding: var(--section-y) 0;
+    background: linear-gradient(180deg, var(--cream-1), var(--cream-2));
+    position: relative;
+  }
+  .pricing .wrap { display: grid; gap: 36px; }
+  .pricing .head { display: grid; gap: 14px; text-align: center; justify-items: center; }
+  .pricing h2 {
+    font-family: var(--font-display);
+    font-weight: 300;
+    font-size: clamp(26px, 3.2vw, 42px);
+    color: var(--ink-c1);
+    margin: 0;
+    max-width: 24ch;
+    line-height: 1.2;
+    text-wrap: balance;
+  }
+  .pricing .head p {
+    font-size: clamp(14px, 1.2vw, 16px);
+    color: var(--ink-c2);
+    max-width: 56ch;
+    margin: 0;
+  }
+  .pricing .tiers {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 18px;
+    align-items: stretch;
+  }
+  .tier {
+    position: relative;
+    padding: 28px 26px 26px;
+    border-radius: 18px;
+    background: linear-gradient(180deg, oklch(0.985 0.012 88), oklch(0.945 0.022 86));
+    border: 1px solid var(--cream-line);
+    border-top: 1.5px solid oklch(0.60 0.10 70 / 0.55);
+    box-shadow:
+      0 1px 0 oklch(1 0 0 / 0.5) inset,
+      0 30px 60px -34px oklch(0 0 0 / 0.22);
+    display: grid;
+    gap: 14px;
+    align-content: start;
+  }
+  .tier.featured {
+    border-top-width: 2.5px;
+    border-top-color: oklch(0.65 0.11 72 / 0.85);
+    box-shadow:
+      0 1px 0 oklch(1 0 0 / 0.6) inset,
+      0 50px 90px -38px oklch(0.55 0.10 70 / 0.30);
+    padding-top: 36px;
+  }
+  .tier .badge {
+    position: absolute;
+    top: -13px;
+    inset-inline-start: 0;
+    inset-inline-end: 0;
+    margin-inline: auto;
+    width: max-content;
+    padding: 6px 14px;
+    border-radius: 999px;
+    background: linear-gradient(180deg, var(--gold-1), var(--gold-3));
+    color: oklch(0.18 0.04 90);
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    box-shadow: 0 8px 22px -8px oklch(0.55 0.10 70 / 0.55);
+  }
+  .tier .tier-name {
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size: 24px;
+    color: var(--ink-c1);
+    line-height: 1;
+    letter-spacing: 0.01em;
+    margin: 0;
+  }
+  .tier .tier-pitch {
+    font-size: 13px;
+    color: var(--ink-c2);
+    line-height: 1.55;
+    margin: 0;
+    min-height: 36px;
+  }
+  .tier .price-block {
+    display: grid;
+    gap: 4px;
+    padding: 14px 0;
+    border-top: 1px dashed var(--cream-line-soft);
+    border-bottom: 1px dashed var(--cream-line-soft);
+  }
+  .tier .price {
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size: 26px;
+    color: var(--ink-c1);
+    line-height: 1.05;
+    letter-spacing: -0.01em;
+  }
+  .tier .price .unit {
+    font-family: var(--font-sans);
+    font-weight: 400;
+    font-size: 13px;
+    color: var(--ink-c3);
+    letter-spacing: 0;
+    margin-inline-start: 4px;
+  }
+  .tier .setup {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.14em;
+    color: var(--ink-c3);
+    text-transform: uppercase;
+  }
+  .tier ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: grid;
+    gap: 10px;
+  }
+  .tier ul li {
+    display: flex;
+    gap: 10px;
+    font-size: 13.5px;
+    color: var(--ink-c2);
+    line-height: 1.5;
+  }
+  .tier ul li::before {
+    content: "";
+    width: 14px; height: 14px;
+    flex: 0 0 14px;
+    border-radius: 999px;
+    background: oklch(0.95 0.04 86);
+    border: 1px solid oklch(0.60 0.10 70 / 0.4);
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a47100' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'><path d='M20 6 9 17l-5-5'/></svg>");
+    background-size: 9px;
+    background-repeat: no-repeat;
+    background-position: center;
+    margin-top: 3px;
+  }
+  .tier .tier-cta {
+    margin-top: 6px;
+    width: 100%;
+  }
+  .pricing .fineprint {
+    text-align: center;
+    color: var(--ink-c3);
+    font-size: 13px;
+    max-width: 56ch;
+    margin: 0 auto;
+    line-height: 1.6;
+  }
+
+  /* ─────────────── FAQ (dark, direct Q&A) ─────────────── */
+  .faq {
+    padding: var(--section-y) 0;
+    background:
+      radial-gradient(60% 50% at 50% 0%, oklch(0.24 0.06 162 / 0.55), transparent 70%),
+      var(--bg-0);
+    color: var(--ink-1);
+    position: relative;
+  }
+  .faq .wrap {
+    display: grid;
+    gap: 30px;
+    max-width: min(880px, 92vw);
+  }
+  .faq .head { display: grid; gap: 14px; }
+  .faq h2 {
+    font-family: var(--font-display);
+    font-weight: 300;
+    font-size: clamp(26px, 3.2vw, 42px);
+    color: var(--ink-1);
+    margin: 0;
+    max-width: 22ch;
+    line-height: 1.2;
+    text-wrap: balance;
+  }
+  .faq .head .lede {
+    color: var(--ink-3);
+    font-size: 14px;
+  }
+  .faq .qa-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }
+  .qa {
+    padding: 22px 22px 20px;
+    border-radius: 14px;
+    background: oklch(0.20 0.04 162 / 0.55);
+    border: 1px solid var(--hairline);
+    border-top: 1.5px solid oklch(0.55 0.10 70 / 0.35);
+    display: grid;
+    gap: 6px;
+  }
+  .qa .q {
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size: 17px;
+    color: var(--ink-1);
+    line-height: 1.3;
+    margin: 0;
+    letter-spacing: 0.005em;
+  }
+  .qa .a {
+    font-size: 14px;
+    color: var(--ink-2);
+    line-height: 1.6;
+    margin: 0;
+  }
+
+  /* ─────────────── Guarantee strip ─────────────── */
+  .guarantee {
+    padding: calc(var(--section-y) * 0.85) 0;
+    background: linear-gradient(180deg, var(--cream-2), var(--cream-1));
+    position: relative;
+  }
+  .guarantee .wrap {
+    display: grid;
+    grid-template-columns: 1.1fr 1fr;
+    gap: clamp(32px, 5vw, 64px);
+    align-items: center;
+    padding: 36px;
+    border-radius: 20px;
+    background:
+      linear-gradient(180deg, oklch(0.985 0.012 88), oklch(0.945 0.022 86));
+    border: 1px solid var(--cream-line);
+    box-shadow: 0 30px 70px -40px oklch(0 0 0 / 0.25);
+  }
+  .guarantee .copy { display: grid; gap: 14px; }
+  .guarantee h2 {
+    font-family: var(--font-display);
+    font-weight: 300;
+    font-size: clamp(22px, 2.6vw, 34px);
+    color: var(--ink-c1);
+    margin: 0;
+    line-height: 1.25;
+    text-wrap: balance;
+  }
+  .guarantee p {
+    font-size: 14px;
+    color: var(--ink-c2);
+    line-height: 1.65;
+    margin: 0;
+    max-width: 48ch;
+  }
+  .guarantee .bullets {
+    list-style: none;
+    margin: 0; padding: 0;
+    display: grid;
+    gap: 14px;
+  }
+  .guarantee .bullets li {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 16px 18px;
+    border-radius: 12px;
+    background: oklch(0.96 0.025 86);
+    border: 1px solid var(--cream-line-soft);
+    font-size: 14px;
+    color: var(--ink-c1);
+  }
+  .guarantee .bullets li::before {
+    content: "✓";
+    width: 26px; height: 26px;
+    flex: 0 0 26px;
+    border-radius: 999px;
+    display: grid; place-items: center;
+    background: linear-gradient(180deg, var(--gold-1), var(--gold-3));
+    color: oklch(0.18 0.04 90);
+    font-weight: 700;
+    font-size: 13px;
+    box-shadow: 0 6px 16px -6px oklch(0.55 0.10 70 / 0.4);
+  }
+
+  @media (max-width: 820px) {
+    .pricing .tiers { grid-template-columns: 1fr; }
+    .faq .qa-grid { grid-template-columns: 1fr; }
+    .guarantee .wrap { grid-template-columns: 1fr; padding: 28px; }
+  }
+
+  /* ─────────────── WhatsApp demo (iPhone in cream) ─────────────── */
+  .wa-demo {
+    padding: var(--section-y) 0;
+    background: linear-gradient(180deg, var(--cream-1), var(--cream-2));
+    position: relative;
+  }
+  .wa-demo .wrap {
+    display: grid;
+    grid-template-columns: 1fr minmax(320px, 360px);
+    gap: clamp(40px, 6vw, 84px);
+    align-items: center;
+  }
+  .wa-demo .copy {
+    display: grid;
+    gap: 22px;
+    align-content: center;
+    max-width: 460px;
+  }
+  .wa-demo .copy .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--gold-4);
+  }
+  .wa-demo h2 {
+    font-family: var(--font-display);
+    font-weight: 300;
+    font-size: clamp(30px, 3.4vw, 50px);
+    line-height: 1.15;
+    color: var(--ink-c1);
+    margin: 0;
+    text-wrap: balance;
+    letter-spacing: -0.012em;
+  }
+  .wa-demo h2 .gold-on-cream { font-weight: 400; }
+  .wa-demo h2 .muted { color: var(--ink-c3); display: block; }
+  .wa-demo .copy p {
+    font-size: 14px;
+    line-height: 1.7;
+    color: var(--ink-c2);
+    margin: 0;
+    max-width: 360px;
+  }
+  .wa-demo .stats {
+    display: flex;
+    gap: 28px;
+    flex-wrap: wrap;
+    margin-top: 6px;
+  }
+  .wa-demo .stat { display: grid; gap: 4px; }
+  .wa-demo .stat .k {
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    letter-spacing: 0.22em;
+    color: var(--gold-4);
+    text-transform: uppercase;
+  }
+  .wa-demo .stat .v {
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size: 22px;
+    color: var(--ink-c1);
+    line-height: 1;
+  }
+  .wa-demo .stat .s {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    color: var(--ink-c3);
+    text-transform: uppercase;
+  }
+
+  /* iPhone frame */
+  .phone-wrap {
+    justify-self: center;
+    display: grid;
+    gap: 18px;
+    justify-items: center;
+  }
+  .phone-frame {
+    width: 340px;
+    height: 660px;
+    border-radius: 44px;
+    background: linear-gradient(180deg, oklch(0.20 0.03 165), oklch(0.12 0.02 165));
+    border: 1px solid oklch(0.32 0.03 165 / 0.6);
+    padding: 9px;
+    box-shadow:
+      0 60px 120px -40px oklch(0 0 0 / 0.55),
+      inset 0 0 0 1px oklch(1 0 0 / 0.03);
+    position: relative;
+  }
+  .phone-screen {
+    width: 100%; height: 100%;
+    border-radius: 36px;
+    overflow: hidden;
+    background: oklch(0.14 0.02 165);
+    display: flex; flex-direction: column;
+    position: relative;
+  }
+  .phone-screen .notch {
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 96px;
+    height: 24px;
+    border-radius: 999px;
+    background: oklch(0.08 0.01 165);
+    z-index: 3;
+  }
+  .chat-header {
+    padding: 44px 16px 12px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border-bottom: 1px solid oklch(0.24 0.03 165 / 0.6);
+    background: oklch(0.16 0.025 165 / 0.92);
+    backdrop-filter: blur(10px);
+    position: relative;
+    z-index: 2;
+  }
+  .chat-header .avatar {
+    width: 36px; height: 36px; border-radius: 999px;
+    background: linear-gradient(135deg, oklch(0.60 0.12 162), oklch(0.30 0.08 165));
+    display: grid; place-items: center;
+    font-family: var(--font-display);
+    font-size: 14px;
+    color: var(--ink-1);
+    box-shadow: 0 0 24px oklch(0.78 0.13 82 / 0.20);
+  }
+  .chat-header .meta { display: grid; gap: 2px; flex: 1; }
+  .chat-header .meta .name { font-size: 13.5px; color: var(--ink-1); }
+  .chat-header .meta .sub {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10.5px;
+    color: var(--ink-3);
+    letter-spacing: 0.06em;
+  }
+  .chat-header .meta .sub .dot-em {
+    width: 5px; height: 5px; border-radius: 999px;
+    background: oklch(0.65 0.18 152);
+    box-shadow: 0 0 8px oklch(0.65 0.18 152 / 0.55);
+    animation: pulse-soft 2s ease-in-out infinite;
+  }
+  .chat-header .icons {
+    display: flex;
+    gap: 14px;
+    color: var(--ink-3);
+    font-size: 16px;
+  }
+
+  .chat-body {
+    flex: 1;
+    padding: 16px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    position: relative;
+    overflow: hidden;
+  }
+  .chat-body::before {
+    content: "";
+    position: absolute; inset: 0;
+    background-image: radial-gradient(120% 70% at 50% 0%, oklch(0.30 0.07 165 / 0.45), transparent 60%);
+    opacity: 0.7;
+    pointer-events: none;
+  }
+  .chat-body > * { position: relative; z-index: 2; }
+
+  .date-bubble {
+    align-self: center;
+    padding: 4px 12px;
+    font-size: 10.5px;
+    color: var(--ink-3);
+    background: oklch(0.22 0.03 165 / 0.55);
+    border-radius: 999px;
+    margin-bottom: 4px;
+  }
+
+  .bubble {
+    max-width: 78%;
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+    transition: opacity 360ms cubic-bezier(.2,.7,.2,1), transform 360ms cubic-bezier(.2,.7,.2,1);
+    padding: 8px 11px 6px;
+    font-size: 13px;
+    line-height: 1.5;
+    position: relative;
+  }
+  .bubble.is-shown { opacity: 1; transform: translateY(0) scale(1); }
+  .bubble.in {
+    align-self: flex-start;
+    border-radius: 12px 12px 12px 4px;
+    background: oklch(0.22 0.03 165 / 0.88);
+    color: var(--ink-1);
+    box-shadow: 0 0 0 1px oklch(0.32 0.03 165 / 0.5);
+  }
+  .bubble.out {
+    align-self: flex-end;
+    border-radius: 12px 12px 4px 12px;
+    background: linear-gradient(180deg, oklch(0.30 0.09 162), oklch(0.24 0.07 162));
+    color: oklch(0.97 0.02 165);
+    box-shadow:
+      0 0 0 1px oklch(0.78 0.13 82 / 0.18),
+      0 20px 40px -22px oklch(0.30 0.10 162 / 0.5);
+  }
+  .bubble .ts {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    margin-top: 4px;
+    letter-spacing: 0.08em;
+    text-align: left;
+    color: var(--ink-4);
+    font-variant-numeric: tabular-nums;
+  }
+  .bubble.out .ts { color: oklch(0.86 0.04 165); }
+
+  .typing {
+    align-self: flex-end;
+    padding: 10px 14px;
+    border-radius: 12px 12px 4px 12px;
+    background: oklch(0.24 0.07 162 / 0.6);
+    display: inline-flex;
+    gap: 5px;
+    opacity: 0;
+    transform: translateY(6px);
+    transition: opacity 220ms ease, transform 220ms ease;
+    width: max-content;
+  }
+  .typing.is-shown { opacity: 1; transform: translateY(0); }
+  .typing span {
+    width: 5px; height: 5px;
+    border-radius: 999px;
+    background: var(--gold-1);
+    animation: typing-dot 1s infinite ease-in-out;
+  }
+  .typing span:nth-child(2) { animation-delay: 0.15s; }
+  .typing span:nth-child(3) { animation-delay: 0.30s; }
+  @keyframes typing-dot {
+    0%, 80%, 100% { opacity: 0.3; transform: translateY(0); }
+    40%           { opacity: 1; transform: translateY(-3px); }
+  }
+
+  .chat-composer {
+    padding: 10px 12px 18px;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    border-top: 1px solid oklch(0.24 0.03 165 / 0.6);
+    background: oklch(0.16 0.025 165 / 0.92);
+  }
+  .chat-composer .input {
+    flex: 1;
+    padding: 9px 14px;
+    border-radius: 999px;
+    background: oklch(0.22 0.03 165 / 0.5);
+    color: var(--ink-4);
+    font-size: 12.5px;
+  }
+  .chat-composer .send {
+    width: 34px; height: 34px; border-radius: 999px;
+    background: var(--gold-2);
+    display: grid; place-items: center;
+    color: oklch(0.20 0.04 90);
+    font-weight: 700;
+  }
+
+  .phone-tags {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    margin-top: 4px;
+  }
+  .phone-tags .tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    border-radius: 999px;
+    background: oklch(0.96 0.025 86);
+    border: 1px solid var(--cream-line-soft);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.14em;
+    color: var(--ink-c2);
+    text-transform: uppercase;
+  }
+  .phone-tags .tag.gold {
+    background: oklch(0.95 0.05 86);
+    border-color: oklch(0.60 0.10 70 / 0.45);
+    color: var(--gold-4);
+  }
+  .phone-tags .tag.gold .timer {
+    font-variant-numeric: tabular-nums;
+    transition: color 200ms;
+  }
+  .phone-tags .tag .dot {
+    width: 6px; height: 6px; border-radius: 999px;
+    background: var(--gold-2);
+    box-shadow: 0 0 6px var(--gold-2);
+    animation: pulse-soft 2s ease-in-out infinite;
+  }
+
+  @media (max-width: 820px) {
+    .wa-demo .wrap { grid-template-columns: 1fr; gap: 40px; }
+    .wa-demo .copy { max-width: 100%; justify-self: center; text-align: center; }
+    .wa-demo .copy .stats { justify-content: center; }
+    .phone-frame { transform: scale(0.92); transform-origin: top center; }
+  }
+
+  /* ─────────────── Motion: live connect ─────────────── */
+  .motion {
+    position: relative;
+    padding: var(--section-y) 0;
+    background:
+      radial-gradient(70% 60% at 50% 30%, oklch(0.22 0.06 162 / 0.55), transparent 70%),
+      var(--bg-0);
+    color: var(--ink-1);
+    overflow: hidden;
+  }
+  .motion::before {
+    content: "";
+    position: absolute; inset: 0; pointer-events: none;
+    opacity: 0.04;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  }
+  .motion .wrap { position: relative; z-index: 2; display: grid; gap: 38px; }
+  .motion .head {
+    display: grid; gap: 14px;
+    text-align: center; justify-items: center;
+  }
+  .motion h2 {
+    font-family: var(--font-display);
+    font-weight: 300;
+    font-size: clamp(26px, 3.2vw, 42px);
+    line-height: 1.2;
+    color: var(--ink-1);
+    margin: 0;
+    max-width: 24ch;
+    text-wrap: balance;
+  }
+  .motion h2 .italic { font-style: italic; color: var(--gold-1); font-weight: 400; }
+  .motion .head p {
+    font-size: clamp(14px, 1.2vw, 16px);
+    color: var(--ink-2);
+    max-width: 56ch;
+    margin: 0;
+  }
+
+  /* Stage: channels (right RTL) → Maya core (center) → actions (left RTL) */
+  .motion-stage {
+    position: relative;
+    display: grid;
+    grid-template-columns: 1fr minmax(220px, 320px) 1fr;
+    align-items: stretch;
+    gap: 0;
+    padding: 28px;
+    border-radius: 22px;
+    background:
+      linear-gradient(180deg, oklch(0.20 0.04 162 / 0.7), oklch(0.16 0.035 162 / 0.5));
+    border: 1px solid oklch(0.55 0.10 70 / 0.22);
+    box-shadow:
+      0 1px 0 oklch(1 0 0 / 0.04) inset,
+      0 60px 120px -50px oklch(0 0 0 / 0.55);
+    min-height: 360px;
+    overflow: hidden;
+  }
+  .motion-stage::after {
+    content: "";
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(40% 60% at 50% 50%, oklch(0.55 0.10 70 / 0.10), transparent 70%);
+    pointer-events: none;
+  }
+
+  /* Wires layer (SVG) sits behind cards */
+  .motion-wires {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    z-index: 1;
+  }
+  .motion-wires .wire {
+    fill: none;
+    stroke: oklch(0.55 0.10 70 / 0.18);
+    stroke-width: 1;
+  }
+  .motion-wires .flow {
+    fill: none;
+    stroke: var(--gold-1);
+    stroke-width: 1.4;
+    stroke-linecap: round;
+    stroke-dasharray: 4 10;
+    filter: drop-shadow(0 0 6px oklch(0.65 0.10 72 / 0.6));
+    animation: flow 2.2s linear infinite;
+  }
+  @keyframes flow {
+    to { stroke-dashoffset: -56; }
+  }
+
+  /* Channel column (right, in RTL stage column 1) */
+  .channels, .actions {
+    position: relative;
+    z-index: 2;
+    display: grid;
+    gap: 12px;
+    align-content: center;
+  }
+  .channel, .action {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: oklch(0.20 0.04 165 / 0.7);
+    border: 1px solid var(--hairline);
+    backdrop-filter: blur(8px);
+    font-size: 13px;
+    color: var(--ink-2);
+    position: relative;
+    overflow: hidden;
+  }
+  .channel .ico, .action .ico {
+    width: 30px; height: 30px;
+    flex: 0 0 30px;
+    border-radius: 8px;
+    display: grid; place-items: center;
+    background: linear-gradient(180deg, oklch(0.28 0.07 162), oklch(0.18 0.05 162));
+    border: 1px solid oklch(0.55 0.10 70 / 0.35);
+    color: var(--gold-1);
+  }
+  .channel .ico svg, .action .ico svg {
+    width: 16px; height: 16px;
+    stroke: currentColor; stroke-width: 1.6;
+    fill: none; stroke-linecap: round; stroke-linejoin: round;
+  }
+  .channel .label, .action .label {
+    display: grid; gap: 2px; flex: 1; min-width: 0;
+  }
+  .channel .label strong, .action .label strong {
+    font-family: var(--font-sans);
+    font-weight: 500;
+    font-size: 13px;
+    color: var(--ink-1);
+    letter-spacing: 0.01em;
+  }
+  .channel .label span, .action .label span {
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  .channel .ping {
+    width: 7px; height: 7px; border-radius: 999px;
+    background: var(--gold-2);
+    box-shadow: 0 0 8px var(--gold-2);
+    opacity: 0;
+    transition: opacity 240ms ease;
+  }
+  .channel.is-active .ping { opacity: 1; animation: pulse-soft 1.6s ease-out infinite; }
+  .channel.is-active, .action.is-active {
+    border-color: oklch(0.60 0.10 70 / 0.55);
+    background: oklch(0.24 0.06 165 / 0.85);
+    box-shadow: 0 0 0 1px oklch(0.55 0.10 70 / 0.18), 0 18px 38px -22px oklch(0.55 0.10 70 / 0.45);
+  }
+
+  .actions .action {
+    background: linear-gradient(180deg, oklch(0.22 0.05 165 / 0.75), oklch(0.18 0.045 165 / 0.6));
+  }
+
+  /* Center: Maya core */
+  .maya-core {
+    position: relative;
+    z-index: 3;
+    display: grid;
+    place-items: center;
+    padding: 8px;
+  }
+  .maya-core .orb {
+    position: relative;
+    width: clamp(140px, 18vw, 200px);
+    aspect-ratio: 1;
+    border-radius: 999px;
+    display: grid; place-items: center;
+    background:
+      radial-gradient(circle at 30% 28%, oklch(0.50 0.10 70 / 0.7), oklch(0.18 0.04 162) 70%);
+    border: 1px solid oklch(0.55 0.10 70 / 0.55);
+    box-shadow:
+      0 0 0 1px oklch(0.55 0.10 70 / 0.18),
+      inset 0 1px 0 oklch(1 0 0 / 0.08),
+      0 30px 60px -22px oklch(0.55 0.10 70 / 0.45);
+    color: var(--gold-1);
+    font-family: var(--font-display);
+    font-size: clamp(34px, 4vw, 52px);
+    letter-spacing: 0.04em;
+  }
+  .maya-core .orb::before, .maya-core .orb::after {
+    content: "";
+    position: absolute;
+    border-radius: 999px;
+    border: 1px solid oklch(0.55 0.10 70 / 0.22);
+    pointer-events: none;
+  }
+  .maya-core .orb::before { inset: -14px; }
+  .maya-core .orb::after  { inset: -34px; border-color: oklch(0.55 0.10 70 / 0.10); animation: ring-spin 18s linear infinite; }
+  @keyframes ring-spin {
+    to { transform: rotate(360deg); }
+  }
+  .maya-core .label {
+    position: absolute;
+    bottom: -6px;
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+
+  /* Telemetry strip below stage */
+  .motion-metrics {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+  }
+  .metric {
+    padding: 18px 18px 16px;
+    border-radius: 14px;
+    background: oklch(0.18 0.04 162 / 0.7);
+    border: 1px solid var(--hairline);
+    display: grid; gap: 6px;
+    position: relative;
+    overflow: hidden;
+  }
+  .metric .k {
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  .metric .v {
+    font-family: var(--font-display);
+    font-weight: 300;
+    font-size: clamp(26px, 2.6vw, 34px);
+    color: var(--gold-1);
+    letter-spacing: -0.01em;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+  .metric .v .unit {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--ink-3);
+    letter-spacing: 0.18em;
+    margin-inline-start: 6px;
+  }
+  .metric .spark {
+    height: 26px;
+    margin-top: 6px;
+  }
+  .metric .spark path.base { fill: none; stroke: oklch(0.34 0.04 162); stroke-width: 1; }
+  .metric .spark path.live { fill: none; stroke: var(--gold-1); stroke-width: 1.4; filter: drop-shadow(0 0 4px oklch(0.65 0.10 72 / 0.55)); }
+
+  /* Recovered revenue chart */
+  .recover-chart {
+    position: relative;
+    border-radius: 18px;
+    background:
+      linear-gradient(180deg, oklch(0.18 0.04 162 / 0.7), oklch(0.14 0.035 162 / 0.55));
+    border: 1px solid var(--hairline);
+    padding: 22px 22px 18px;
+    display: grid;
+    gap: 14px;
+  }
+  .recover-chart .head-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .recover-chart .title {
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size: 17px;
+    color: var(--ink-1);
+    letter-spacing: 0.01em;
+  }
+  .recover-chart .legend {
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    display: inline-flex; align-items: center; gap: 14px;
+  }
+  .recover-chart .legend i {
+    display: inline-block;
+    width: 18px; height: 2px;
+    background: var(--gold-2);
+    margin-inline-end: 6px;
+    vertical-align: middle;
+    border-radius: 2px;
+  }
+  .recover-chart .legend i.lost {
+    background: oklch(0.46 0.05 28);
+  }
+  .recover-chart svg.chart {
+    width: 100%;
+    height: clamp(180px, 22vw, 260px);
+  }
+  .recover-chart .grid-line { stroke: oklch(0.34 0.03 162 / 0.45); stroke-width: 1; }
+  .recover-chart .axis-label {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: 0.18em;
+    fill: var(--ink-3);
+    text-transform: uppercase;
+  }
+  .recover-chart .lost-path {
+    fill: none;
+    stroke: oklch(0.50 0.06 28 / 0.75);
+    stroke-width: 1.4;
+    stroke-dasharray: 4 5;
+  }
+  .recover-chart .live-path {
+    fill: none;
+    stroke: var(--gold-1);
+    stroke-width: 2;
+    filter: drop-shadow(0 0 6px oklch(0.65 0.10 72 / 0.55));
+    stroke-linecap: round;
+  }
+  .recover-chart .live-area {
+    fill: url(#liveGrad);
+    opacity: 0.5;
+  }
+  .recover-chart .live-dot {
+    fill: var(--gold-1);
+    filter: drop-shadow(0 0 6px oklch(0.65 0.10 72 / 0.8));
+  }
+  .recover-chart .live-dot-ring {
+    fill: none;
+    stroke: oklch(0.65 0.10 72 / 0.4);
+    stroke-width: 1;
+  }
+  .recover-chart .scrub-hint {
+    position: absolute;
+    bottom: 12px;
+    inset-inline-end: 18px;
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--ink-4);
+    opacity: 0.7;
+  }
+
+  @media (max-width: 820px) {
+    .motion-stage { grid-template-columns: 1fr; gap: 20px; padding: 22px; }
+    .maya-core { order: -1; }
+    .motion-metrics { grid-template-columns: 1fr 1fr; }
+    .motion-wires { display: none; }
+  }
+
+  /* ─────────────── Subtle reveal on first paint ─────────────── */
+  .reveal {
+    opacity: 0;
+    transform: translateY(14px);
+    animation: reveal 900ms cubic-bezier(.2,.7,.2,1) forwards;
+  }
+  .reveal[data-delay="1"] { animation-delay: 120ms; }
+  .reveal[data-delay="2"] { animation-delay: 220ms; }
+  .reveal[data-delay="3"] { animation-delay: 320ms; }
+  .reveal[data-delay="4"] { animation-delay: 460ms; }
+  .reveal[data-delay="5"] { animation-delay: 600ms; }
+  @keyframes reveal {
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ─────────────── Mobile ─────────────── */
+  @media (max-width: 820px) {
+    .topbar .brand .sub { display: none; }
+    .topbar .topcta {
+      padding: 7px 14px;
+      font-size: 10px;
+      letter-spacing: 0.14em;
+    }
+    .capabilities .grid { grid-template-columns: 1fr 1fr; }
+    .modules .pair { grid-template-columns: 1fr; }
+    .hero .cta-row .btn { flex: 1; min-width: 0; }
+    .video-section .head { gap: 8px; }
+    .problem .wrap { text-align: right; }
+  }
+  @media (max-width: 540px) {
+    .capabilities .grid { grid-template-columns: 1fr; }
+    .hero { padding-top: 70px; }
+    .hero .mark-ring { width: 64px; height: 64px; }
+    .hero .mark-ring span { font-size: 24px; }
+    .topbar .row { padding: 10px 0; }
+    .topbar .brand { font-size: 16px; }
+  }
+
+  /* ─────────────── Cinematic scroll choreography ─────────────── */
+  /* Each section's content rises and fades as it enters the viewport, with a
+     gentle per-element stagger — turns the page from a slideshow into a slow,
+     intentional camera move down the product story. */
+  @media (prefers-reduced-motion: no-preference) {
+    .s-reveal {
+      opacity: 0;
+      transform: translateY(34px);
+      transition:
+        opacity 1100ms cubic-bezier(.16,.78,.18,1),
+        transform 1100ms cubic-bezier(.16,.78,.18,1);
+      transition-delay: var(--s-delay, 0ms);
+      will-change: opacity, transform;
+    }
+    .s-reveal.is-in { opacity: 1; transform: none; }
+
+    /* Slow camera-like drift on the marquee surfaces (driven by JS, var-based). */
+    .video-frame { will-change: transform; transform: translate3d(0, var(--py, 0px), 0); }
+    .hero { will-change: background-position; }
+  }
+  /* Static, fully-visible fallback for reduced-motion users. */
+  @media (prefers-reduced-motion: reduce) {
+    .s-reveal { opacity: 1; transform: none; }
+  }
+
+  /* ─────────────── Mobile sticky WhatsApp CTA ─────────────── */
+  .sticky-wa {
+    position: fixed;
+    inset-inline: 14px;
+    bottom: max(14px, env(safe-area-inset-bottom));
+    z-index: 90;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 15px 22px;
+    border-radius: 999px;
+    font-family: var(--font-sans);
+    font-weight: 600;
+    font-size: 15px;
+    letter-spacing: 0.01em;
+    color: oklch(0.20 0.03 165);
+    background: linear-gradient(180deg, var(--gold-1), var(--gold-3));
+    box-shadow:
+      0 14px 34px -10px oklch(0.20 0.04 162 / 0.65),
+      0 0 0 1px oklch(0.60 0.10 70 / 0.5) inset;
+    transform: translateY(140%);
+    transition: transform 620ms cubic-bezier(.16,.78,.18,1);
+  }
+  .sticky-wa.is-show { transform: none; }
+  .sticky-wa svg { flex: none; }
+  @media (max-width: 820px) {
+    .sticky-wa { display: inline-flex; }
+    /* keep the final CTA from hiding behind the sticky bar */
+    .final-cta { padding-bottom: calc(var(--section-y) + 84px); }
+  }
+</style>
+</head>
+<body>
+
+<!-- WhatsApp link helpers: written so all CTAs share the same target URLs -->
+<script>
+  // Single source of truth for the WhatsApp CTAs.
+  // Two flavors — main "let's check fit" form, and a shorter "I have a question".
+  // Edit message / number here and every CTA on the page picks it up.
+  window.MAYA_WA = "https://wa.me/972524620550?text=" + encodeURIComponent(
+    "היי, ראיתי את מאיה ורוצה לבדוק אם זה מתאים לעסק שלי.\n\n" +
+    "שם העסק:\n" +
+    "תחום:\n" +
+    "כמה פניות ביום בערך:\n" +
+    "מה קורה היום כשלקוח פונה ולא מקבל מענה:"
+  );
+  window.MAYA_WA_Q = "https://wa.me/972524620550?text=" + encodeURIComponent(
+    "היי, ראיתי את מאיה ויש לי שאלה"
+  );
+</script>
+
+<!-- ─────────────── Topbar ─────────────── -->
+<nav class="topbar">
+  <div class="row">
+    <a href="#" class="brand">
+      <span class="mark">מ</span>
+      <span>מאיה</span>
+      <span class="sub">Clinic Revenue OS</span>
+    </a>
+    <a class="topcta" href="#" data-wa>בדוק התאמה</a>
+  </div>
+</nav>
+
+<!-- ─────────────── Hero ─────────────── -->
+<section class="hero">
+  <div class="wrap">
+    <div class="reveal mark-ring" data-delay="1">
+      <span dir="rtl">מאיה</span>
+    </div>
+    <span class="reveal eyebrow" data-delay="1"><span class="dot"></span>Clinic Revenue OS</span>
+    <h1 class="reveal" data-delay="2">
+      מאיה מזהה איפה הקליניקה שלך
+      <span class="accent">מאבדת כסף</span>
+      ומחזירה לידים לתנועה.
+    </h1>
+    <p class="reveal sub" data-delay="3">
+      מערכת הפעלה לקליניקות פרימיום שמנטרת וואטסאפ, שיחות, טפסים ופולואפים,
+      מזהה נזילות הכנסה ומציפה בדיוק איפה צריך לפעול.
+    </p>
+    <div class="reveal cta-row" data-delay="4">
+      <a class="btn btn-primary" href="#" data-wa>
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3.5 20.5l1.4-4.7a8.5 8.5 0 1 1 3.3 3.3l-4.7 1.4z"/>
+          <path d="M9 9.5c.2 1.5 1 2.7 2.2 3.7 1.2 1 2.4 1.6 3.6 1.8.4.1.7 0 .9-.2l.7-.6c.2-.2.2-.5 0-.7l-1.3-.9c-.2-.1-.4-.1-.6 0l-.5.3c-.6-.2-1.2-.5-1.6-1-.5-.5-.8-1-1-1.6l.3-.5c.1-.2.1-.4 0-.6L10.7 7.9c-.2-.2-.5-.2-.7 0l-.6.7c-.2.2-.3.5-.2.9z"/>
+        </svg>
+        בדוק אם זה מתאים לעסק שלך
+      </a>
+      <a class="btn btn-secondary" href="#" data-wa-q>יש לי שאלה</a>
+    </div>
+    <p class="reveal" data-delay="5" style="font-family:var(--font-mono);font-size:11px;letter-spacing:0.18em;text-transform:uppercase;color:var(--ink-3);margin:4px 0 0;">לוקח פחות מדקה למלא · ללא התחייבות</p>
+  </div>
+</section>
+
+<!-- ─────────────── WhatsApp demo: iPhone in cream ─────────────── -->
+<section class="wa-demo" id="wa-demo">
+  <div class="wrap">
+    <!-- Copy (right in RTL) -->
+    <div class="copy">
+      <span class="eyebrow">04 · Auto-Response</span>
+      <h2>
+        ענתה <span class="gold-on-cream">תוך 4 שניות.</span>
+        <span class="muted">טוב יותר מהצוות שלך.</span>
+      </h2>
+      <p>מאיה מזהה את הכוונה, בודקת את הזמינות ביומן, ומחזירה את הליד למסלול — לפני שהוא שוכח שפנה.</p>
+      <div class="stats">
+        <div class="stat">
+          <span class="k">Calendar</span>
+          <span class="v">זמין</span>
+          <span class="s">checked</span>
+        </div>
+        <div class="stat">
+          <span class="k">Intent</span>
+          <span class="v">ייעוץ פרטי</span>
+          <span class="s">detected</span>
+        </div>
+        <div class="stat">
+          <span class="k">Response</span>
+          <span class="v" id="wa-response-stat">4s</span>
+          <span class="s">median</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Phone (left in RTL) -->
+    <div class="phone-wrap">
+      <div class="phone-frame">
+        <div class="phone-screen">
+          <div class="notch"></div>
+          <div class="chat-header">
+            <div class="avatar">מ</div>
+            <div class="meta">
+              <span class="name">קליניקת אביה — צ׳אט</span>
+              <span class="sub"><span class="dot-em"></span>מאיה זמינה תמיד</span>
+            </div>
+            <div class="icons"><span>⌕</span><span>⋯</span></div>
+          </div>
+
+          <div class="chat-body" id="wa-chat">
+            <div class="date-bubble">היום</div>
+
+            <div class="bubble in" data-step="0">
+              היי, רציתי להתעניין בטיפול שראיתי אצלכם 🙂
+              <div class="ts">22:47</div>
+            </div>
+
+            <div class="typing" data-step="1">
+              <span></span><span></span><span></span>
+            </div>
+
+            <div class="bubble out" data-step="2">
+              היי נועה, נעים מאוד 🌿<br />
+              אני מאיה — אסיסטנטית הקליניקה.<br />
+              אשמח לעזור.
+              <div class="ts">22:47 ✓✓</div>
+            </div>
+
+            <div class="bubble out" data-step="3">
+              יש חלון לשיחת ייעוץ אישית ביום ה׳<br />
+              ב־17:30. מתאים לך?
+              <div class="ts">22:47 ✓✓</div>
+            </div>
+
+            <div class="bubble in" data-step="4">
+              מושלם, רוצה לקבוע 🙏
+              <div class="ts">22:48</div>
+            </div>
+          </div>
+
+          <div class="chat-composer">
+            <div class="send">↑</div>
+            <div class="input">הודעה…</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="phone-tags">
+        <span class="tag gold"><span class="timer" id="wa-timer">0.0s</span></span>
+        <span class="tag"><span class="dot"></span>Maya · auto-reply</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────────── Motion: live connect ─────────────── -->
+<section class="motion" id="motion">
+  <div class="wrap">
+    <div class="head">
+      <span class="eyebrow"><span class="dot"></span>Live · Maya in motion</span>
+      <h2>
+        מאיה מתחברת לעסק שלך
+        <span class="italic">ומקשיבה לכל ערוץ — כל הזמן.</span>
+      </h2>
+      <p>וואטסאפ, שיחות, טפסים ופולואפים זורמים פנימה. מאיה מזהה, מסננת, ומציפה רק את הרגעים שבהם כסף בורח.</p>
+    </div>
+
+    <!-- Stage: channels (right) → Maya core → actions (left) -->
+    <div class="motion-stage" id="motion-stage">
+      <svg class="motion-wires" id="motion-wires" preserveAspectRatio="none" aria-hidden="true"></svg>
+
+      <!-- RTL: column 1 = right side = incoming channels -->
+      <div class="channels" id="motion-channels">
+        <div class="channel" data-ch="wa">
+          <div class="ico"><svg viewBox="0 0 24 24"><path d="M3.5 20.5l1.4-4.7a8.5 8.5 0 1 1 3.3 3.3l-4.7 1.4z"/></svg></div>
+          <div class="label"><strong>WhatsApp</strong><span>incoming · 24/7</span></div>
+          <div class="ping"></div>
+        </div>
+        <div class="channel" data-ch="call">
+          <div class="ico"><svg viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.37 1.9.72 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.35 1.85.59 2.81.72A2 2 0 0 1 22 16.92z"/></svg></div>
+          <div class="label"><strong>Phone calls</strong><span>missed · answered</span></div>
+          <div class="ping"></div>
+        </div>
+        <div class="channel" data-ch="form">
+          <div class="ico"><svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></div>
+          <div class="label"><strong>Web forms</strong><span>landing · funnel</span></div>
+          <div class="ping"></div>
+        </div>
+        <div class="channel" data-ch="cal">
+          <div class="ico"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18M8 3v4M16 3v4"/></svg></div>
+          <div class="label"><strong>Calendar</strong><span>no-shows · gaps</span></div>
+          <div class="ping"></div>
+        </div>
+      </div>
+
+      <!-- Center -->
+      <div class="maya-core">
+        <div class="orb" dir="rtl">מ<span class="label">Maya · OS</span></div>
+      </div>
+
+      <!-- RTL: column 3 = left side = outgoing actions -->
+      <div class="actions" id="motion-actions">
+        <div class="action" data-act="reply">
+          <div class="ico"><svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-7.6-4.6L3 21l1.6-1.9A8.5 8.5 0 1 1 21 11.5z"/></svg></div>
+          <div class="label"><strong>מענה אוטומטי</strong><span>auto-reply · 9s</span></div>
+        </div>
+        <div class="action" data-act="risk">
+          <div class="ico"><svg viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01"/><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg></div>
+          <div class="label"><strong>ליד בסיכון</strong><span>risk flag · escalate</span></div>
+        </div>
+        <div class="action" data-act="book">
+          <div class="ico"><svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg></div>
+          <div class="label"><strong>חלון יומן הוצע</strong><span>slot suggested</span></div>
+        </div>
+        <div class="action" data-act="follow">
+          <div class="ico"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg></div>
+          <div class="label"><strong>פולואפ נשלח</strong><span>follow-up · +2d</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Live metrics -->
+    <div class="motion-metrics">
+      <div class="metric">
+        <span class="k">Live · Inbound</span>
+        <div class="v" data-counter="inbound" data-from="0" data-to="1284">0</div>
+        <svg class="spark" viewBox="0 0 120 26" preserveAspectRatio="none"><path class="base" d="M0 22 L120 22"/><path class="live" data-spark="inbound"/></svg>
+      </div>
+      <div class="metric">
+        <span class="k">Avg response</span>
+        <div class="v"><span data-counter="response" data-from="180" data-to="9">180</span><span class="unit">sec</span></div>
+        <svg class="spark" viewBox="0 0 120 26" preserveAspectRatio="none"><path class="base" d="M0 22 L120 22"/><path class="live" data-spark="response"/></svg>
+      </div>
+      <div class="metric">
+        <span class="k">Risk flags</span>
+        <div class="v" data-counter="risk" data-from="0" data-to="37">0</div>
+        <svg class="spark" viewBox="0 0 120 26" preserveAspectRatio="none"><path class="base" d="M0 22 L120 22"/><path class="live" data-spark="risk"/></svg>
+      </div>
+      <div class="metric">
+        <span class="k">Revenue saved · ₪</span>
+        <div class="v" data-counter="saved" data-from="0" data-to="184250">0</div>
+        <svg class="spark" viewBox="0 0 120 26" preserveAspectRatio="none"><path class="base" d="M0 22 L120 22"/><path class="live" data-spark="saved"/></svg>
+      </div>
+    </div>
+
+    <!-- Scroll-driven recovered revenue chart -->
+    <div class="recover-chart" id="recover-chart">
+      <div class="head-row">
+        <div class="title">הכנסה שמאיה מחזירה לתנועה</div>
+        <div class="legend">
+          <span><i></i>Recovered</span>
+          <span><i class="lost"></i>Would-be lost</span>
+        </div>
+      </div>
+      <svg class="chart" viewBox="0 0 800 260" preserveAspectRatio="none" aria-hidden="true">
+        <defs>
+          <linearGradient id="liveGrad" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%"  stop-color="oklch(0.70 0.10 72)" stop-opacity="0.45"/>
+            <stop offset="100%" stop-color="oklch(0.70 0.10 72)" stop-opacity="0"/>
+          </linearGradient>
+        </defs>
+        <!-- gridlines -->
+        <line class="grid-line" x1="0" x2="800" y1="40"  y2="40" />
+        <line class="grid-line" x1="0" x2="800" y1="110" y2="110"/>
+        <line class="grid-line" x1="0" x2="800" y1="180" y2="180"/>
+        <line class="grid-line" x1="0" x2="800" y1="240" y2="240"/>
+        <text class="axis-label" x="6" y="34">₪ 200K</text>
+        <text class="axis-label" x="6" y="104">₪ 120K</text>
+        <text class="axis-label" x="6" y="174">₪ 60K</text>
+        <!-- baseline lost path (static) -->
+        <path id="lostPath" class="lost-path" />
+        <!-- live recovered path (animates on scroll) -->
+        <path id="liveArea" class="live-area" />
+        <path id="livePath" class="live-path" />
+        <circle id="liveDot" class="live-dot" r="4" />
+        <circle id="liveDotRing" class="live-dot-ring" r="10" />
+        <!-- x-axis month labels -->
+        <text class="axis-label" x="60"  y="256">ינו</text>
+        <text class="axis-label" x="180" y="256">פבר</text>
+        <text class="axis-label" x="300" y="256">מרץ</text>
+        <text class="axis-label" x="420" y="256">אפר</text>
+        <text class="axis-label" x="540" y="256">מאי</text>
+        <text class="axis-label" x="660" y="256">יונ</text>
+      </svg>
+      <div class="scrub-hint">scroll to reveal</div>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────────── Video hero ─────────────── -->
+<section class="video-section" id="video">
+  <div class="wrap">
+    <div class="head">
+      <h2>צפה במאיה בפעולה.</h2>
+      <span class="micro">demo · ~60 שניות</span>
+    </div>
+    <div class="video-frame">
+      <video
+        controls
+        playsinline
+        muted
+        autoplay
+        loop
+        preload="metadata"
+        poster=""
+        data-src="/videos/maya-demo.mp4"
+      ></video>
+      <!-- Shown while video is loading or if the source is missing -->
+      <div class="placeholder" aria-hidden="true">מאיה</div>
+    </div>
+    <div class="caption">
+      <span>WhatsApp · Calls · Forms · Follow-ups</span>
+      <span>Maya Watch · Maya MRI</span>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────────── Problem ─────────────── -->
+<section class="problem">
+  <div class="wrap">
+    <span class="eyebrow"><span class="dot"></span>הבעיה</span>
+    <h2>
+      קליניקות לא מפסידות כסף רק בגלל שאין לידים.
+      <span class="ink-soft">הן מפסידות כסף כי</span>
+      פניות לא מקבלות מענה בזמן,
+      <span class="ink-soft">שיחות לא נסגרות,</span>
+      לידים נרדמים
+      <span class="ink-soft">ופולואפים פשוט לא קורים.</span>
+    </h2>
+    <p>
+      בכל קליניקה פרטית יש בכל יום פניות שמגיעות ולא מקבלות מענה בזמן —
+      בשעות שיא, בלילה, בסופי שבוע. כל פנייה כזו היא הכנסה שלא קרתה.
+      מאיה רואה את כל הפניות, את כל הערוצים, ומציפה את הרגעים שבהם כסף נופל בין הכיסאות.
+    </p>
+  </div>
+</section>
+
+<!-- ─────────────── Capabilities (4 cards) ─────────────── -->
+<section class="capabilities">
+  <div class="wrap">
+    <div class="head">
+      <span class="eyebrow on-cream"><span class="dot"></span>מה מאיה עושה</span>
+      <h2>שכבת אינטליגנציה אחת. כל הקליניקה תחת מעקב.</h2>
+      <p>
+        מאיה מתחברת לוואטסאפ, לשיחות, לטפסים ולמעקבים שלך —
+        ופועלת כל הזמן, מבלי שצריך לבקש.
+      </p>
+    </div>
+    <div class="grid">
+
+      <article class="cap">
+        <div class="glyph">
+          <svg viewBox="0 0 24 24"><path d="M3.5 20.5l1.4-4.7a8.5 8.5 0 1 1 3.3 3.3l-4.7 1.4z"/><path d="M9 9.5c.2 1.5 1 2.7 2.2 3.7 1.2 1 2.4 1.6 3.6 1.8.4.1.7 0 .9-.2l.7-.6c.2-.2.2-.5 0-.7l-1.3-.9c-.2-.1-.4-.1-.6 0l-.5.3c-.6-.2-1.2-.5-1.6-1-.5-.5-.8-1-1-1.6l.3-.5c.1-.2.1-.4 0-.6L10.7 7.9c-.2-.2-.5-.2-.7 0l-.6.7c-.2.2-.3.5-.2.9z"/></svg>
+        </div>
+        <span class="micro">01 · Response</span>
+        <h3>עונה לפניות בזמן אמת.</h3>
+        <p>תוך שניות בודדות. בלי לידים שנשכחים בלילה, בלי שתיקה של 12 שעות בוואטסאפ.</p>
+      </article>
+
+      <article class="cap">
+        <div class="glyph">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+        </div>
+        <span class="micro">02 · Risk</span>
+        <h3>מזהה לידים בסיכון.</h3>
+        <p>פנייה שממתינה יותר מדי, שיחה שנשמטה, ליד ששתק שבוע — מאיה רואה הכל ומציפה.</p>
+      </article>
+
+      <article class="cap">
+        <div class="glyph">
+          <svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18"/><path d="M7 7l10 10M17 7L7 17"/></svg>
+        </div>
+        <span class="micro">03 · Recommend</span>
+        <h3>מציפה פעולות מומלצות.</h3>
+        <p>הודעה רכה, חלון יומן, סיכום שיחה. את מאשרת — מאיה שולחת. בלי כתיבה ידנית.</p>
+      </article>
+
+      <article class="cap">
+        <div class="glyph">
+          <svg viewBox="0 0 24 24"><path d="M3 12h3l2-7 4 14 2-9 2 4h5"/></svg>
+        </div>
+        <span class="micro">04 · Persist</span>
+        <h3>עוקבת עד שהליד חוזר לתנועה.</h3>
+        <p>שכבה אנליטית שלומדת את הקליניקה שלך לאורך זמן, ולא מרפה עד שהפנייה מטופלת.</p>
+      </article>
+
+    </div>
+  </div>
+</section>
+
+<!-- ─────────────── Modules: MRI + Watch ─────────────── -->
+<section class="modules">
+  <div class="wrap">
+    <div class="head">
+      <span class="eyebrow on-cream"><span class="dot"></span>שכבות אינטליגנציה פנימיות</span>
+      <h2>
+        מאיה לא רק עונה.
+        <span class="italic">היא לומדת. מזהה. מחזירה לתנועה.</span>
+      </h2>
+      <p>ישות אנליטית שמתחברת למסע הלקוח של הקליניקה שלך, לומדת את הדפוסים, ומציפה את המקומות שבהם לידים נופלים.</p>
+    </div>
+
+    <div class="pair">
+
+      <article class="module-card">
+        <div class="header-row">
+          <div class="glyph">
+            <svg viewBox="0 0 24 24"><path d="M3 12h3l2-7 4 14 2-9 2 4h5"/></svg>
+          </div>
+          <div class="title-block">
+            <span class="module-eyebrow">Module · MRI</span>
+            <h3>Maya MRI</h3>
+          </div>
+        </div>
+        <div class="body-rule"></div>
+        <p class="lede">מזהה איפה כסף נוזל במסע הלקוח של הקליניקה.</p>
+        <div class="telemetry"><span class="pulse"></span>Locates revenue leaks · 24/7</div>
+      </article>
+
+      <article class="module-card">
+        <div class="header-row">
+          <div class="glyph">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+          </div>
+          <div class="title-block">
+            <span class="module-eyebrow">Module · Watch</span>
+            <h3>Maya Watch</h3>
+          </div>
+        </div>
+        <div class="body-rule"></div>
+        <p class="lede">עוקבת אחרי פניות עד שהן חוזרות לתנועה.</p>
+        <div class="telemetry"><span class="pulse"></span>Persistent attention · always on</div>
+      </article>
+
+    </div>
+  </div>
+</section>
+
+<!-- ─────────────── Who it's for ─────────────── -->
+<section class="who">
+  <div class="wrap">
+    <span class="eyebrow"><span class="dot"></span>בשביל מי</span>
+    <h2>בנויה לקליניקות פרטיות שכל פנייה אצלן שווה.</h2>
+    <div class="chips">
+      <span class="chip">קליניקות פרטיות</span>
+      <span class="chip">קליניקות אסתטיקה</span>
+      <span class="chip">מרכזי טיפול פרימיום</span>
+      <span class="chip">קליניקות עם צוות מכירות / קבלה</span>
+      <span class="chip">קליניקות שמקבלות פניות בוואטסאפ</span>
+      <span class="chip">קליניקות שמקבלות שיחות יומיות</span>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────────── Pricing ─────────────── -->
+<section class="pricing" id="pricing">
+  <div class="wrap">
+    <div class="head">
+      <span class="eyebrow on-cream"><span class="dot"></span>מחירי השקה</span>
+      <h2>מערכת הפעלה לקליניקה שלך. <span class="ink-soft-cream">מחיר לפי מה שהיא באמת מחזירה.</span></h2>
+      <p>שלושה מסלולי הטמעה — מהתחלה במענה ויציבה ועד מערכת אינטליגנציה מלאה. ללא התחייבות שנתית.</p>
+    </div>
+
+    <div class="tiers">
+
+      <article class="tier">
+        <h3 class="tier-name">Starter</h3>
+        <p class="tier-pitch">לקליניקות שרוצות להתחיל לסדר את המענה והפולואפים שלהן.</p>
+        <div class="price-block">
+          <div class="price">החל מ־₪900<span class="unit">/ חודש</span></div>
+          <div class="setup">דמי הקמה · החל מ־₪1,500</div>
+        </div>
+        <ul>
+          <li>מענה לפניות שלא נענו</li>
+          <li>צ׳אט וואטסאפ אוטומטי</li>
+          <li>לכידת לידים</li>
+          <li>תזכורות חכמות</li>
+          <li>פאנל ניהול בסיסי</li>
+          <li>הגדרה לפי הצוות שלך</li>
+        </ul>
+        <a class="btn btn-secondary on-cream tier-cta" href="#" data-wa>מתחילים עם Starter</a>
+      </article>
+
+      <article class="tier featured">
+        <span class="badge">הכי מתאים לקליניקות פעילות</span>
+        <h3 class="tier-name">Growth</h3>
+        <p class="tier-pitch">לקליניקות שרוצות יותר שליטה, אוטומציות ותוצאות.</p>
+        <div class="price-block">
+          <div class="price">החל מ־₪1,800<span class="unit">/ חודש</span></div>
+          <div class="setup">דמי הקמה · החל מ־₪3,500</div>
+        </div>
+        <ul>
+          <li>כל מה שב־Starter</li>
+          <li>Maya Watch</li>
+          <li>זיהוי לידים בסיכון</li>
+          <li>פולואפים אוטומטיים</li>
+          <li>דוחות שבועיים</li>
+          <li>התאמות לתהליך המכירה בקליניקה</li>
+        </ul>
+        <a class="btn btn-primary on-cream tier-cta" href="#" data-wa>מתחילים עם Growth</a>
+      </article>
+
+      <article class="tier">
+        <h3 class="tier-name">Pro</h3>
+        <p class="tier-pitch">לקליניקות פרימיום שרוצות מערכת מלאה ומותאמת אישית.</p>
+        <div class="price-block">
+          <div class="price">החל מ־₪3,500<span class="unit">/ חודש</span></div>
+          <div class="setup">דמי הקמה · החל מ־₪6,500</div>
+        </div>
+        <ul>
+          <li>כל מה שב־Growth</li>
+          <li>Maya MRI</li>
+          <li>אינטגרציה ל־CRM</li>
+          <li>תרחישים מורכבים</li>
+          <li>דאשבורד מתקדם</li>
+          <li>התאמות מיוחדות לפי העסק</li>
+          <li>תמיכה וליווי מורחבים</li>
+        </ul>
+        <a class="btn btn-secondary on-cream tier-cta" href="#" data-wa>דברו איתנו על Pro</a>
+      </article>
+
+    </div>
+
+    <p class="fineprint">
+      מחירי ההשקה תקפים לקליניקות הראשונות בלבד, כחלק מהטמעה מוקדמת וליווי אישי.<br />
+      המחיר הסופי נקבע לפי נפח הפניות, הערוצים הפעילים ורמת ההתאמה הנדרשת.
+    </p>
+  </div>
+</section>
+
+<!-- ─────────────── FAQ ─────────────── -->
+<section class="faq" id="faq">
+  <div class="wrap">
+    <div class="head">
+      <span class="eyebrow"><span class="dot"></span>שאלות נפוצות</span>
+      <h2>כמה שאלות ישירות. כמה תשובות ישירות.</h2>
+    </div>
+    <div class="qa-grid">
+
+      <article class="qa">
+        <h3 class="q">אם אתה עונה לכל פנייה תוך דקה —</h3>
+        <p class="a">כנראה שאתה לא צריך את זה. מאיה נכנסת בדיוק שם שאתה לא יכול.</p>
+      </article>
+
+      <article class="qa">
+        <h3 class="q">אם כמעט אין פניות —</h3>
+        <p class="a">מאיה לא תפתור בעיה שאין. היא בנויה להחזיר לתנועה לידים שכבר נכנסים.</p>
+      </article>
+
+      <article class="qa">
+        <h3 class="q">אם אתה מחפש צעצוע AI —</h3>
+        <p class="a">זה לא הכיוון. זאת מערכת עבודה שעונה, סוגרת ועוקבת — לא הדגמה.</p>
+      </article>
+
+      <article class="qa">
+        <h3 class="q">אם נמאס לך לפספס כסף בגלל זמינות —</h3>
+        <p class="a">כאן זה נהיה מעניין. הדגמה אישית של 20 דקות תראה איפה אצלך כסף בורח.</p>
+      </article>
+
+      <article class="qa">
+        <h3 class="q">כמה זמן לוקח להתחיל?</h3>
+        <p class="a">מאיה מתחילה לענות ללקוחות שלך תוך 24 שעות. בלי התקנות, בלי ללמוד מערכת חדשה.</p>
+      </article>
+
+      <article class="qa">
+        <h3 class="q">ומה אם לא מרוצים?</h3>
+        <p class="a">14 ימי ניסיון. אם לא תראה ערך אמיתי — תקבל את כל הכסף חזרה, בלי שאלות.</p>
+      </article>
+
+    </div>
+  </div>
+</section>
+
+<!-- ─────────────── Guarantee ─────────────── -->
+<section class="guarantee" id="guarantee">
+  <div class="wrap">
+    <div class="copy">
+      <span class="eyebrow on-cream"><span class="dot"></span>14 ימי ניסיון</span>
+      <h2>תן למאיה שבועיים לעבוד בשבילך. <span class="gold-on-cream">בלי סיכון.</span></h2>
+      <p>אם תוך 14 יום לא תראה ערך אמיתי — תקבל את כל הכסף חזרה. בלי שאלות, בלי בירוקרטיה. אנחנו לא עובדים עם כל עסק — רק עם כאלה שיש להם כבר פניות, ורוצים להפסיק לאבד אותן.</p>
+      <div class="cta-row" style="display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;">
+        <a class="btn btn-primary on-cream" href="#" data-wa>בדוק אם זה מתאים לעסק שלך</a>
+        <a class="btn btn-secondary on-cream" href="#" data-wa-q>יש לי שאלה</a>
+      </div>
+    </div>
+    <ul class="bullets">
+      <li>בלי התחייבות שנתית</li>
+      <li>ביטול בכל עת</li>
+      <li>החזר מלא אם לא מרוצה</li>
+      <li>מתחיל לעבוד תוך 24 שעות</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ─────────────── Final CTA ─────────────── -->
+<section class="final-cta">
+  <div class="wrap">
+    <span class="eyebrow"><span class="dot"></span>מספיק לאבד לקוחות</span>
+    <h2>ברגע שאתה מסיים לקרוא את זה, <span class="accent">מישהו מנסה להשיג אותך.</span></h2>
+    <p class="sub">השאלה היא אם הוא יקבל מענה — או ימשיך הלאה. מאיה יכולה להתחיל לענות ללקוחות שלך כבר בימים הקרובים. כל יום שעובר בלעדיה, לידים הולכים לאיבוד.</p>
+    <div class="cta-row" style="display:flex;gap:14px;flex-wrap:wrap;justify-content:center;">
+      <a class="btn btn-primary" href="#" data-wa>
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3.5 20.5l1.4-4.7a8.5 8.5 0 1 1 3.3 3.3l-4.7 1.4z"/>
+          <path d="M9 9.5c.2 1.5 1 2.7 2.2 3.7 1.2 1 2.4 1.6 3.6 1.8.4.1.7 0 .9-.2l.7-.6c.2-.2.2-.5 0-.7l-1.3-.9c-.2-.1-.4-.1-.6 0l-.5.3c-.6-.2-1.2-.5-1.6-1-.5-.5-.8-1-1-1.6l.3-.5c.1-.2.1-.4 0-.6L10.7 7.9c-.2-.2-.5-.2-.7 0l-.6.7c-.2.2-.3.5-.2.9z"/>
+        </svg>
+        בדוק אם זה מתאים לעסק שלך
+      </a>
+      <a class="btn btn-secondary" href="#" data-wa-q>יש לי שאלה</a>
+    </div>
+    <p class="sub" style="opacity:0.7;font-size:12px;margin-top:-8px;">לוקח פחות מדקה למלא · 14 ימי ניסיון · בלי התחייבות</p>
+  </div>
+</section>
+
+<!-- ─────────────── Footer ─────────────── -->
+<footer>
+  <div class="row">
+    <div class="left">
+      <span>© Maya · Clinic Revenue OS</span>
+    </div>
+    <a href="#" data-wa>WhatsApp · +972 52 462 0550</a>
+  </div>
+</footer>
+
+<!-- ─────────────── Mobile sticky WhatsApp CTA ─────────────── -->
+<a class="sticky-wa" href="#" data-wa aria-label="דברו עם מאיה בוואטסאפ">
+  <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3.5 20.5l1.4-4.7a8.5 8.5 0 1 1 3.3 3.3l-4.7 1.4z"/>
+    <path d="M9 9.5c.2 1.5 1 2.7 2.2 3.7 1.2 1 2.4 1.6 3.6 1.8.4.1.7 0 .9-.2l.7-.6c.2-.2.2-.5 0-.7l-1.3-.9c-.2-.1-.4-.1-.6 0l-.5.3c-.6-.2-1.2-.5-1.6-1-.5-.5-.8-1-1-1.6l.3-.5c.1-.2.1-.4 0-.6L10.7 7.9c-.2-.2-.5-.2-.7 0l-.6.7c-.2.2-.3.5-.2.9z"/>
+  </svg>
+  בדוק אם מאיה מתאימה לעסק שלך
+</a>
+
+<!-- ─────────────── WhatsApp demo: scripted conversation ─────────────── -->
+<script>
+(function(){
+  const chat = document.getElementById('wa-chat');
+  if (!chat) return;
+  const bubbles = [...chat.querySelectorAll('.bubble')];
+  const typing  = chat.querySelector('.typing');
+  const timer   = document.getElementById('wa-timer');
+
+  // schedule: cumulative ms from start
+  // 0: client msg shows immediately
+  // 1: typing appears
+  // 2: maya reply 1 (typing hides)
+  // 3: maya reply 2
+  // 4: client confirms
+  const schedule = [0, 1100, 2600, 4100, 6000];
+  let timeouts = [];
+  let timerRafId = null;
+  let playing = false;
+
+  function reset(){
+    bubbles.forEach(b => b.classList.remove('is-shown'));
+    typing.classList.remove('is-shown');
+    timer.textContent = '0.0s';
+    timeouts.forEach(clearTimeout);
+    timeouts = [];
+    if (timerRafId) cancelAnimationFrame(timerRafId);
+    timerRafId = null;
+    playing = false;
+  }
+
+  function play(){
+    if (playing) return;
+    playing = true;
+    reset();
+    playing = true; // reset() flips it back
+
+    // step 0 — client message visible immediately
+    bubbles[0].classList.add('is-shown');
+
+    // step 1 — typing indicator
+    timeouts.push(setTimeout(() => {
+      typing.classList.add('is-shown');
+    }, schedule[1]));
+
+    // step 2 — Maya reply 1 (hide typing)
+    timeouts.push(setTimeout(() => {
+      typing.classList.remove('is-shown');
+      bubbles[1].classList.add('is-shown');
+    }, schedule[2]));
+
+    // step 3 — Maya reply 2
+    timeouts.push(setTimeout(() => {
+      bubbles[2].classList.add('is-shown');
+    }, schedule[3]));
+
+    // step 4 — client confirms
+    timeouts.push(setTimeout(() => {
+      bubbles[3].classList.add('is-shown');
+    }, schedule[4]));
+
+    // Response timer: counts from 0 to 4.0s during steps 1→2
+    const tStart = performance.now() + schedule[1];
+    const tEnd   = performance.now() + schedule[2];
+    function tickTimer(now){
+      if (now < tStart) {
+        timer.textContent = '0.0s';
+      } else if (now >= tEnd) {
+        timer.textContent = '4.0s';
+        return;
+      } else {
+        const v = ((now - tStart) / (tEnd - tStart)) * 4.0;
+        timer.textContent = v.toFixed(1) + 's';
+      }
+      timerRafId = requestAnimationFrame(tickTimer);
+    }
+    timerRafId = requestAnimationFrame(tickTimer);
+
+    // end of loop — clear playing flag so re-entry can replay
+    timeouts.push(setTimeout(() => { playing = false; }, schedule[4] + 600));
+  }
+
+  // Replay every time the section enters the viewport
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) play();
+      else reset();
+    });
+  }, { threshold: 0.4 });
+  io.observe(document.getElementById('wa-demo'));
+})();
+</script>
+
+<!-- ─────────────── Motion section: wires, pings, counters, chart ─────────────── -->
+<script>
+(function(){
+  const stage = document.getElementById('motion-stage');
+  if (!stage) return;
+
+  // ── 1. Draw connecting wires from each channel/action to the Maya orb ──
+  const wires = document.getElementById('motion-wires');
+  const orb   = stage.querySelector('.maya-core .orb');
+  const channels = [...stage.querySelectorAll('.channels .channel')];
+  const actions  = [...stage.querySelectorAll('.actions .action')];
+
+  function drawWires(){
+    const sb = stage.getBoundingClientRect();
+    const ob = orb.getBoundingClientRect();
+    const ox = ob.left - sb.left + ob.width/2;
+    const oy = ob.top  - sb.top  + ob.height/2;
+    wires.setAttribute('viewBox', `0 0 ${sb.width} ${sb.height}`);
+    wires.setAttribute('width', sb.width);
+    wires.setAttribute('height', sb.height);
+
+    let html = '';
+    // channels (right in RTL): wire from card's inside edge to orb
+    channels.forEach((c, i) => {
+      const r = c.getBoundingClientRect();
+      const sx = r.left - sb.left + 8;          // inner edge of card (left side because card is on the right column)
+      const sy = r.top  - sb.top  + r.height/2;
+      const cx1 = (sx + ox) / 2;
+      html += `<path class="wire" d="M${sx} ${sy} C ${cx1} ${sy}, ${cx1} ${oy}, ${ox} ${oy}"/>`;
+      html += `<path class="flow" data-flow="ch-${i}" style="animation-delay:${i * 0.45}s" d="M${sx} ${sy} C ${cx1} ${sy}, ${cx1} ${oy}, ${ox} ${oy}"/>`;
+    });
+    // actions (left in RTL): wire from orb to card's right edge
+    actions.forEach((a, i) => {
+      const r = a.getBoundingClientRect();
+      const ex = r.right - sb.left - 8;
+      const ey = r.top - sb.top + r.height/2;
+      const cx1 = (ex + ox) / 2;
+      html += `<path class="wire" d="M${ox} ${oy} C ${cx1} ${oy}, ${cx1} ${ey}, ${ex} ${ey}"/>`;
+      html += `<path class="flow" data-flow="ac-${i}" style="animation-delay:${0.25 + i * 0.45}s" d="M${ox} ${oy} C ${cx1} ${oy}, ${cx1} ${ey}, ${ex} ${ey}"/>`;
+    });
+    wires.innerHTML = html;
+  }
+  drawWires();
+  window.addEventListener('resize', drawWires);
+
+  // ── 2. Pulse channels and actions in sequence ──
+  let tick = 0;
+  function pulse(){
+    const c = channels[tick % channels.length];
+    const a = actions[(tick + 1) % actions.length];
+    c.classList.add('is-active');
+    setTimeout(() => a.classList.add('is-active'), 380);
+    setTimeout(() => { c.classList.remove('is-active'); a.classList.remove('is-active'); }, 1500);
+    tick++;
+  }
+  pulse();
+  setInterval(pulse, 1700);
+
+  // ── 3. Counters + sparklines: animate when stage enters viewport ──
+  const counters = [...stage.parentElement.querySelectorAll('[data-counter]')];
+  const sparks   = [...stage.parentElement.querySelectorAll('[data-spark]')];
+
+  function easeOutCubic(t){ return 1 - Math.pow(1 - t, 3); }
+
+  function buildSpark(seed){
+    // produce a 30-point gentle wave that trends up (or down for "response")
+    const pts = [];
+    const n = 30;
+    let v = 0.5;
+    for (let i = 0; i < n; i++) {
+      v += (Math.sin(i * 0.6 + seed) + (Math.random() - 0.5) * 0.6) * 0.06;
+      pts.push(v);
+    }
+    return pts;
+  }
+  const sparkData = {
+    inbound:  { pts: buildSpark(1.1), dir:  1 },
+    response: { pts: buildSpark(2.3), dir: -1 },
+    risk:     { pts: buildSpark(3.7), dir:  1 },
+    saved:    { pts: buildSpark(4.9), dir:  1 },
+  };
+
+  function renderSpark(name, progress){
+    const data = sparkData[name];
+    if (!data) return;
+    const el = document.querySelector(`[data-spark="${name}"]`);
+    if (!el) return;
+    const pts = data.pts;
+    const n = pts.length;
+    const W = 120, H = 26, pad = 2;
+    // normalize
+    const min = Math.min(...pts), max = Math.max(...pts);
+    const range = max - min || 1;
+    const visible = Math.max(2, Math.floor(n * progress));
+    let d = '';
+    for (let i = 0; i < visible; i++) {
+      const t = i / (n - 1);
+      const x = pad + t * (W - 2*pad);
+      // ascending trend baked in (or descending for response)
+      const trend = data.dir === 1 ? (1 - t) * 0.6 : t * 0.6;
+      const y = H - pad - ((pts[i] - min) / range * 0.4 + 0.1 + (data.dir === 1 ? (1 - trend) : trend)) * (H - 2*pad);
+      d += (i === 0 ? 'M' : 'L') + x.toFixed(1) + ' ' + y.toFixed(1) + ' ';
+    }
+    el.setAttribute('d', d);
+  }
+
+  function animateCounters(duration = 1800){
+    const start = performance.now();
+    function step(now){
+      const t = Math.min(1, (now - start) / duration);
+      const e = easeOutCubic(t);
+      counters.forEach(el => {
+        const from = parseFloat(el.dataset.from);
+        const to   = parseFloat(el.dataset.to);
+        const val  = from + (to - from) * e;
+        const isSec = el.dataset.counter === 'response';
+        if (val > 9999) {
+          el.textContent = Math.round(val).toLocaleString('he-IL');
+        } else if (isSec) {
+          el.textContent = Math.round(val);
+        } else {
+          el.textContent = Math.round(val).toLocaleString('he-IL');
+        }
+      });
+      sparks.forEach(el => renderSpark(el.dataset.spark, e));
+      if (t < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
+
+  let countersTriggered = false;
+  const countObserver = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting && !countersTriggered) {
+        countersTriggered = true;
+        animateCounters();
+      }
+    });
+  }, { threshold: 0.3 });
+  countObserver.observe(stage);
+
+  // ── 4. Scroll-driven recovered revenue chart ──
+  const chart      = document.getElementById('recover-chart');
+  const livePath   = document.getElementById('livePath');
+  const liveArea   = document.getElementById('liveArea');
+  const liveDot    = document.getElementById('liveDot');
+  const liveDotRing= document.getElementById('liveDotRing');
+  const lostPath   = document.getElementById('lostPath');
+
+  // Two synthetic series across 6 months. "Lost" stays low. "Recovered" climbs.
+  const series = (function(){
+    const n = 60;
+    const lost = [], live = [];
+    for (let i = 0; i < n; i++) {
+      const t = i / (n - 1);
+      // lost baseline: slight noise around 30% of chart
+      lost.push(0.78 - 0.05 * Math.sin(i * 0.7) + (Math.random() - 0.5) * 0.02);
+      // recovered: starts near lost line, accelerates up
+      const lift = Math.pow(t, 1.4) * 0.62;
+      live.push(0.78 - lift - 0.04 * Math.sin(i * 0.9 + 1.2) + (Math.random() - 0.5) * 0.015);
+    }
+    return { lost, live };
+  })();
+
+  function buildPath(values, progress){
+    const W = 800, H = 260;
+    const padL = 60, padR = 20, padT = 30, padB = 30;
+    const n = values.length;
+    const visible = Math.max(2, Math.floor(n * progress));
+    let d = '';
+    let lastX = padL, lastY = 0;
+    for (let i = 0; i < visible; i++) {
+      const t = i / (n - 1);
+      const x = padL + t * (W - padL - padR);
+      const y = padT + values[i] * (H - padT - padB);
+      d += (i === 0 ? 'M' : 'L') + x.toFixed(1) + ' ' + y.toFixed(1) + ' ';
+      lastX = x; lastY = y;
+    }
+    return { d, lastX, lastY };
+  }
+  function buildArea(values, progress){
+    const { d } = buildPath(values, progress);
+    const W = 800, H = 260, padR = 20, padB = 30;
+    const n = values.length;
+    const visible = Math.max(2, Math.floor(n * progress));
+    const t = (visible - 1) / (n - 1);
+    const padL = 60;
+    const x = padL + t * (W - padL - padR);
+    return d + ` L ${x.toFixed(1)} ${H - padB} L ${padL} ${H - padB} Z`;
+  }
+
+  // lost path is static — always full
+  const lost = buildPath(series.lost, 1).d;
+  lostPath.setAttribute('d', lost);
+
+  function updateChart(progress){
+    const p = Math.max(0.04, Math.min(1, progress));
+    const { d, lastX, lastY } = buildPath(series.live, p);
+    livePath.setAttribute('d', d);
+    liveArea.setAttribute('d', buildArea(series.live, p));
+    liveDot.setAttribute('cx', lastX);
+    liveDot.setAttribute('cy', lastY);
+    liveDotRing.setAttribute('cx', lastX);
+    liveDotRing.setAttribute('cy', lastY);
+  }
+  updateChart(0.04);
+
+  function onScroll(){
+    const r = chart.getBoundingClientRect();
+    const vh = window.innerHeight;
+    // progress: starts when chart top hits 85% of viewport; finishes when chart bottom is at 30% of viewport
+    const start = vh * 0.85;
+    const end   = vh * 0.20;
+    const span  = start - end;
+    const p = (start - r.top) / span;
+    updateChart(p);
+  }
+  let rafId = null;
+  window.addEventListener('scroll', () => {
+    if (rafId) return;
+    rafId = requestAnimationFrame(() => { onScroll(); rafId = null; });
+  }, { passive: true });
+  onScroll();
+})();
+</script>
+
+<!-- Wire all data-wa / data-wa-q links to the WhatsApp URLs -->
+<script>
+  document.querySelectorAll('[data-wa]').forEach(el => {
+    el.href = window.MAYA_WA;
+    el.target = '_blank';
+    el.rel = 'noopener';
+  });
+  document.querySelectorAll('[data-wa-q]').forEach(el => {
+    el.href = window.MAYA_WA_Q;
+    el.target = '_blank';
+    el.rel = 'noopener';
+  });
+
+  // ── Demo video: lazy-load /videos/maya-demo.mp4 only when it nears the
+  //    viewport, then keep the muted/looped autoplay. Falls back to the
+  //    "מאיה" placeholder if the file is missing or fails to play. ──
+  const v = document.querySelector('.video-frame video');
+  if (v) {
+    const realSrc = v.getAttribute('data-src');
+    let loaded = false;
+    const loadVideo = () => {
+      if (loaded || !realSrc) return;
+      loaded = true;
+      v.src = realSrc;
+      v.load();
+      const tryPlay = () => { const p = v.play(); if (p && p.catch) p.catch(() => {}); };
+      v.addEventListener('canplay', tryPlay, { once: true });
+      tryPlay();
+    };
+    v.addEventListener('error', () => { v.setAttribute('data-empty', ''); v.style.opacity = '0'; });
+    if ('IntersectionObserver' in window) {
+      const vo = new IntersectionObserver((entries) => {
+        entries.forEach((e) => {
+          if (e.isIntersecting) { loadVideo(); }
+          // Pause when fully off-screen to save battery/CPU on mobile.
+          else if (loaded) { v.pause(); }
+          if (loaded && e.isIntersecting) { const p = v.play(); if (p && p.catch) p.catch(() => {}); }
+        });
+      }, { rootMargin: '300px 0px' });
+      vo.observe(v);
+    } else {
+      loadVideo();
+    }
+  }
+
+  // ── Reduced-motion guard for all enhanced motion below. ──
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // ── Cinematic scroll-reveal: stagger the direct children of every section's
+  //    .wrap (the hero keeps its own first-paint reveal). ──
+  if (!reduceMotion && 'IntersectionObserver' in window) {
+    const targets = [];
+    document.querySelectorAll('section:not(.hero) > .wrap').forEach((wrap) => {
+      const kids = [...wrap.children];
+      const group = kids.length > 1 ? kids : [wrap];
+      group.forEach((el, i) => {
+        el.classList.add('s-reveal');
+        el.style.setProperty('--s-delay', Math.min(i, 5) * 90 + 'ms');
+        targets.push(el);
+      });
+    });
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach((e) => {
+        if (e.isIntersecting) { e.target.classList.add('is-in'); io.unobserve(e.target); }
+      });
+    }, { rootMargin: '0px 0px -12% 0px', threshold: 0.08 });
+    targets.forEach((t) => io.observe(t));
+  }
+
+  // ── Slow camera-like parallax on the video frame + a faint hero drift.
+  //    rAF-throttled and var-driven so it never fights layout. ──
+  if (!reduceMotion) {
+    const frame = document.querySelector('.video-frame');
+    const hero  = document.querySelector('.hero');
+    let ticking = false;
+    const onScroll = () => {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(() => {
+        const y = window.scrollY || 0;
+        if (frame) {
+          const r = frame.getBoundingClientRect();
+          const center = r.top + r.height / 2 - window.innerHeight / 2;
+          frame.style.setProperty('--py', (center * -0.05).toFixed(1) + 'px');
+        }
+        if (hero) hero.style.backgroundPosition = '50% ' + (y * 0.12).toFixed(1) + 'px';
+        ticking = false;
+      });
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+  }
+
+  // ── Mobile sticky WhatsApp CTA: slides in once the hero is scrolled past. ──
+  const sticky = document.querySelector('.sticky-wa');
+  const heroEl = document.querySelector('.hero');
+  if (sticky && heroEl && 'IntersectionObserver' in window) {
+    const so = new IntersectionObserver((entries) => {
+      entries.forEach((e) => sticky.classList.toggle('is-show', !e.isIntersecting));
+    }, { threshold: 0 });
+    so.observe(heroEl);
+  }
+</script>
+
+</body>
+</html>
