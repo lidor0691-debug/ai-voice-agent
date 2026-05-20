@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     # How long to cache sheet data in seconds (0 = no cache)
     GOOGLE_SHEETS_CACHE_TTL: int = 60
 
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
 
 @lru_cache()
