@@ -56,6 +56,15 @@ _E164_RE = re.compile(r"^\+[1-9][0-9]{7,15}$")
 _DETAIL_MAX_LEN = 500
 _DRYRUN_PREFIX = "DRYRUN_"
 
+# Safe, user-facing Hebrew messages for post-claim execution failures. The
+# finalize RPC returns error_he = NULL on success, so the failure envelope must
+# supply its own message keyed by the originating failure code.
+_EXECUTION_FAILURE_HE = {
+    "config_missing":  "שליחת ההודעה נכשלה: תצורת השליחה אינה זמינה.",
+    "twilio_error":    "שליחת ההודעה נכשלה. נסו שוב מאוחר יותר.",
+    "session_expired": "חלון 24 השעות של WhatsApp נסגר, לא ניתן לשלוח.",
+}
+
 # Twilio error codes that indicate the 24h conversation window has closed.
 _SESSION_EXPIRED_TWILIO_CODES = {63016, 63007}
 
@@ -270,8 +279,15 @@ async def _finalize_failure(
     detail: Optional[str],
     twilio_message_status: Optional[str] = None,
 ) -> dict:
+    """Finalize a claimed suggestion to 'failed' and return a *failure* envelope.
+
+    The action execution did NOT succeed, so the returned envelope carries
+    `ok=false` with the originating failure code — even though the finalize
+    transaction itself may have committed. The finalized suggestion state is
+    preserved; `finalize_ok` reports whether the finalize RPC committed.
+    """
     bounded = (detail or "")[:_DETAIL_MAX_LEN] or None
-    return await user_supabase_rpc(
+    finalize = await user_supabase_rpc(
         user_jwt,
         "finalize_action_execution",
         {
@@ -283,6 +299,26 @@ async def _finalize_failure(
             "p_failure_detail":        bounded,
         },
     )
+
+    finalize_ok = isinstance(finalize, dict) and finalize.get("ok") is True
+    if not finalize_ok:
+        # The finalize transaction itself failed (auth/race/network). Surface
+        # its envelope but force ok=false and flag that finalize did not commit.
+        result = dict(finalize) if isinstance(finalize, dict) else {}
+        result["ok"] = False
+        result.setdefault("error_code", code)
+        result["finalize_ok"] = False
+        return result
+
+    return {
+        "ok": False,
+        "error_code": code,
+        "error_he": finalize.get("error_he") or _EXECUTION_FAILURE_HE.get(code),
+        "suggestion": finalize.get("suggestion"),
+        "current_version": finalize.get("current_version"),
+        "execution_log_id": finalize.get("execution_log_id"),
+        "finalize_ok": True,
+    }
 
 
 async def _finalize_success(

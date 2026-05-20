@@ -154,7 +154,11 @@ async def test_config_missing_no_agent_finalizes_failed(env_no_live):
          patch.object(ex, "_agents_config_lookup", new=AsyncMock()) as lookup:
         out = await execute_one("s1", 5, "jwt")
 
-    assert out == finalize_fail
+    # Execution failed after claim → ok=false envelope, finalize committed.
+    assert out["ok"] is False
+    assert out["error_code"] == "config_missing"
+    assert out["suggestion"] == {"status": "failed"}
+    assert out["finalize_ok"] is True
     # No agents_config lookup attempted when agent_id is missing
     lookup.assert_not_called()
 
@@ -163,6 +167,62 @@ async def test_config_missing_no_agent_finalizes_failed(env_no_live):
     assert finalize_params["p_terminal_status"] == "failed"
     assert finalize_params["p_failure_code"] == "config_missing"
     assert finalize_params["p_failure_detail"] == "agent_id_missing"
+
+
+# ── 4b. execution-failure envelope semantics (3.11D-3I.5) ──────────────────
+
+
+@pytest.mark.asyncio
+async def test_config_missing_inactive_agent_envelope_ok_false(env_no_live):
+    """Inactive agent → finalize 'failed', but the envelope must be ok=false
+    carrying config_missing (not the raw ok=true finalize envelope)."""
+    claim_ok = _claim_ok()
+    finalize_ok = {
+        "ok": True, "error_code": "ok", "error_he": None,
+        "suggestion": {"id": "s1", "status": "failed", "version": 6},
+        "current_version": 6, "execution_log_id": "log-9",
+    }
+    rpc_mock = AsyncMock(side_effect=[claim_ok, finalize_ok])
+    with patch.object(ex, "user_supabase_rpc", new=rpc_mock), \
+         patch.object(ex, "_agents_config_lookup",
+                      new=AsyncMock(return_value=_agent_row(is_active=False))):
+        out = await execute_one("s1", 5, "jwt")
+
+    assert out["ok"] is False
+    assert out["error_code"] == "config_missing"
+    assert out["suggestion"]["status"] == "failed"
+    assert out["finalize_ok"] is True
+    # A safe Hebrew message is surfaced even though finalize returned error_he=None
+    assert out["error_he"]
+    # finalize RPC was actually called (claim + finalize)
+    assert rpc_mock.call_count == 2
+    assert [c.args[1] for c in rpc_mock.call_args_list] == [
+        "claim_action_for_execution", "finalize_action_execution"]
+
+
+@pytest.mark.asyncio
+async def test_invalid_message_claim_failure_returns_ok_false_no_finalize(env_no_live):
+    """invalid_message is a claim-time (Class A) failure: claim itself moves the
+    suggestion to failed and returns ok=false. execute_one must surface that
+    envelope unchanged and never call finalize/resolve."""
+    claim_fail = {
+        "ok": False, "error_code": "invalid_message",
+        "error_he": "ההודעה אינה תקינה",
+        "suggestion": {"id": "s1", "status": "failed", "version": 2},
+        "current_version": 2,
+    }
+    rpc_mock = AsyncMock(return_value=claim_fail)
+    with patch.object(ex, "user_supabase_rpc", new=rpc_mock), \
+         patch.object(ex, "_agents_config_lookup", new=AsyncMock()) as lookup:
+        out = await execute_one("s1", 1, "jwt")
+
+    assert out == claim_fail
+    assert out["ok"] is False
+    assert out["error_code"] == "invalid_message"
+    # Only the claim RPC ran — no resolve, no finalize.
+    assert rpc_mock.call_count == 1
+    assert rpc_mock.call_args.args[1] == "claim_action_for_execution"
+    lookup.assert_not_called()
 
 
 # ── 5. live allowlist blocks non-allowed phone, no Twilio call ─────────────
@@ -184,7 +244,9 @@ async def test_live_allowlist_blocks_unlisted_phone(env_live, monkeypatch):
          patch.object(ex, "_agents_config_lookup", new=AsyncMock(return_value=_agent_row())):
         out = await execute_one("s1", 5, "jwt")
 
-    assert out == finalize_fail
+    assert out["ok"] is False
+    assert out["error_code"] == "config_missing"
+    assert out["finalize_ok"] is True
     finalize_params = rpc_mock.call_args_list[1].args[2]
     assert finalize_params["p_failure_code"] == "config_missing"
     assert finalize_params["p_failure_detail"] == "phone_not_in_live_allowlist"
