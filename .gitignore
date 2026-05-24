@@ -7,3 +7,15 @@ service_account.json
 *.pyc
 node_modules/
 .next/agent/daemon.log
+
+# Local validation throwaways
+scripts/local-*
+server*.log
+test_output.wav
+
+# Supabase CLI local runtime state
+supabase/.temp/
+supabase/.branches/
+
+# Next.js build output
+dashboard/.next/
