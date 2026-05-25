@@ -30,6 +30,41 @@ _SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 _SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
 
 
+async def _record_inbound_lead_timestamp(
+    client_id: Optional[str], phone: str, now_iso: str
+) -> None:
+    """Set leads.last_whatsapp_inbound_at for the matching lead (inbound only).
+
+    Scoped by (phone, client_id) to prevent cross-tenant updates. Skipped when
+    client_id is unknown — never do a phone-only update. Non-fatal: any failure
+    is logged and swallowed so the reply pipeline continues. `phone` must already
+    be normalized (whatsapp: prefix stripped) by the caller. Service-role headers
+    are built inline and never logged.
+    """
+    if not client_id or not phone:
+        return
+    if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
+        return
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as _wc:
+            await _wc.patch(
+                f"{_SUPABASE_URL}/rest/v1/leads",
+                params={
+                    "phone":     f"eq.{phone}",
+                    "client_id": f"eq.{client_id}",
+                },
+                json={"last_whatsapp_inbound_at": now_iso},
+                headers={
+                    "apikey":        _SUPABASE_SERVICE_KEY,
+                    "Authorization": f"Bearer {_SUPABASE_SERVICE_KEY}",
+                    "Content-Type":  "application/json",
+                    "Prefer":        "return=minimal",
+                },
+            )
+    except Exception as _exc:
+        logger.warning("[WHATSAPP] Failed to update last_whatsapp_inbound_at: %s", _exc)
+
+
 async def _fetch_recent_call_context(phone: str, max_age_minutes: int = 60) -> Optional[str]:
     """
     Fetch last_call_summary from leads table if last_call_at is within max_age_minutes.
@@ -503,25 +538,24 @@ async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: st
     # If client_id missing, fail safely → notify.is_new_lead = false (computed below).
     is_new_lead = bool(_notify_client_id) and _existing_lead is None
 
-    # First contact for this client — create the lead row.
+    # Inbound timestamp for the WhatsApp 24h window. Consumed by the action
+    # executor's claim guard and the followup_gap producer. customer_phone is
+    # already normalized (whatsapp: prefix stripped) at the top of this fn.
+    _now_iso = datetime.now(timezone.utc).isoformat()
+
+    # First contact for this client — create the lead row (with inbound stamp).
     if is_new_lead:
         await save_lead({
             "phone":     customer_phone,
             "source":    "whatsapp",
             "status":    "new",
             "client_id": _notify_client_id,
+            "last_whatsapp_inbound_at": _now_iso,
         })
 
-    # ── Update last_whatsapp_inbound_at for 24h window tracking ──────────
-    try:
-        async with httpx.AsyncClient(timeout=3.0) as _wc:
-            await _wc.patch(
-                f"{_SUPABASE_URL}/rest/v1/leads?phone=eq.{customer_phone}",
-                json={"last_whatsapp_inbound_at": datetime.utcnow().isoformat()},
-                headers={**_headers(), "Prefer": "return=minimal"},
-            )
-    except Exception as _exc:
-        logger.warning("[WHATSAPP] Failed to update last_whatsapp_inbound_at: %s", _exc)
+    # ── Update last_whatsapp_inbound_at for 24h window tracking (inbound only) ──
+    # Scoped by (phone, client_id) inside the helper; non-fatal on failure.
+    await _record_inbound_lead_timestamp(_notify_client_id, customer_phone, _now_iso)
 
     # ── Mirror inbound into Maya Watch (persist-only; NO scheduling) ─────
     # Captures customer messages that arrive via Make/Twilio into
