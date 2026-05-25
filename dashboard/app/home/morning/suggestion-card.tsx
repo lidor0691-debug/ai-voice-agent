@@ -8,9 +8,9 @@ type BoundAction = (prevState: ActionState, formData: FormData) => Promise<Actio
 const INITIAL: ActionState = { ok: true };
 
 const SKIP_CHIPS = [
-  "לא רלוונטי עוד",
-  "טופל כבר",
-  "מנוסח באיכות נמוכה",
+  "כבר טיפלתי",
+  "לא רלוונטי",
+  "הניסוח לא מתאים",
   "אחר",
 ] as const;
 type SkipChip = typeof SKIP_CHIPS[number];
@@ -119,7 +119,7 @@ export function InFlightSuggestionCard(props: InFlightProps) {
     >
       {props.flightStatus === "executing" && (
         <p className="mt-4 text-[12.5px] text-[#0B1714]/55">
-          שולחת עכשיו…
+          מאיה שולחת עכשיו…
         </p>
       )}
       {props.flightStatus === "failed" && (
@@ -189,7 +189,7 @@ export function ActionableSuggestionCard(props: ActionableProps) {
       {mode === "editing" && (
         <form action={runEdit} className="mt-4 space-y-2">
           <div className="text-[11px] uppercase tracking-wider text-[#0B1714]/45 mb-1.5">
-            עריכת הודעה
+            עריכת ההודעה ששלחה מאיה
           </div>
           {editState.ok === false && (
             <ErrorBanner code={editState.code} message={editState.message} />
@@ -221,7 +221,7 @@ export function ActionableSuggestionCard(props: ActionableProps) {
                 disabled={editPending || draftMessage.trim().length === 0}
                 className="text-[12.5px] text-white bg-[#0B1714]/85 hover:bg-[#0B1714] disabled:opacity-50 rounded-md px-3 py-1.5"
               >
-                שמור
+                שמירה
               </button>
             </div>
           </div>
@@ -232,7 +232,7 @@ export function ActionableSuggestionCard(props: ActionableProps) {
       {mode === "skipping" && (
         <form action={runSkip} className="mt-4 space-y-2.5">
           <div className="text-[11px] uppercase tracking-wider text-[#0B1714]/45 mb-1.5">
-            סיבת הדילוג
+            למה לדלג?
           </div>
           {skipState.ok === false && (
             <ErrorBanner code={skipState.code} message={skipState.message} />
@@ -267,7 +267,7 @@ export function ActionableSuggestionCard(props: ActionableProps) {
               value={otherText}
               onChange={(e) => setOtherText(e.target.value)}
               maxLength={MAX_OTHER_LEN}
-              placeholder="פרטו בקצרה"
+              placeholder="כתבו סיבה קצרה"
               className="w-full rounded-lg border border-[#0B1714]/15 bg-white px-3 py-2 text-[13px] text-[#0B1714]/90 focus:outline-none focus:border-[#0B1714]/35"
             />
           )}
@@ -287,7 +287,7 @@ export function ActionableSuggestionCard(props: ActionableProps) {
               disabled={skipSubmitDisabled}
               className="text-[12.5px] text-white bg-[#0B1714]/85 hover:bg-[#0B1714] disabled:opacity-50 rounded-md px-3 py-1.5"
             >
-              אשר דילוג
+              דלג
             </button>
           </div>
         </form>
@@ -300,7 +300,7 @@ export function ActionableSuggestionCard(props: ActionableProps) {
             <ErrorBanner code={sendState.code} message={sendState.message} />
           )}
           <p className="text-[13.5px] text-[#0B1714]/85 leading-relaxed">
-            שליחת הודעה ב-WhatsApp ללקוח?
+            לשלוח את ההודעה ללקוח ב-WhatsApp?
           </p>
           <div className="flex items-center justify-end gap-2">
             <button
@@ -316,7 +316,7 @@ export function ActionableSuggestionCard(props: ActionableProps) {
               disabled={sendPending}
               className="text-[12.5px] text-white bg-[#0B1714]/85 hover:bg-[#0B1714] disabled:opacity-50 rounded-md px-3 py-1.5"
             >
-              אישור סופי
+              כן, שלח
             </button>
           </div>
         </form>
@@ -334,21 +334,21 @@ export function ActionableSuggestionCard(props: ActionableProps) {
               onClick={openSkip}
               className="text-[12.5px] text-[#0B1714]/65 hover:text-[#0B1714]/90 px-2 py-1"
             >
-              דלג
+              דלג על ההצעה
             </button>
             <button
               type="button"
               onClick={openEdit}
               className="text-[12.5px] text-[#0B1714]/80 border border-[#0B1714]/15 hover:border-[#0B1714]/35 rounded-md px-3 py-1.5"
             >
-              ערוך
+              עריכת ההודעה
             </button>
             <button
               type="button"
               onClick={openConfirm}
               className="text-[12.5px] text-white bg-[#0B1714]/85 hover:bg-[#0B1714] rounded-md px-3 py-1.5"
             >
-              שלח
+              שלח ללקוח
             </button>
           </div>
         </div>

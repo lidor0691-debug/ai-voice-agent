@@ -58,11 +58,11 @@ interface SuggestionRow {
 }
 
 const STATUS_LABEL_HE: Record<string, string> = {
-  suggested:        "ממתין לאישור",
-  pending_approval: "ממתין לאישור",
+  suggested:        "ממתין לאישור שלך",
+  pending_approval: "ממתין לאישור שלך",
   edited:           "נערך וממתין לאישור",
   executing:        "שולחת עכשיו",
-  failed:           "השליחה נכשלה",
+  failed:           "השליחה לא הושלמה",
 };
 
 // ── Pure helpers ─────────────────────────────────────────────────────────
@@ -116,7 +116,7 @@ function permissionLabel(mode: string): string {
 }
 
 function statusLabel(status: string): string {
-  return STATUS_LABEL_HE[status] ?? "ממתין לאישור";
+  return STATUS_LABEL_HE[status] ?? "ממתין לאישור שלך";
 }
 
 function heroLine(count: number): string {
