@@ -171,6 +171,17 @@ create index if not exists client_assets_lookup_idx
 alter table public.client_assets disable row level security;
 
 -- =============================================
+-- Migration: agent lifecycle status
+-- draft | ready_for_test | live. Existing active agents are treated as live.
+-- live <=> is_active = true (the wizard keeps the two in sync).
+-- =============================================
+alter table public.agents_config
+  add column if not exists status text not null default 'draft'
+  check (status in ('draft', 'ready_for_test', 'live'));
+
+update public.agents_config set status = 'live' where is_active = true;
+
+-- =============================================
 -- Bootstrap: run once after clients table created
 -- Creates one clients row per existing agent and back-fills client_id.
 -- WARNING: creates one client per agent row. If multiple agents belong to

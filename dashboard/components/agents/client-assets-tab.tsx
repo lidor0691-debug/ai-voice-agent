@@ -12,7 +12,7 @@ const ASSET_TYPE_COLORS: Record<ClientAsset["asset_type"], string> = {
   video: "bg-orange-500/20 text-orange-300",
 };
 
-const PRESET_TRIGGERS = [
+export const PRESET_TRIGGERS = [
   "trial_booked",
   "payment_request",
   "general_followup",
