@@ -31,6 +31,9 @@ export interface AgentConfig {
   agent_name: string;
   phone_number: string | null;
   is_active: boolean;
+  // Lifecycle. Optional for back-compat with rows read before the status migration.
+  // live <=> is_active = true (kept in sync by the client setup wizard).
+  status?: 'draft' | 'ready_for_test' | 'live';
 
   // Conversation
   first_message: string | null;

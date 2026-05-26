@@ -2,12 +2,15 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useLanguage } from "@/context/language-context";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const { lang } = useLanguage();
 
   const tabs = [
     { href: "/admin", label: "Clients" },
+    { href: "/admin/client-setup", label: lang === "en" ? "Client Setup" : "הקמת לקוח" },
     { href: "/admin/users", label: "Users" },
     { href: "/admin/audit", label: "Audit Log" },
     { href: "/admin/briefings", label: "Briefings" },
