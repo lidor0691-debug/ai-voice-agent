@@ -45,12 +45,12 @@ export async function middleware(request: NextRequest) {
     if (!user) {
       return NextResponse.rewrite(new URL("/landing.html", request.url));
     }
-    return NextResponse.redirect(new URL("/home/watch", request.url));
+    return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 
-  // If logged in and on login page → land on the new product home.
+  // If logged in and on login page → land on the old stable dashboard.
   if (user && pathname === "/login") {
-    return NextResponse.redirect(new URL("/home/watch", request.url));
+    return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 
   // If not logged in and not on login page → redirect to login

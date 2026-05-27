@@ -18,5 +18,5 @@ export async function signIn(
     return error.message;
   }
 
-  redirect("/home/watch");
+  redirect("/dashboard");
 }
