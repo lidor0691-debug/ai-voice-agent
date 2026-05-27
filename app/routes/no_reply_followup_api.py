@@ -173,7 +173,10 @@ async def get_no_reply_due(x_followup_secret: str = Header(default="")):
                     continue
                 if lid not in latest_by_lead:  # first seen = newest (ts desc)
                     latest_by_lead[lid] = m
-                if m.get("body"):
+                # Classify on the CUSTOMER's words only (inbound). Maya's outbound
+                # opener enumerates "בת מצווה / שיעור ניסיון", which would otherwise
+                # force a false Bat-Mitzvah match for a trial-lesson lead.
+                if m.get("body") and (m.get("direction") or "").lower() == "in":
                     text_by_lead.setdefault(lid, []).append(m["body"])
 
             # 3) Terminal-status exclusion via the `leads` table (per tenant).
