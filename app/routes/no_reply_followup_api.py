@@ -65,11 +65,42 @@ _TERMINAL_STATUSES = {
     "not_relevant", "not relevant", "lost", "spam", "cancelled",
 }
 
-# Suggested follow-up copy (returned for preview only — NOT sent here).
-_FOLLOWUP_MESSAGE = (
+# ── Follow-up copy, chosen dynamically by service type (deterministic, no LLM) ──
+_MSG_BAT_MITZVAH = (
     "היי 😊 רק בודקת איתך אם עדיין רלוונטי לגבי הריקוד לבת מצווה?\n"
     "אשמח לעזור ולתת לך את כל הפרטים 💃"
 )
+_MSG_TRIAL = (
+    "היי 😊 רק בודקת איתך אם עדיין רלוונטי לגבי שיעור הניסיון?\n"
+    "אשמח לעזור ולתת לך את כל הפרטים 💃"
+)
+_MSG_NEUTRAL = (
+    "היי 😊 רק בודקת איתך אם זה עדיין רלוונטי?\n"
+    "אשמח לעזור ולתת לך את כל הפרטים 💃"
+)
+
+# Clear Bat-Mitzvah / event-dance signals.
+_BAT_MITZVAH_KEYWORDS = (
+    "בת מצווה", "בתמצווה", "ריקוד לבת מצווה", "ריקוד לאירוע", "אירוע",
+)
+# Trial-lesson / class / studio signals.
+_TRIAL_KEYWORDS = (
+    "שיעור ניסיון", "נסיון", "חוג", "שיעור", "ריקוד לילדה",
+    "סטודיו", "להירשם", "הרשמה",
+)
+
+
+def _classify_followup(text: str) -> str:
+    """Pick the follow-up copy from conversation text using simple, deterministic
+    keyword matching (no LLM). Bat-Mitzvah only on a clear event signal; otherwise
+    trial-lesson; otherwise a neutral message — preferring neutral over wrong
+    specificity so a trial-lesson lead never gets a Bat-Mitzvah follow-up."""
+    t = text or ""
+    if any(k in t for k in _BAT_MITZVAH_KEYWORDS):
+        return _MSG_BAT_MITZVAH
+    if any(k in t for k in _TRIAL_KEYWORDS):
+        return _MSG_TRIAL
+    return _MSG_NEUTRAL
 
 
 def _headers() -> dict:
@@ -128,17 +159,22 @@ async def get_no_reply_due(x_followup_secret: str = Header(default="")):
                 f"{_SUPABASE_URL}/rest/v1/maya_watch_messages",
                 params={
                     "lead_id": f"in.({','.join(lead_ids)})",
-                    "select": "lead_id,direction,ts",
+                    "select": "lead_id,direction,ts,body",
                     "order": "ts.desc",
                 },
                 headers=_headers(),
             )
             mr.raise_for_status()
             latest_by_lead: dict[str, dict] = {}
+            text_by_lead: dict[str, list[str]] = {}
             for m in mr.json():
                 lid = m.get("lead_id")
-                if lid and lid not in latest_by_lead:  # first seen = newest (ts desc)
+                if not lid:
+                    continue
+                if lid not in latest_by_lead:  # first seen = newest (ts desc)
                     latest_by_lead[lid] = m
+                if m.get("body"):
+                    text_by_lead.setdefault(lid, []).append(m["body"])
 
             # 3) Terminal-status exclusion via the `leads` table (per tenant).
             sr = await client.get(
@@ -185,7 +221,7 @@ async def get_no_reply_due(x_followup_secret: str = Header(default="")):
                     "name":            lead.get("name") or "",
                     "last_outbound_at": last_out.isoformat(),
                     "hours_silent":    hours_silent,
-                    "message":         _FOLLOWUP_MESSAGE,
+                    "message":         _classify_followup(" ".join(text_by_lead.get(lid, []))),
                 })
 
     return {
