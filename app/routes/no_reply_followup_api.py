@@ -33,6 +33,7 @@ from zoneinfo import ZoneInfo
 
 import httpx
 from fastapi import APIRouter, Header, HTTPException
+from pydantic import BaseModel
 
 router = APIRouter()
 
@@ -193,4 +194,60 @@ async def get_no_reply_due(x_followup_secret: str = Header(default="")):
         "count": len(due),
         "due": due,
         "israel_time": israel_now.isoformat(),
+    }
+
+
+class NoReplyMarkSentBody(BaseModel):
+    lead_id: str
+    kind: str = "no_reply_2h"
+
+
+@router.post("/followup/no-reply-mark-sent")
+async def no_reply_mark_sent(
+    body: NoReplyMarkSentBody,
+    x_followup_secret: str = Header(default=""),
+):
+    """Stamp maya_watch_leads.followup_sent_at for the no-reply follow-up flow.
+
+    Called by the BPM no-reply Make scenario AFTER a successful Twilio send.
+    Writes the SAME field /followup/no-reply-due reads for dedupe — so once
+    stamped, the lead stops being returned ("max once"). Deliberately separate
+    from /followup/mark-sent (which stamps the `leads` table for the appointment
+    flow) so neither flow interferes with the other.
+    """
+    if _FOLLOWUP_SECRET and x_followup_secret != _FOLLOWUP_SECRET:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    stamped = datetime.now(timezone.utc).isoformat()
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        # Validate the lead exists and belongs to an allowed (BPM) tenant.
+        r = await client.get(
+            f"{_SUPABASE_URL}/rest/v1/maya_watch_leads",
+            params={"id": f"eq.{body.lead_id}", "select": "id,client_id"},
+            headers=_headers(),
+        )
+        r.raise_for_status()
+        rows = r.json()
+        if not rows:
+            raise HTTPException(status_code=404, detail="lead not found")
+        if str(rows[0].get("client_id")) not in _ALLOWED_CLIENT_IDS:
+            raise HTTPException(status_code=403, detail="lead not in allowed client list")
+
+        # Stamp the dedupe field the no-reply-due endpoint reads. (No schema change;
+        # followup_status is left untouched to avoid clobbering native delivery state.)
+        pr = await client.patch(
+            f"{_SUPABASE_URL}/rest/v1/maya_watch_leads",
+            params={"id": f"eq.{body.lead_id}"},
+            json={"followup_sent_at": stamped},
+            headers={**_headers(), "Content-Type": "application/json", "Prefer": "return=minimal"},
+        )
+        if pr.status_code >= 400:
+            raise HTTPException(status_code=502, detail=f"Supabase patch failed: {pr.text}")
+
+    return {
+        "ok": True,
+        "lead_id": body.lead_id,
+        "kind": body.kind,
+        "followup_sent_at": stamped,
     }
