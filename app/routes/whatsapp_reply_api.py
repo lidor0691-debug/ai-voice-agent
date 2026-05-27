@@ -10,7 +10,7 @@ Make receives the final reply text and does nothing else.
 
 import logging
 
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Request, Response
 from pydantic import BaseModel
 
 from app.services.mri_reply_capture import try_capture_probe_reply
@@ -20,6 +20,22 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _schedule_post_reply(background_tasks: BackgroundTasks, result: dict) -> dict:
+    """
+    Pop the deferred post-reply closure (`_bg`) off the service result and
+    schedule it on FastAPI BackgroundTasks so it runs AFTER the response is
+    sent. Returns the result dict with `_bg` removed so the public response
+    schema is unchanged. Paths that produced no deferred work (probe match,
+    fail-closed, confirmation ack, error) simply have no `_bg` and are returned
+    as-is.
+    """
+    bg = result.pop("_bg", None) if isinstance(result, dict) else None
+    if bg is not None:
+        background_tasks.add_task(bg)
+        logger.info("[WHATSAPP-BG] reply returned to caller; post-reply work scheduled")
+    return result
+
+
 class ReplyRequest(BaseModel):
     customer_phone: str   # Twilio From — used for conversation history
     business_phone: str   # Twilio To  — used for agent config lookup
@@ -27,7 +43,7 @@ class ReplyRequest(BaseModel):
 
 
 @router.post("/whatsapp/reply")
-async def whatsapp_reply(req: ReplyRequest):
+async def whatsapp_reply(req: ReplyRequest, background_tasks: BackgroundTasks):
     """
     Full WhatsApp reply pipeline — backend owns memory and context.
 
@@ -62,7 +78,7 @@ async def whatsapp_reply(req: ReplyRequest):
         business_phone=req.business_phone,
         user_message=req.user_message,
     )
-    return result
+    return _schedule_post_reply(background_tasks, result)
 
 
 def _twiml_empty() -> Response:
@@ -83,7 +99,7 @@ def _twiml_message(text: str) -> Response:
 
 
 @router.post("/whatsapp/twilio-inbound")
-async def twilio_inbound(request: Request):
+async def twilio_inbound(request: Request, background_tasks: BackgroundTasks):
     """
     Twilio WhatsApp inbound webhook (form-encoded direct from Twilio).
 
@@ -123,6 +139,10 @@ async def twilio_inbound(request: Request):
         business_phone=business_phone,
         user_message=user_message,
     )
+    # Schedule deferred persistence/analytics so the TwiML returns immediately.
+    # The reply text was already sanitized inside generate_whatsapp_reply; we
+    # re-run sanitize_outbound_reply here only as the existing idempotent guard.
+    result = _schedule_post_reply(background_tasks, result)
     reply_text = sanitize_outbound_reply((result or {}).get("reply") or "")
     if not reply_text:
         logger.info("[WA-TWILIO] suppressed empty/invalid reply for to=%s", customer_phone)

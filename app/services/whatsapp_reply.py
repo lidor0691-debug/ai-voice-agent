@@ -162,6 +162,12 @@ def _sanitize_output(text: str) -> str:
     return text.replace("\u2028", " ").replace("\u2029", " ")
 
 
+def _mask_phone(p: str) -> str:
+    """Return a privacy-safe phone token for logs \u2014 last 4 digits only."""
+    digits = "".join(ch for ch in (p or "") if ch.isdigit())
+    return f"***{digits[-4:]}" if len(digits) >= 4 else "***"
+
+
 def strict_sanitize(text: str) -> str:
     """Guarantee no \\u2028/\\u2029 leaves the API — applied to every outbound string."""
     if not text:
@@ -672,91 +678,28 @@ async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: st
     except Exception as exc:
         return {"reply": strict_sanitize(f"DIAG_STEP5_FAIL: {exc}"), "messages": []}
 
-    # ── 6. Persist history via customer_phone ────────────────────────────────
-    try:
-        updated_messages = await append_whatsapp_messages(
-            customer_phone,
-            user_message,
-            reply,
-            client_id=agent.get("client_id") or None,
-            agent_id=agent.get("agent_id") or None,
-            business_phone=business_phone or None,
-        )
-    except Exception as exc:
-        updated_messages = history + [
-            {"role": "user",      "content": user_message},
-            {"role": "assistant", "content": reply},
-        ]
+    # `reply_raw` is the OpenAI output after basic _sanitize. This is the exact
+    # value that history + the response `messages` array have always carried
+    # (history was persisted BEFORE sanitize_outbound_reply ran). Keep it stable.
+    reply_raw = reply
 
-    # ── 6a. Attribution Ledger v0 — record outbound WhatsApp action ─────────────
-    # Fire-and-forget. Never raises. See app/services/attribution.py.
-    try:
-        from app.services.attribution import record_whatsapp_action
-        await record_whatsapp_action(
-            client_id=agent.get("client_id") or "",
-            lead_phone=customer_phone,
-        )
-    except Exception as _exc:
-        logger.warning("[ATTRIBUTION] action record skipped: %s", _exc)
-
-    # ── 6b. Lead Intelligence — extract insights from current user message ──────
-    try:
-        from app.services.lead_intelligence import extract_insights, save_insights as _save_insights
-        _insights = extract_insights(user_message)
-        if _insights:
-            await _save_insights(
-                insights=_insights,
-                client_id=agent.get("client_id") or "",
-                agent_id=str(agent.get("agent_id") or agent.get("id") or "") or None,
-                source_type="whatsapp",
-                source_record_id=None,
-            )
-    except Exception as _exc:
-        logger.warning("[LEAD INTELLIGENCE] extraction skipped: %s", _exc)
-
-    # ── 7. Extract name from conversation and update lead if not yet set ────────
-    # Heuristic: if the previous assistant message asked for a name and the
-    # current user message is short (1-4 words), treat it as the caller's name.
-    try:
-        _NAME_TRIGGERS = ("איך קוראים", "מה שמך", "מה השם", "על איזה שם", "שם שלך", "שמך")
-        _last_assistant = next(
-            (m["content"] for m in reversed(history) if m.get("role") == "assistant"),
-            "",
-        )
-        _words = user_message.strip().split()
-        if (
-            any(t in _last_assistant for t in _NAME_TRIGGERS)
-            and 1 <= len(_words) <= 4
-            and not any(ch.isdigit() for ch in user_message)
-        ):
-            await update_lead_name(customer_phone, user_message.strip())
-            print(f"[LEAD] name updated: {user_message.strip()!r} for {customer_phone}", flush=True)
-    except Exception as exc:
-        logger.warning("[LEAD] name extraction failed: %s", exc)
-
-    # ── 6c. Lead Intelligence — sentence injection (guarded) ────────────────────
+    # ── Sentence injection (guarded, currently a no-op) — kept in the critical
+    # path because it can alter the reply text before sanitization. It reads a
+    # conversation-context list identical to what append_whatsapp_messages would
+    # return (history + the new turn), built in-memory to avoid a DB round trip.
+    updated_messages = history + [
+        {"role": "user",      "content": user_message},
+        {"role": "assistant", "content": reply_raw},
+    ]
     try:
         reply = await _maybe_inject_sentence(reply, agent.get("client_id") or "", updated_messages)
     except Exception as _exc:
         logger.warning("[LEAD INTELLIGENCE] injection skipped: %s", _exc)
 
-    reply = sanitize_outbound_reply(reply)
+    # ── Final outbound sanitization — MUST stay before we return the reply ──────
+    reply_out = sanitize_outbound_reply(reply)
 
-    # ── Mirror outbound into Maya Watch (persist-only; NO scheduling) ────
-    # Uses the post-sanitize body so /home/watch shows exactly what the
-    # customer received. Wrapped: never break the reply.
-    try:
-        if reply:
-            from app.services import maya_watch as _mw
-            await _mw.register_outbound(
-                customer_phone, reply,
-                client_id=agent.get("client_id") or None,
-                agent_id=str(agent.get("agent_id") or agent.get("id") or "") or None,
-                source="whatsapp_reply",
-            )
-    except Exception as _exc:
-        logger.warning("[MAYA-WATCH] outbound mirror skipped: %s", _exc)
-
+    # Response `messages` array is built from reply_raw (unchanged behavior).
     messages = [
         {**m, "content": _sanitize_output(m.get("content", ""))}
         for m in updated_messages
@@ -777,4 +720,94 @@ async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: st
         "client_id":    _notify_client_id,
     }
 
-    return {"reply": reply, "messages": messages, "notify": notify}
+    # ── Deferred post-reply work ────────────────────────────────────────────────
+    # Everything below does NOT affect the reply text the customer receives:
+    # history persistence, attribution, insight extraction, lead-name update, and
+    # the Maya Watch outbound mirror. The route schedules this via FastAPI
+    # BackgroundTasks so the HTTP response (and thus the WhatsApp reply) returns
+    # the moment `reply_out` is ready. This closure NEVER raises — every step is
+    # individually guarded, exactly as before, just no longer blocking the reply.
+    _phone_tok = _mask_phone(customer_phone)
+    _client_id = agent.get("client_id") or None
+    _agent_id = agent.get("agent_id") or None
+    _agent_id_str = str(agent.get("agent_id") or agent.get("id") or "") or None
+
+    async def _post_reply_bg() -> None:
+        logger.info("[WHATSAPP-BG] post-reply work started phone=%s", _phone_tok)
+
+        # ── 6. Persist history via customer_phone (saves reply_raw, as before) ──
+        try:
+            await append_whatsapp_messages(
+                customer_phone,
+                user_message,
+                reply_raw,
+                client_id=_client_id,
+                agent_id=_agent_id,
+                business_phone=business_phone or None,
+            )
+        except Exception as exc:
+            logger.error("[WHATSAPP-BG] history persist failed phone=%s: %s", _phone_tok, exc)
+
+        # ── 6a. Attribution Ledger v0 — record outbound WhatsApp action ─────────
+        try:
+            from app.services.attribution import record_whatsapp_action
+            await record_whatsapp_action(
+                client_id=agent.get("client_id") or "",
+                lead_phone=customer_phone,
+            )
+        except Exception as _exc:
+            logger.warning("[WHATSAPP-BG] attribution skipped phone=%s: %s", _phone_tok, _exc)
+
+        # ── 6b. Lead Intelligence — extract insights from current user message ──
+        try:
+            from app.services.lead_intelligence import extract_insights, save_insights as _save_insights
+            _insights = extract_insights(user_message)
+            if _insights:
+                await _save_insights(
+                    insights=_insights,
+                    client_id=agent.get("client_id") or "",
+                    agent_id=_agent_id_str,
+                    source_type="whatsapp",
+                    source_record_id=None,
+                )
+        except Exception as _exc:
+            logger.warning("[WHATSAPP-BG] insight extraction skipped phone=%s: %s", _phone_tok, _exc)
+
+        # ── 7. Extract name from conversation and update lead if not yet set ────
+        # Heuristic: if the previous assistant message asked for a name and the
+        # current user message is short (1-4 words), treat it as the caller's name.
+        try:
+            _NAME_TRIGGERS = ("איך קוראים", "מה שמך", "מה השם", "על איזה שם", "שם שלך", "שמך")
+            _last_assistant = next(
+                (m["content"] for m in reversed(history) if m.get("role") == "assistant"),
+                "",
+            )
+            _words = user_message.strip().split()
+            if (
+                any(t in _last_assistant for t in _NAME_TRIGGERS)
+                and 1 <= len(_words) <= 4
+                and not any(ch.isdigit() for ch in user_message)
+            ):
+                await update_lead_name(customer_phone, user_message.strip())
+                logger.info("[WHATSAPP-BG] lead name updated phone=%s", _phone_tok)
+        except Exception as exc:
+            logger.warning("[WHATSAPP-BG] name extraction failed phone=%s: %s", _phone_tok, exc)
+
+        # ── Mirror outbound into Maya Watch (persist-only; NO scheduling) ───────
+        # Uses the post-sanitize body so /home/watch shows exactly what the
+        # customer received.
+        try:
+            if reply_out:
+                from app.services import maya_watch as _mw
+                await _mw.register_outbound(
+                    customer_phone, reply_out,
+                    client_id=_client_id,
+                    agent_id=_agent_id_str,
+                    source="whatsapp_reply",
+                )
+        except Exception as _exc:
+            logger.warning("[WHATSAPP-BG] maya-watch outbound skipped phone=%s: %s", _phone_tok, _exc)
+
+        logger.info("[WHATSAPP-BG] post-reply work finished phone=%s", _phone_tok)
+
+    return {"reply": reply_out, "messages": messages, "notify": notify, "_bg": _post_reply_bg}
