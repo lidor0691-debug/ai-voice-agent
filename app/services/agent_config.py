@@ -187,6 +187,12 @@ def _strip_phone(phone: str) -> str:
     return re.sub(r"\D", "", phone)
 
 
+def _mask_phone(p: str) -> str:
+    """Privacy-safe phone token for logs — last 4 digits only. Never log full numbers."""
+    digits = re.sub(r"\D", "", p or "")
+    return f"***{digits[-4:]}" if len(digits) >= 4 else "***"
+
+
 async def _fetch_agent_row(to_number: str) -> Optional[dict]:
     """
     Query Supabase for an active agent matching the given phone number.
@@ -247,8 +253,8 @@ async def _fetch_agent_row_by_field(field: str, number: str) -> Optional[dict]:
             rows = resp.json()
             if rows:
                 logger.info(
-                    "Supabase: matched %s '%s' (tried as '%s')",
-                    field, number, candidate,
+                    "Supabase: matched %s (phone=%s)",
+                    field, _mask_phone(number),
                 )
                 return rows[0]
 
@@ -327,8 +333,6 @@ async def get_whatsapp_agent_config(raw_to: str) -> Optional[dict]:
         - Any network/parse error occurs
     Callers must handle None safely — this function never raises.
     """
-    print("DEBUG_PHONE_IN:", repr(raw_to), flush=True)
-
     if not _is_configured():
         logger.warning("[WHATSAPP] Supabase not configured — skipping agent lookup")
         return None
@@ -339,30 +343,24 @@ async def get_whatsapp_agent_config(raw_to: str) -> Optional[dict]:
 
     # Strip the "whatsapp:" scheme Twilio prepends on inbound messages
     to_number = raw_to.removeprefix("whatsapp:")
-    print("DEBUG_PHONE_NORMALIZED:", repr(to_number), flush=True)
+    _mphone = _mask_phone(to_number)
 
     try:
         # Primary: match on whatsapp_number (the correct field for WhatsApp channels)
-        print("DEBUG_QUERY: whatsapp_number =", repr(to_number), flush=True)
         row = await _fetch_agent_row_by_field("whatsapp_number", to_number)
-        print("DEBUG_DB_RESPONSE whatsapp_number:", row, flush=True)
         # Fallback: some agents may still only have phone_number set
         if row is None:
-            print("DEBUG_QUERY: phone_number =", repr(to_number), flush=True)
-            logger.info("[WHATSAPP] No match on whatsapp_number — trying phone_number for '%s'", to_number)
+            logger.info("[WHATSAPP] No match on whatsapp_number — trying phone_number (phone=%s)", _mphone)
             row = await _fetch_agent_row_by_field("phone_number", to_number)
-            print("DEBUG_DB_RESPONSE phone_number:", row, flush=True)
     except Exception as exc:
-        logger.error("[WHATSAPP] Agent lookup failed for '%s': %s", raw_to, exc)
+        logger.error("[WHATSAPP] Agent lookup failed (phone=%s): %s", _mphone, exc)
         return None
 
     if not row:
-        logger.info("[WHATSAPP] No active agent found for '%s'", raw_to)
+        logger.info("[WHATSAPP] No active agent found (phone=%s)", _mphone)
         return None
 
-    print("DEBUG_AGENT_FOUND:", {k: v for k, v in row.items() if k in ("id", "agent_name", "whatsapp_number", "phone_number", "is_active")}, flush=True)
-    _safe_name = (row.get("agent_name") or "").encode("ascii", errors="replace").decode("ascii")
-    logger.info("[WHATSAPP] Agent matched: '%s' (id=%s) for '%s'", _safe_name, row.get("id"), raw_to)
+    logger.info("[WHATSAPP] Agent matched: id=%s (phone=%s)", row.get("id"), _mphone)
 
     # Ensure jsonb array fields are lists or None — never raw strings
     required_fields = row.get("whatsapp_required_fields")
