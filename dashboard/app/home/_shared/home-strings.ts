@@ -46,5 +46,5 @@ export const NAV_ORDER: { key: HomeNavKey; href: string; wired: boolean }[] = [
   { key: "agents",    href: "/home/agents",    wired: true  },
   { key: "automate",  href: "/home/automate",  wired: false },
   { key: "reports",   href: "/home/reports",   wired: false },
-  { key: "settings",  href: "/home/settings",  wired: false },
+  { key: "settings",  href: "/home/settings",  wired: true  },
 ];
