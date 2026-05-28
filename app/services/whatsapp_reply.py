@@ -132,6 +132,16 @@ logger.info("[KEY DIAG] raw_key[:5]=%r clean_key[:5]=%r", _raw_key[:5], _OPENAI_
 _OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions"
 _MODEL = "gpt-4o"
 
+# WhatsApp reply context window — max number of prior history messages
+# (user/assistant turns) sent to OpenAI. SEND-ONLY: does not affect what is
+# loaded from or persisted to whatsapp_conversations. 12 messages ≈ 6 turns.
+_HISTORY_WINDOW = 12
+
+# Conservative output cap for the WhatsApp reply. 300 leaves headroom for normal
+# Hebrew replies (~210 chars ≈ 150-250 tokens) so they aren't truncated mid-
+# sentence, while still bounding worst-case generation latency/cost.
+_MAX_TOKENS = 300
+
 
 def _build_system_message(agent: dict) -> str:
     parts: list[str] = []
@@ -285,7 +295,7 @@ async def _call_openai(messages: list[dict]) -> str:
 
     # STEP5C: build payload dict
     try:
-        payload = {"model": _MODEL, "messages": clean_messages}
+        payload = {"model": _MODEL, "messages": clean_messages, "max_tokens": _MAX_TOKENS}
     except Exception as exc:
         raise RuntimeError(f"DIAG_STEP5C_FAIL: {exc}") from exc
 
@@ -736,9 +746,16 @@ async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: st
     )
 
     # ── 4+5. Call OpenAI ──────────────────────────────────────────────────────
+    # Context windowing — SEND-ONLY. We trim the conversation history passed to
+    # OpenAI to the most recent _HISTORY_WINDOW messages to cut input-token
+    # latency/cost on long threads. This does NOT touch what was loaded from or
+    # persisted to whatsapp_conversations — `history` (full) is still used to
+    # build the saved/returned `messages` array below. The system message and the
+    # latest user message are always included regardless of the window.
+    history_window = history[-_HISTORY_WINDOW:] if len(history) > _HISTORY_WINDOW else history
     openai_messages = (
         [{"role": "system", "content": system_content}]
-        + history
+        + history_window
         + [{"role": "user", "content": user_message}]
     )
     _openai_msg_count = len(openai_messages)
@@ -746,8 +763,12 @@ async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: st
         len(m.get("content") or "") for m in openai_messages if isinstance(m.get("content"), str)
     )
     logger.info(
-        "[WHATSAPP-LATENCY] openai_call start phone=%s model=%s messages=%d prompt_chars=%d",
-        _lat_phone, _MODEL, _openai_msg_count, _openai_prompt_chars,
+        "[WHATSAPP-LATENCY] history_window phone=%s turns_loaded=%d history_sent=%d window=%d",
+        _lat_phone, len(history), len(history_window), _HISTORY_WINDOW,
+    )
+    logger.info(
+        "[WHATSAPP-LATENCY] openai_call start phone=%s model=%s messages=%d prompt_chars=%d max_tokens=%d",
+        _lat_phone, _MODEL, _openai_msg_count, _openai_prompt_chars, _MAX_TOKENS,
     )
     _s_openai = time.perf_counter()
     try:
