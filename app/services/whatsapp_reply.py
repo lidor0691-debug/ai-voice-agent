@@ -128,7 +128,10 @@ _OPENAI_API_KEY = (
     .replace("\r", "")
     .replace("\n", "")
 )
-logger.info("[KEY DIAG] raw_key[:5]=%r clean_key[:5]=%r", _raw_key[:5], _OPENAI_API_KEY[:5])
+logger.info(
+    "[KEY DIAG] openai_key_present=%s key_len=%d had_whitespace=%s",
+    bool(_OPENAI_API_KEY), len(_OPENAI_API_KEY), _raw_key != _OPENAI_API_KEY,
+)
 _OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions"
 _MODEL = "gpt-4o"
 
@@ -512,16 +515,12 @@ async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: st
     customer_phone = customer_phone.replace("whatsapp:", "").strip()
     business_phone = business_phone.replace("whatsapp:", "").strip()
 
-    print("DEBUG customer_phone:", repr(customer_phone), flush=True)
-    print("DEBUG business_phone:", repr(business_phone), flush=True)
-
     user_message = _sanitize(user_message)
 
     _lat_phone = _mask_phone(customer_phone)
 
     # ── 1. Load agent config via business_phone ───────────────────────────────
     try:
-        print("DEBUG agent lookup using business_phone:", repr(business_phone), flush=True)
         _s = time.perf_counter()
         agent = await get_whatsapp_agent_config(business_phone)
         logger.info(
@@ -542,11 +541,11 @@ async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: st
     )
     if agent is None or not _wa_base:
         print(
-            f"[ROUTE-AUDIT] route=whatsapp_reply business_phone={business_phone} "
+            f"[ROUTE-AUDIT] route=whatsapp_reply business_phone={_mask_phone(business_phone)} "
             f"resolved_agent_id=None resolved_client_id=None "
             f"fallback_used=true knowledge_items_count=0"
         )
-        logger.warning("[WHATSAPP] No active agent for business_phone=%s — refusing (fail closed)", business_phone)
+        logger.warning("[WHATSAPP] No active agent for business_phone=%s — refusing (fail closed)", _mask_phone(business_phone))
         return {"reply": "", "messages": []}
 
     logger.info(
@@ -556,7 +555,7 @@ async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: st
 
     agent = {k: _sanitize(v) if isinstance(v, str) else v for k, v in agent.items()}
     print(
-        f"[ROUTE-AUDIT] route=whatsapp_reply business_phone={business_phone} "
+        f"[ROUTE-AUDIT] route=whatsapp_reply business_phone={_mask_phone(business_phone)} "
         f"resolved_agent_id={agent.get('agent_id')} "
         f"resolved_client_id={agent.get('client_id')} "
         f"fallback_used=false knowledge_items_count=N/A"
@@ -576,7 +575,6 @@ async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: st
 
     # ── 3. Load history via customer_phone ────────────────────────────────────
     try:
-        print("DEBUG history lookup using customer_phone:", repr(customer_phone), flush=True)
         _s = time.perf_counter()
         row = await _load_row(customer_phone)
         history = _normalize_messages(row.get("messages_json") if row else None)
