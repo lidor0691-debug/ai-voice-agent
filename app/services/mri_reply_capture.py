@@ -126,6 +126,25 @@ async def try_capture_probe_reply(
     if not cust or not biz:
         return None
 
+    # ── Fast skip for normal WhatsApp traffic ──────────────────────────────────
+    # Every P1_wa_offhours probe is sent FROM the configured probe sender number
+    # (MRI_PROBE_WHATSAPP_FROM / TWILIO_PHONE_NUMBER) and the match query below
+    # requires metadata_json.twilio_from == business_phone (the inbound "To").
+    # Therefore an inbound whose "To" is NOT the probe sender number can never
+    # match any probe row — the query would always return no_match. Skipping it
+    # here is behavior-preserving and avoids a Supabase round trip on every normal
+    # message. If the probe sender is not configured, we do NOT skip (fail open to
+    # the original query, so behavior is unchanged when env is absent).
+    _probe_from_raw = (
+        os.getenv("MRI_PROBE_WHATSAPP_FROM", "") or os.getenv("TWILIO_PHONE_NUMBER", "")
+    ).strip()
+    _probe_from = _normalize_phone(_probe_from_raw)
+    if _probe_from and biz != _probe_from:
+        logger.info(
+            "[WHATSAPP-LATENCY] step=probe_capture_skipped reason=not_probe_sender matched=false"
+        )
+        return None
+
     logger.info(
         "[MRI-REPLY] inbound_seen customer=%s business=%s msg_chars=%d",
         cust, biz, len(user_message or ""),
