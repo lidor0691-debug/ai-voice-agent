@@ -143,12 +143,26 @@ _HISTORY_WINDOW = 12
 _MAX_TOKENS = 300
 
 
+def _effective_whatsapp_base_prompt(agent: dict) -> tuple[str, str]:
+    """Resolve the WhatsApp base prompt.
+
+    Returns (prompt, source) where source is "override" when the WhatsApp-specific
+    whatsapp_system_prompt is set (non-empty after strip), else "base" (falling
+    back to the shared system_prompt). Voice never calls this — it keeps using
+    system_prompt directly. Never logs prompt content.
+    """
+    override = (agent.get("whatsapp_system_prompt") or "").strip()
+    if override:
+        return override, "override"
+    return (agent.get("system_prompt") or "").strip(), "base"
+
+
 def _build_system_message(agent: dict) -> str:
     parts: list[str] = []
 
-    system_prompt = (agent.get("system_prompt") or "").strip()
-    if system_prompt:
-        parts.append(system_prompt)
+    base_prompt, _ = _effective_whatsapp_base_prompt(agent)
+    if base_prompt:
+        parts.append(base_prompt)
 
     tone = (agent.get("tone") or "").strip()
     if tone:
@@ -517,10 +531,16 @@ async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: st
     except Exception as exc:
         return {"reply": strict_sanitize(f"DIAG_STEP1_FAIL: {exc}"), "messages": []}
 
-    # Fail closed: unknown business_phone / no active agent → refuse to reply.
-    # Returning a generic Maya prompt (or any other tenant's prompt) to an
-    # unknown number is forbidden by multi-tenant isolation rules.
-    if agent is None or not agent.get("system_prompt"):
+    # Fail closed: unknown business_phone / no active agent / no usable prompt →
+    # refuse to reply. Returning a generic Maya prompt (or any other tenant's
+    # prompt) to an unknown number is forbidden by multi-tenant isolation rules.
+    # The guard checks the EFFECTIVE WhatsApp base prompt (whatsapp_system_prompt
+    # override OR system_prompt fallback), so a client who configures only the
+    # WhatsApp override (empty system_prompt) is still allowed to reply.
+    _wa_base, _wa_prompt_source = (
+        _effective_whatsapp_base_prompt(agent) if agent is not None else ("", "base")
+    )
+    if agent is None or not _wa_base:
         print(
             f"[ROUTE-AUDIT] route=whatsapp_reply business_phone={business_phone} "
             f"resolved_agent_id=None resolved_client_id=None "
@@ -528,6 +548,11 @@ async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: st
         )
         logger.warning("[WHATSAPP] No active agent for business_phone=%s — refusing (fail closed)", business_phone)
         return {"reply": "", "messages": []}
+
+    logger.info(
+        "[WHATSAPP-LATENCY] wa_prompt_source=%s phone=%s",
+        _wa_prompt_source, _lat_phone,
+    )
 
     agent = {k: _sanitize(v) if isinstance(v, str) else v for k, v in agent.items()}
     print(

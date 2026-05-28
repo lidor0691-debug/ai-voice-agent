@@ -372,6 +372,11 @@ async def get_whatsapp_agent_config(raw_to: str) -> Optional[dict]:
         "agent_id":                 row.get("id") or None,
         "client_id":                row.get("client_id") or None,
         "system_prompt":            row.get("system_prompt") or None,
+        # WhatsApp-specific prompt override (nullable). When present the WhatsApp
+        # flow uses it as the base prompt; otherwise it falls back to
+        # system_prompt. Voice never reads this field. Safe pre-migration:
+        # row.get(...) returns None if the column does not yet exist.
+        "whatsapp_system_prompt":   row.get("whatsapp_system_prompt") or None,
         "tone":                     row.get("tone") or None,
         "schedule":                 row.get("schedule") or None,
         "first_message":            row.get("first_message") or None,
