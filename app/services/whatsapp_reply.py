@@ -17,6 +17,7 @@ generate_whatsapp_reply(phone, user_message) -> dict
 import json
 import logging
 import os
+import time
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
@@ -166,6 +167,11 @@ def _mask_phone(p: str) -> str:
     """Return a privacy-safe phone token for logs \u2014 last 4 digits only."""
     digits = "".join(ch for ch in (p or "") if ch.isdigit())
     return f"***{digits[-4:]}" if len(digits) >= 4 else "***"
+
+
+def _elapsed_ms(start: float) -> float:
+    """Milliseconds elapsed since a time.perf_counter() reading."""
+    return (time.perf_counter() - start) * 1000.0
 
 
 def strict_sanitize(text: str) -> str:
@@ -449,6 +455,9 @@ async def _maybe_inject_sentence(reply: str, client_id: str, history: list[dict]
 
 
 async def generate_whatsapp_reply(customer_phone: str, business_phone: str, user_message: str) -> dict:
+    _t0 = time.perf_counter()
+    _ptok = _mask_phone(customer_phone)
+    logger.info("[WHATSAPP-LATENCY] generate_whatsapp_reply start phone=%s", _ptok)
     try:
         return await _generate_whatsapp_reply_inner(customer_phone, business_phone, user_message)
     except Exception as exc:
@@ -458,6 +467,11 @@ async def generate_whatsapp_reply(customer_phone: str, business_phone: str, user
             "reply": strict_sanitize(f"ERROR: {exc}"),
             "messages": [],
         }
+    finally:
+        logger.info(
+            "[WHATSAPP-LATENCY] generate_whatsapp_reply end phone=%s total_ms=%.0f",
+            _ptok, _elapsed_ms(_t0),
+        )
 
 
 async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: str, user_message: str) -> dict:
@@ -470,10 +484,17 @@ async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: st
 
     user_message = _sanitize(user_message)
 
+    _lat_phone = _mask_phone(customer_phone)
+
     # ── 1. Load agent config via business_phone ───────────────────────────────
     try:
         print("DEBUG agent lookup using business_phone:", repr(business_phone), flush=True)
+        _s = time.perf_counter()
         agent = await get_whatsapp_agent_config(business_phone)
+        logger.info(
+            "[WHATSAPP-LATENCY] step=agent_config phone=%s dur_ms=%.0f",
+            _lat_phone, _elapsed_ms(_s),
+        )
     except Exception as exc:
         return {"reply": strict_sanitize(f"DIAG_STEP1_FAIL: {exc}"), "messages": []}
 
@@ -512,8 +533,13 @@ async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: st
     # ── 3. Load history via customer_phone ────────────────────────────────────
     try:
         print("DEBUG history lookup using customer_phone:", repr(customer_phone), flush=True)
+        _s = time.perf_counter()
         row = await _load_row(customer_phone)
         history = _normalize_messages(row.get("messages_json") if row else None)
+        logger.info(
+            "[WHATSAPP-LATENCY] step=history_load phone=%s dur_ms=%.0f turns=%d",
+            _lat_phone, _elapsed_ms(_s), len(history),
+        )
     except Exception as exc:
         return {"reply": strict_sanitize(f"DIAG_STEP3_FAIL: {exc}"), "messages": []}
 
@@ -523,6 +549,7 @@ async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: st
     _notify_client_id = agent.get("client_id") or None
     _existing_lead: dict | None = None
     if _notify_client_id:
+        _s = time.perf_counter()
         try:
             async with httpx.AsyncClient(timeout=3.0) as _lc:
                 _lead_resp = await _lc.get(
@@ -540,6 +567,10 @@ async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: st
                     _existing_lead = _rows[0] if _rows else None
         except Exception as _exc:
             logger.warning("[WHATSAPP] lead existence check failed: %s", _exc)
+        logger.info(
+            "[WHATSAPP-LATENCY] step=lead_existence_check phone=%s dur_ms=%.0f",
+            _lat_phone, _elapsed_ms(_s),
+        )
 
     # If client_id missing, fail safely → notify.is_new_lead = false (computed below).
     is_new_lead = bool(_notify_client_id) and _existing_lead is None
@@ -551,6 +582,7 @@ async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: st
 
     # First contact for this client — create the lead row (with inbound stamp).
     if is_new_lead:
+        _s = time.perf_counter()
         await save_lead({
             "phone":     customer_phone,
             "source":    "whatsapp",
@@ -558,15 +590,25 @@ async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: st
             "client_id": _notify_client_id,
             "last_whatsapp_inbound_at": _now_iso,
         })
+        logger.info(
+            "[WHATSAPP-LATENCY] step=save_lead_new phone=%s dur_ms=%.0f",
+            _lat_phone, _elapsed_ms(_s),
+        )
 
     # ── Update last_whatsapp_inbound_at for 24h window tracking (inbound only) ──
     # Scoped by (phone, client_id) inside the helper; non-fatal on failure.
+    _s = time.perf_counter()
     await _record_inbound_lead_timestamp(_notify_client_id, customer_phone, _now_iso)
+    logger.info(
+        "[WHATSAPP-LATENCY] step=inbound_timestamp_write phone=%s dur_ms=%.0f",
+        _lat_phone, _elapsed_ms(_s),
+    )
 
     # ── Mirror inbound into Maya Watch (persist-only; NO scheduling) ─────
     # Captures customer messages that arrive via Make/Twilio into
     # maya_watch_leads + maya_watch_messages so /home/watch shows real
     # activity. Wrapped: any failure here must NOT break the reply pipeline.
+    _s = time.perf_counter()
     try:
         from app.services import maya_watch as _mw
         await _mw.register_inbound_persist_only(
@@ -578,6 +620,10 @@ async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: st
         )
     except Exception as _exc:
         logger.warning("[MAYA-WATCH] inbound mirror skipped: %s", _exc)
+    logger.info(
+        "[WHATSAPP-LATENCY] step=maya_watch_inbound phone=%s dur_ms=%.0f",
+        _lat_phone, _elapsed_ms(_s),
+    )
 
     # ── 3b. First-WhatsApp-after-call summary injection — DISABLED for tenant isolation
     # Previously injected leads.last_call_summary by phone alone, which leaks
@@ -595,6 +641,7 @@ async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: st
     }
     _CONFIRM_WORDS_WEAK = {"כן"}  # only if a recent template was sent
 
+    _s_confirm = time.perf_counter()
     try:
         _stripped = (user_message or "").strip().rstrip("!.?,،׃ ")
         _has_future_appt = False
@@ -663,9 +710,18 @@ async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: st
                 )
             except Exception as _exc:
                 logger.warning("[MAYA-WATCH] outbound (ack) mirror skipped: %s", _exc)
+            logger.info(
+                "[WHATSAPP-LATENCY] step=confirm_pre_router phone=%s dur_ms=%.0f matched=true",
+                _lat_phone, _elapsed_ms(_s_confirm),
+            )
             return {"reply": ack, "messages": []}
     except Exception as _exc:
         logger.warning("[WHATSAPP] confirm pre-router error (falling through to AI): %s", _exc)
+
+    logger.info(
+        "[WHATSAPP-LATENCY] step=confirm_pre_router phone=%s dur_ms=%.0f matched=false",
+        _lat_phone, _elapsed_ms(_s_confirm),
+    )
 
     # ── 4+5. Call OpenAI ──────────────────────────────────────────────────────
     openai_messages = (
@@ -673,10 +729,27 @@ async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: st
         + history
         + [{"role": "user", "content": user_message}]
     )
+    _openai_msg_count = len(openai_messages)
+    _openai_prompt_chars = sum(
+        len(m.get("content") or "") for m in openai_messages if isinstance(m.get("content"), str)
+    )
+    logger.info(
+        "[WHATSAPP-LATENCY] openai_call start phone=%s model=%s messages=%d prompt_chars=%d",
+        _lat_phone, _MODEL, _openai_msg_count, _openai_prompt_chars,
+    )
+    _s_openai = time.perf_counter()
     try:
         reply = _sanitize(await _call_openai(openai_messages))
     except Exception as exc:
+        logger.info(
+            "[WHATSAPP-LATENCY] openai_call end phone=%s dur_ms=%.0f status=error",
+            _lat_phone, _elapsed_ms(_s_openai),
+        )
         return {"reply": strict_sanitize(f"DIAG_STEP5_FAIL: {exc}"), "messages": []}
+    logger.info(
+        "[WHATSAPP-LATENCY] openai_call end phone=%s dur_ms=%.0f status=ok reply_chars=%d",
+        _lat_phone, _elapsed_ms(_s_openai), len(reply or ""),
+    )
 
     # `reply_raw` is the OpenAI output after basic _sanitize. This is the exact
     # value that history + the response `messages` array have always carried
@@ -697,7 +770,12 @@ async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: st
         logger.warning("[LEAD INTELLIGENCE] injection skipped: %s", _exc)
 
     # ── Final outbound sanitization — MUST stay before we return the reply ──────
+    _s_sanitize = time.perf_counter()
     reply_out = sanitize_outbound_reply(reply)
+    logger.info(
+        "[WHATSAPP-LATENCY] sanitize_done phone=%s dur_ms=%.0f reply_ready=true",
+        _lat_phone, _elapsed_ms(_s_sanitize),
+    )
 
     # Response `messages` array is built from reply_raw (unchanged behavior).
     messages = [
@@ -733,7 +811,9 @@ async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: st
     _agent_id_str = str(agent.get("agent_id") or agent.get("id") or "") or None
 
     async def _post_reply_bg() -> None:
+        _bg_t0 = time.perf_counter()
         logger.info("[WHATSAPP-BG] post-reply work started phone=%s", _phone_tok)
+        logger.info("[WHATSAPP-LATENCY] background started phone=%s", _phone_tok)
 
         # ── 6. Persist history via customer_phone (saves reply_raw, as before) ──
         try:
@@ -809,5 +889,9 @@ async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: st
             logger.warning("[WHATSAPP-BG] maya-watch outbound skipped phone=%s: %s", _phone_tok, _exc)
 
         logger.info("[WHATSAPP-BG] post-reply work finished phone=%s", _phone_tok)
+        logger.info(
+            "[WHATSAPP-LATENCY] background finished phone=%s dur_ms=%.0f",
+            _phone_tok, _elapsed_ms(_bg_t0),
+        )
 
     return {"reply": reply_out, "messages": messages, "notify": notify, "_bg": _post_reply_bg}
