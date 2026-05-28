@@ -9,12 +9,18 @@ Make receives the final reply text and does nothing else.
 """
 
 import logging
+import time
 
 from fastapi import APIRouter, BackgroundTasks, Request, Response
 from pydantic import BaseModel
 
 from app.services.mri_reply_capture import try_capture_probe_reply
-from app.services.whatsapp_reply import generate_whatsapp_reply, sanitize_outbound_reply
+from app.services.whatsapp_reply import (
+    generate_whatsapp_reply,
+    sanitize_outbound_reply,
+    _elapsed_ms,
+    _mask_phone,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -60,17 +66,30 @@ async def whatsapp_reply(req: ReplyRequest, background_tasks: BackgroundTasks):
             "messages": [...]        <- full updated history (optional, for debugging)
         }
     """
+    _t0 = time.perf_counter()
+    _ptok = _mask_phone(req.customer_phone)
+    logger.info("[WHATSAPP-LATENCY] route=/whatsapp/reply received phone=%s", _ptok)
+
     # MRI probe-reply hook — if this inbound matches a recent P1 probe,
     # capture it onto the mri_probes row and short-circuit so we do NOT
     # generate a normal customer-style reply to the clinic.
     # Never raises; on any internal failure returns None and we fall
     # through to the existing pipeline unchanged.
+    _s = time.perf_counter()
     captured = await try_capture_probe_reply(
         customer_phone=req.customer_phone,
         business_phone=req.business_phone,
         user_message=req.user_message,
     )
+    logger.info(
+        "[WHATSAPP-LATENCY] step=try_capture_probe_reply phone=%s dur_ms=%.0f matched=%s",
+        _ptok, _elapsed_ms(_s), captured is not None,
+    )
     if captured is not None:
+        logger.info(
+            "[WHATSAPP-LATENCY] route=/whatsapp/reply returned phone=%s route_total_ms=%.0f path=probe",
+            _ptok, _elapsed_ms(_t0),
+        )
         return {"reply": "", "messages": []}
 
     result = await generate_whatsapp_reply(
@@ -78,7 +97,12 @@ async def whatsapp_reply(req: ReplyRequest, background_tasks: BackgroundTasks):
         business_phone=req.business_phone,
         user_message=req.user_message,
     )
-    return _schedule_post_reply(background_tasks, result)
+    result = _schedule_post_reply(background_tasks, result)
+    logger.info(
+        "[WHATSAPP-LATENCY] route=/whatsapp/reply returned phone=%s route_total_ms=%.0f path=reply",
+        _ptok, _elapsed_ms(_t0),
+    )
+    return result
 
 
 def _twiml_empty() -> Response:
@@ -116,6 +140,7 @@ async def twilio_inbound(request: Request, background_tasks: BackgroundTasks):
     Logs:
       [WA-TWILIO] inbound from=<From> to=<To> chars=<n>
     """
+    _t0 = time.perf_counter()
     form = await request.form()
     customer_phone = (form.get("From") or "").strip()
     business_phone = (form.get("To")   or "").strip()
@@ -125,13 +150,24 @@ async def twilio_inbound(request: Request, background_tasks: BackgroundTasks):
         "[WA-TWILIO] inbound from=%s to=%s chars=%d",
         customer_phone, business_phone, len(user_message),
     )
+    _ptok = _mask_phone(customer_phone)
+    logger.info("[WHATSAPP-LATENCY] route=/whatsapp/twilio-inbound received phone=%s", _ptok)
 
+    _s = time.perf_counter()
     captured = await try_capture_probe_reply(
         customer_phone=customer_phone,
         business_phone=business_phone,
         user_message=user_message,
     )
+    logger.info(
+        "[WHATSAPP-LATENCY] step=try_capture_probe_reply phone=%s dur_ms=%.0f matched=%s",
+        _ptok, _elapsed_ms(_s), captured is not None,
+    )
     if captured is not None:
+        logger.info(
+            "[WHATSAPP-LATENCY] route=/whatsapp/twilio-inbound returned phone=%s route_total_ms=%.0f path=probe",
+            _ptok, _elapsed_ms(_t0),
+        )
         return _twiml_empty()
 
     result = await generate_whatsapp_reply(
@@ -146,5 +182,13 @@ async def twilio_inbound(request: Request, background_tasks: BackgroundTasks):
     reply_text = sanitize_outbound_reply((result or {}).get("reply") or "")
     if not reply_text:
         logger.info("[WA-TWILIO] suppressed empty/invalid reply for to=%s", customer_phone)
+        logger.info(
+            "[WHATSAPP-LATENCY] route=/whatsapp/twilio-inbound returned phone=%s route_total_ms=%.0f path=empty_twiml",
+            _ptok, _elapsed_ms(_t0),
+        )
         return _twiml_empty()
+    logger.info(
+        "[WHATSAPP-LATENCY] route=/whatsapp/twilio-inbound returned phone=%s route_total_ms=%.0f path=twiml",
+        _ptok, _elapsed_ms(_t0),
+    )
     return _twiml_message(reply_text)
