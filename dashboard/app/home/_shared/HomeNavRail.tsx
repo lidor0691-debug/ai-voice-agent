@@ -26,7 +26,7 @@ interface HomeNavRailProps {
 // Re-add whatsapp/automate/reports/settings to PRIMARY_KEYS/FOOTER_KEYS
 // once their pages exist; the disabled-link path was confusing operators.
 const PRIMARY_KEYS: HomeNavKey[] = ["watch", "calls", "leads", "insights", "agents"];
-const FOOTER_KEYS: HomeNavKey[] = [];
+const FOOTER_KEYS: HomeNavKey[] = ["settings"];
 
 export function HomeNavRail({ lang, active, user }: HomeNavRailProps) {
   const initials = user.name.split(" ").map(p => p[0]).slice(0, 2).join("");
