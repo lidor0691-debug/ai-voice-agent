@@ -31,6 +31,15 @@ _SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 _SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
 
 
+def _headers() -> dict:
+    """Service-role Supabase REST headers. Never logged."""
+    return {
+        "apikey":        _SUPABASE_SERVICE_KEY,
+        "Authorization": f"Bearer {_SUPABASE_SERVICE_KEY}",
+        "Content-Type":  "application/json",
+    }
+
+
 async def _record_inbound_lead_timestamp(
     client_id: Optional[str], phone: str, now_iso: str
 ) -> None:
@@ -604,26 +613,15 @@ async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: st
         _lat_phone, _elapsed_ms(_s),
     )
 
-    # ── Mirror inbound into Maya Watch (persist-only; NO scheduling) ─────
-    # Captures customer messages that arrive via Make/Twilio into
-    # maya_watch_leads + maya_watch_messages so /home/watch shows real
-    # activity. Wrapped: any failure here must NOT break the reply pipeline.
-    _s = time.perf_counter()
-    try:
-        from app.services import maya_watch as _mw
-        await _mw.register_inbound_persist_only(
-            customer_phone,
-            user_message,
-            name=(_existing_lead or {}).get("name") if _existing_lead else None,
-            client_id=agent.get("client_id") or None,
-            agent_id=str(agent.get("agent_id") or agent.get("id") or "") or None,
-        )
-    except Exception as _exc:
-        logger.warning("[MAYA-WATCH] inbound mirror skipped: %s", _exc)
-    logger.info(
-        "[WHATSAPP-LATENCY] step=maya_watch_inbound phone=%s dur_ms=%.0f",
-        _lat_phone, _elapsed_ms(_s),
-    )
+    # ── Mirror inbound into Maya Watch — DEFERRED to background ─────────────────
+    # Captures customer messages into maya_watch_leads + maya_watch_messages so
+    # /home/watch shows real activity. This persist-only write does NOT affect the
+    # generated reply text (the reply uses whatsapp_conversations history, not the
+    # Maya Watch store), so for the OpenAI path it now runs inside _post_reply_bg
+    # to keep it off the blocking pre-OpenAI path. The confirmation-ack early-return
+    # path persists it inline below, because that path returns before _post_reply_bg
+    # is created. maya_watch_store.append_message self-upserts the lead row, so
+    # ordering is for display only.
 
     # ── 3b. First-WhatsApp-after-call summary injection — DISABLED for tenant isolation
     # Previously injected leads.last_call_summary by phone alone, which leaks
@@ -699,7 +697,21 @@ async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: st
                 "[WHATSAPP] confirmation-intent matched word=%r lead_id=%s — skipping OpenAI",
                 _stripped, _existing_lead.get("id") if _existing_lead else None,
             )
-            # Mirror the ack outbound into Maya Watch (persist-only).
+            # Mirror inbound + ack outbound into Maya Watch (persist-only).
+            # The confirm path returns before _post_reply_bg exists, so the inbound
+            # persist that the OpenAI path defers must happen inline here to keep
+            # /home/watch consistent (customer message + ack both shown).
+            try:
+                from app.services import maya_watch as _mw
+                await _mw.register_inbound_persist_only(
+                    customer_phone,
+                    user_message,
+                    name=(_existing_lead or {}).get("name") if _existing_lead else None,
+                    client_id=agent.get("client_id") or None,
+                    agent_id=str(agent.get("agent_id") or agent.get("id") or "") or None,
+                )
+            except Exception as _exc:
+                logger.warning("[MAYA-WATCH] inbound (ack path) mirror skipped: %s", _exc)
             try:
                 from app.services import maya_watch as _mw
                 await _mw.register_outbound(
@@ -810,10 +822,32 @@ async def _generate_whatsapp_reply_inner(customer_phone: str, business_phone: st
     _agent_id = agent.get("agent_id") or None
     _agent_id_str = str(agent.get("agent_id") or agent.get("id") or "") or None
 
+    _mw_inbound_name = (_existing_lead or {}).get("name") if _existing_lead else None
+
     async def _post_reply_bg() -> None:
         _bg_t0 = time.perf_counter()
         logger.info("[WHATSAPP-BG] post-reply work started phone=%s", _phone_tok)
         logger.info("[WHATSAPP-LATENCY] background started phone=%s", _phone_tok)
+
+        # ── Mirror inbound into Maya Watch (deferred off the pre-OpenAI path) ───
+        # First so /home/watch keeps inbound-before-outbound ordering. Persist-only;
+        # does not affect reply text.
+        _s = time.perf_counter()
+        try:
+            from app.services import maya_watch as _mw
+            await _mw.register_inbound_persist_only(
+                customer_phone,
+                user_message,
+                name=_mw_inbound_name,
+                client_id=_client_id,
+                agent_id=_agent_id_str,
+            )
+        except Exception as _exc:
+            logger.warning("[WHATSAPP-BG] maya-watch inbound skipped phone=%s: %s", _phone_tok, _exc)
+        logger.info(
+            "[WHATSAPP-LATENCY] bg_step=maya_watch_inbound phone=%s dur_ms=%.0f",
+            _phone_tok, _elapsed_ms(_s),
+        )
 
         # ── 6. Persist history via customer_phone (saves reply_raw, as before) ──
         try:
