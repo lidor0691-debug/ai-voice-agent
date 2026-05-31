@@ -17,9 +17,11 @@ build_supabase_system_prompt(row: dict, knowledge_items: list[dict], caller_phon
     structured section so the agent can reference them.
 """
 
+import asyncio
 import os
 import logging
 import re
+import time
 from typing import Optional
 
 import httpx
@@ -193,6 +195,55 @@ def _mask_phone(p: str) -> str:
     return f"***{digits[-4:]}" if len(digits) >= 4 else "***"
 
 
+# ── WhatsApp agent-config cache (tiny, in-memory, per-process) ────────────────
+# Purpose: absorb transient Supabase REST timeouts/network blips so a brief
+# upstream hiccup does not silence the WhatsApp agent. Key is the normalized
+# business phone (one tenant per key — no cross-tenant leakage). Hits only;
+# fail-closed paths are NOT cached, so a newly-activated agent goes live
+# immediately. TTL 45s — a dashboard prompt edit is reflected within ~45s.
+_WA_CFG_TTL_SEC = 45.0
+_wa_cfg_cache: dict[str, tuple[float, dict]] = {}
+
+# Transient transport errors we'll retry once. HTTPStatusError (5xx etc.) is
+# deliberately NOT in this set — that's a server-side error worth surfacing.
+_WA_RETRYABLE_EXC: tuple = (
+    httpx.TimeoutException,
+    httpx.NetworkError,
+    httpx.RemoteProtocolError,
+)
+
+
+def _wa_cfg_cache_get(key: str) -> Optional[dict]:
+    hit = _wa_cfg_cache.get(key)
+    if not hit:
+        return None
+    ts, value = hit
+    if (time.monotonic() - ts) > _WA_CFG_TTL_SEC:
+        _wa_cfg_cache.pop(key, None)
+        return None
+    return dict(value)
+
+
+def _wa_cfg_cache_set(key: str, value: dict) -> None:
+    _wa_cfg_cache[key] = (time.monotonic(), dict(value))
+
+
+async def _fetch_agent_row_with_retry(
+    field: str, number: str, masked: str
+) -> Optional[dict]:
+    """Call _fetch_agent_row_by_field; retry ONCE on transient transport errors.
+    Non-transient errors propagate so the caller can fall back / log type."""
+    try:
+        return await _fetch_agent_row_by_field(field, number)
+    except _WA_RETRYABLE_EXC as exc:
+        logger.warning(
+            "[WHATSAPP] %s lookup transient error (phone=%s) type=%s — retrying once",
+            field, masked, type(exc).__name__,
+        )
+        await asyncio.sleep(0.2)
+        return await _fetch_agent_row_by_field(field, number)
+
+
 async def _fetch_agent_row(to_number: str) -> Optional[dict]:
     """
     Query Supabase for an active agent matching the given phone number.
@@ -345,16 +396,39 @@ async def get_whatsapp_agent_config(raw_to: str) -> Optional[dict]:
     to_number = raw_to.removeprefix("whatsapp:")
     _mphone = _mask_phone(to_number)
 
+    # Cache hit — bypass Supabase entirely. Hits are configs that previously
+    # resolved successfully; fail-closed results are never cached.
+    _cached = _wa_cfg_cache_get(to_number)
+    if _cached is not None:
+        logger.info("[WHATSAPP] agent_config cache hit (phone=%s)", _mphone)
+        return _cached
+
+    row: Optional[dict] = None
+    # Primary: match on whatsapp_number. On transient transport errors the
+    # helper retries once internally; on any other exception we log type+repr
+    # (so an empty-message timeout is no longer indistinguishable from a real
+    # silent failure) and STILL attempt the phone_number fallback below.
     try:
-        # Primary: match on whatsapp_number (the correct field for WhatsApp channels)
-        row = await _fetch_agent_row_by_field("whatsapp_number", to_number)
-        # Fallback: some agents may still only have phone_number set
-        if row is None:
-            logger.info("[WHATSAPP] No match on whatsapp_number — trying phone_number (phone=%s)", _mphone)
-            row = await _fetch_agent_row_by_field("phone_number", to_number)
+        row = await _fetch_agent_row_with_retry("whatsapp_number", to_number, _mphone)
     except Exception as exc:
-        logger.error("[WHATSAPP] Agent lookup failed (phone=%s): %s", _mphone, exc)
-        return None
+        logger.error(
+            "[WHATSAPP] whatsapp_number lookup failed (phone=%s) type=%s err=%r",
+            _mphone, type(exc).__name__, exc,
+        )
+
+    # Fallback: some agents may only have phone_number set; also attempted
+    # when the whatsapp_number call raised, so a transient error on the
+    # primary lookup can't silently bypass the fallback.
+    if row is None:
+        logger.info("[WHATSAPP] No match on whatsapp_number — trying phone_number (phone=%s)", _mphone)
+        try:
+            row = await _fetch_agent_row_with_retry("phone_number", to_number, _mphone)
+        except Exception as exc:
+            logger.error(
+                "[WHATSAPP] phone_number lookup failed (phone=%s) type=%s err=%r",
+                _mphone, type(exc).__name__, exc,
+            )
+            return None
 
     if not row:
         logger.info("[WHATSAPP] No active agent found (phone=%s)", _mphone)
@@ -366,7 +440,7 @@ async def get_whatsapp_agent_config(raw_to: str) -> Optional[dict]:
     required_fields = row.get("whatsapp_required_fields")
     rules           = row.get("whatsapp_rules")
 
-    return {
+    result = {
         "agent_id":                 row.get("id") or None,
         "client_id":                row.get("client_id") or None,
         "system_prompt":            row.get("system_prompt") or None,
@@ -382,6 +456,8 @@ async def get_whatsapp_agent_config(raw_to: str) -> Optional[dict]:
         "whatsapp_required_fields": required_fields if isinstance(required_fields, list) else None,
         "whatsapp_rules":           rules if isinstance(rules, list) else None,
     }
+    _wa_cfg_cache_set(to_number, result)
+    return result
 
 
 # ── Main public function ──────────────────────────────────────────────────────
