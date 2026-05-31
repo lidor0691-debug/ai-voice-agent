@@ -26,6 +26,13 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+
+def _mask_phone(p: str) -> str:
+    """Privacy-safe phone token for logs — last 4 digits only. Never log full numbers."""
+    digits = "".join(ch for ch in (p or "") if ch.isdigit())
+    return f"***{digits[-4:]}" if len(digits) >= 4 else "***"
+
+
 _SUPABASE_URL      = os.getenv("SUPABASE_URL", "")
 _SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
 _TABLE             = "whatsapp_conversations"
@@ -139,7 +146,7 @@ async def append_whatsapp_messages(
     try:
         row = await _load_row(phone)
     except Exception as exc:
-        logger.error("[WHATSAPP HISTORY] Failed to load row for %s: %s", phone, exc)
+        logger.error("[WHATSAPP HISTORY] Failed to load row phone=%s: %s", _mask_phone(phone), exc)
         row = None
 
     existing = _normalize_messages(row.get("messages_json") if row else None)
@@ -152,7 +159,7 @@ async def append_whatsapp_messages(
     # Persist clean JSON array back to Supabase
     logger.info(
         "[WHATSAPP HISTORY SCOPE] phone=%s client_id=%s agent_id=%s business_phone=%s",
-        phone, client_id, agent_id, business_phone,
+        _mask_phone(phone), client_id, agent_id, _mask_phone(business_phone),
     )
     try:
         await _upsert_messages(
@@ -161,8 +168,8 @@ async def append_whatsapp_messages(
             agent_id=agent_id,
             business_phone=business_phone,
         )
-        logger.info("[WHATSAPP HISTORY SAVED] phone=%s msg_count=%d", phone, len(updated))
+        logger.info("[WHATSAPP HISTORY SAVED] phone=%s msg_count=%d", _mask_phone(phone), len(updated))
     except Exception as exc:
-        logger.error("[WHATSAPP HISTORY ERROR] phone=%s error=%s", phone, exc)
+        logger.error("[WHATSAPP HISTORY ERROR] phone=%s error=%s", _mask_phone(phone), exc)
 
     return updated
