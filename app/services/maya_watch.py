@@ -131,6 +131,12 @@ def normalize_phone(raw: str) -> str:
     return s
 
 
+def _mask_phone(p: str) -> str:
+    """Privacy-safe phone token for logs — last 4 digits only. Never log full numbers."""
+    digits = "".join(ch for ch in (p or "") if ch.isdigit())
+    return f"***{digits[-4:]}" if len(digits) >= 4 else "***"
+
+
 def is_hebrew(text: str) -> bool:
     return any("֐" <= c <= "׿" for c in text)
 
@@ -225,7 +231,7 @@ async def _agents_config_lookup(field: str, value: str) -> Optional[dict]:
             rows = resp.json()
         return rows[0] if rows else None
     except Exception as exc:
-        logger.warning("[MAYA-WATCH] agents_config lookup failed %s=%s: %s", field, value, exc)
+        logger.warning("[MAYA-WATCH] agents_config lookup failed field=%s value=%s: %s", field, _mask_phone(value), exc)
         return None
 
 
@@ -292,11 +298,11 @@ async def resolve_agent_for_to(to_number: str) -> tuple[Optional[str], Optional[
         if row:
             logger.info(
                 "[MAYA-WATCH] resolver_default to=%s → agent_id=%s client_id=%s",
-                normalized or "(empty)", row.get("id"), row.get("client_id"),
+                _mask_phone(normalized) if normalized else "(empty)", row.get("id"), row.get("client_id"),
             )
             return (row.get("id"), row.get("client_id"))
 
-    logger.warning("[MAYA-WATCH] unrouted_inbound to=%s — no agent matched, no default set", normalized or "(empty)")
+    logger.warning("[MAYA-WATCH] unrouted_inbound to=%s — no agent matched, no default set", _mask_phone(normalized) if normalized else "(empty)")
     return (None, None)
 
 
@@ -369,8 +375,8 @@ async def register_inbound(
     )
 
     logger.info(
-        "[MAYA-WATCH] inbound phone=%s client_id=%s agent_id=%s body=%r is_question=%s",
-        phone, client_id or "-", agent_id or "-", body[:80], has_question(body),
+        "[MAYA-WATCH] inbound phone=%s client_id=%s agent_id=%s body_chars=%d is_question=%s",
+        _mask_phone(phone), client_id or "-", agent_id or "-", len(body or ""), has_question(body),
     )
 
     # Reload the lead to inspect followup_sent_at and decide if we schedule.
@@ -415,8 +421,8 @@ async def register_inbound_persist_only(
         client_id=client_id, agent_id=agent_id,
     )
     logger.info(
-        "[MAYA-WATCH] mirror inbound phone=%s client_id=%s agent_id=%s body=%r",
-        phone, client_id or "-", agent_id or "-", body[:80],
+        "[MAYA-WATCH] mirror inbound phone=%s client_id=%s agent_id=%s body_chars=%d",
+        _mask_phone(phone), client_id or "-", agent_id or "-", len(body or ""),
     )
 
 
@@ -443,8 +449,8 @@ async def register_outbound(
         source=source,
     )
     logger.info(
-        "[MAYA-WATCH] outbound phone=%s client_id=%s source=%s body=%r sid=%s",
-        phone, client_id or "-", source or "-", body[:80], sid,
+        "[MAYA-WATCH] outbound phone=%s client_id=%s source=%s body_chars=%d sid=%s",
+        _mask_phone(phone), client_id or "-", source or "-", len(body or ""), sid,
     )
 
 
@@ -453,7 +459,7 @@ async def mark_booked(phone: str, *, client_id: Optional[str] = None) -> Optiona
     ok = await store.mark_booked(phone, client_id=client_id)
     if not ok:
         return None
-    logger.info("[MAYA-WATCH] booked phone=%s client_id=%s", phone, client_id or "-")
+    logger.info("[MAYA-WATCH] booked phone=%s client_id=%s", _mask_phone(phone), client_id or "-")
     row = await store.get_lead_with_messages(phone, client_id=client_id)
     return _lead_from_row(row) if row else None
 
@@ -912,10 +918,10 @@ async def _send_followup(lead: Lead) -> Optional[str]:
         )
         logger.info(
             "[MAYA-WATCH] followup_sent phone=%s client_id=%s sid=%s status=queued",
-            lead.phone, lead.client_id or "-", sid,
+            _mask_phone(lead.phone), lead.client_id or "-", sid,
         )
         return sid
-    logger.error("[MAYA-WATCH] followup_failed phone=%s", lead.phone)
+    logger.error("[MAYA-WATCH] followup_failed phone=%s", _mask_phone(lead.phone))
     return None
 
 
@@ -941,7 +947,7 @@ async def _send_whatsapp(to_phone: str, body: str) -> Optional[str]:
 
     logger.info(
         "[MAYA-WATCH] send_attempt from=%s to=%s status_cb=%s body_len=%d",
-        from_full, to_full, status_cb or "(none)", len(body),
+        _mask_phone(from_full), _mask_phone(to_full), status_cb or "(none)", len(body),
     )
     try:
         from twilio.rest import Client
@@ -952,13 +958,13 @@ async def _send_whatsapp(to_phone: str, body: str) -> Optional[str]:
         msg = await asyncio.to_thread(lambda: client.messages.create(**kwargs))
         logger.info(
             "[MAYA-WATCH] twilio_accepted sid=%s from=%s to=%s",
-            msg.sid, from_full, to_full,
+            msg.sid, _mask_phone(from_full), _mask_phone(to_full),
         )
         return msg.sid
     except Exception as exc:
         logger.error(
             "[MAYA-WATCH] twilio_send_failed from=%s to=%s error=%s",
-            from_full, to_full, exc,
+            _mask_phone(from_full), _mask_phone(to_full), exc,
         )
         return None
 
@@ -1142,7 +1148,7 @@ async def send_operator_whatsapp(
     if not _is_phone_allowlisted(validated_phone):
         logger.info(
             "[MAYA-WATCH] operator_send_blocked_allowlist lead_id=%s phone=%s",
-            lead_id, validated_phone,
+            lead_id, _mask_phone(validated_phone),
         )
         return {
             "ok": False,
@@ -1206,7 +1212,7 @@ async def send_operator_whatsapp(
     except Exception as exc:
         logger.error(
             "[MAYA-WATCH] operator_send_twilio_failed lead_id=%s sender=%s to=%s error=%s",
-            lead_id, sender_number, validated_phone, exc,
+            lead_id, _mask_phone(sender_number), _mask_phone(validated_phone), exc,
         )
         return {
             "ok": False,
@@ -1256,8 +1262,8 @@ async def send_operator_whatsapp(
         # Twilio accepted but we couldn't persist. The message went out;
         # the dashboard won't show it. Log full context for manual recon.
         logger.error(
-            "[MAYA-WATCH] post_twilio_insert_failed sid=%s lead_id=%s body=%r — message sent, NOT persisted",
-            twilio_msg_sid, lead_id, sanitized[:80],
+            "[MAYA-WATCH] post_twilio_insert_failed sid=%s lead_id=%s body_chars=%d — message sent, NOT persisted",
+            twilio_msg_sid, lead_id, len(sanitized or ""),
         )
         return {
             "ok": False,
