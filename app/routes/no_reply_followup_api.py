@@ -41,6 +41,11 @@ _SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 _SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
 _FOLLOWUP_SECRET = os.getenv("FOLLOWUP_SECRET", "")
 
+# Twilio Content Template SID for the no-reply 2h follow-up. When unset, the
+# endpoint refuses to instruct Make to send (send_mode='blocked_missing_template')
+# rather than letting Make fall back to free-form body (Error 63016 outside 24h).
+_NO_REPLY_TEMPLATE_SID = os.getenv("TWILIO_WA_TEMPLATE_NO_REPLY_SID", "").strip()
+
 # Tenant allow-list — BPM only for now. Override via env (comma-separated client_ids).
 # Defaults to BPM's client_id so the dry-run works out of the box without leaking
 # to any other tenant (Roi Insurance etc. are never included).
@@ -179,21 +184,47 @@ async def get_no_reply_due(x_followup_secret: str = Header(default="")):
                 if m.get("body") and (m.get("direction") or "").lower() == "in":
                     text_by_lead.setdefault(lid, []).append(m["body"])
 
-            # 3) Terminal-status exclusion via the `leads` table (per tenant).
+            # 3) Cross-table exclusions via the `leads` table (per tenant):
+            #    a. terminal status, b. ANY scheduled appointment, c. recent
+            #    appointment-flow mark-sent. Reason: a no-reply nudge must NEVER
+            #    reach a lead who already has a trial/appointment scheduled —
+            #    leads.status alone misses auto-scheduled trials that leave
+            #    status="new" with appointment_at set. Safest stance: if
+            #    appointment_at exists at all, skip no-reply. We can loosen later.
             sr = await client.get(
                 f"{_SUPABASE_URL}/rest/v1/leads",
                 params={
                     "client_id": f"eq.{client_id}",
-                    "select": "phone,status",
+                    "select": "phone,status,appointment_at,followup_sent_at",
                 },
                 headers=_headers(),
             )
             sr.raise_for_status()
+            _leads_rows = sr.json()
             terminal_phones = {
                 (row.get("phone") or "").strip()
-                for row in sr.json()
+                for row in _leads_rows
                 if (row.get("status") or "").strip().lower() in _TERMINAL_STATUSES
             }
+            scheduled_phones = {
+                (row.get("phone") or "").strip()
+                for row in _leads_rows
+                if (row.get("appointment_at") or "").strip()
+            }
+            _appt_dedupe_cutoff = now - timedelta(hours=6)
+            recent_appt_phones = set()
+            for row in _leads_rows:
+                fs_at = (row.get("followup_sent_at") or "").strip()
+                if not fs_at:
+                    continue
+                try:
+                    fs_dt = datetime.fromisoformat(fs_at.replace("Z", "+00:00"))
+                    if fs_dt.tzinfo is None:
+                        fs_dt = fs_dt.replace(tzinfo=timezone.utc)
+                    if fs_dt >= _appt_dedupe_cutoff:
+                        recent_appt_phones.add((row.get("phone") or "").strip())
+                except Exception:
+                    pass
 
             # 4) Apply the no-reply rules.
             for lid, lead in by_id.items():
@@ -213,10 +244,27 @@ async def get_no_reply_due(x_followup_secret: str = Header(default="")):
                 if last_out > cutoff:
                     continue
                 # (8) terminal status guard.
-                if (lead.get("phone") or "").strip() in terminal_phones:
+                phone_norm = (lead.get("phone") or "").strip()
+                if phone_norm in terminal_phones:
+                    continue
+                # (8b) already has a scheduled appointment/trial → skip no-reply.
+                if phone_norm in scheduled_phones:
+                    continue
+                # (8c) appointment flow recently stamped this lead → skip no-reply.
+                if phone_norm in recent_appt_phones:
                     continue
 
                 hours_silent = round((now - last_out).total_seconds() / 3600, 2)
+                message_body = _classify_followup(" ".join(text_by_lead.get(lid, [])))
+                template_variables = {
+                    "1": (lead.get("name") or "").strip(),
+                }
+                if _NO_REPLY_TEMPLATE_SID:
+                    send_mode = "template"
+                    template_sid = _NO_REPLY_TEMPLATE_SID
+                else:
+                    send_mode = "blocked_missing_template"
+                    template_sid = None
                 due.append({
                     "lead_id":         lid,
                     "client_id":       lead.get("client_id"),
@@ -224,7 +272,10 @@ async def get_no_reply_due(x_followup_secret: str = Header(default="")):
                     "name":            lead.get("name") or "",
                     "last_outbound_at": last_out.isoformat(),
                     "hours_silent":    hours_silent,
-                    "message":         _classify_followup(" ".join(text_by_lead.get(lid, []))),
+                    "message":         message_body,
+                    "send_mode":         send_mode,
+                    "template_sid":      template_sid,
+                    "template_variables": template_variables,
                 })
 
     return {
