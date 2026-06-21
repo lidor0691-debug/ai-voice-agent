@@ -19,3 +19,6 @@ supabase/.branches/
 
 # Next.js build output
 dashboard/.next/
+
+# Local assistant eval result artifacts (opt-in live runs)
+tools/assistant_eval/results/
