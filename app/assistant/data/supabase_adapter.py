@@ -154,6 +154,40 @@ async def get_contact_by_name(owner_id: str, name: Optional[str]) -> Optional[Co
     return _row_to_contact(row) if row else None
 
 
+async def resolve_contact_candidates(
+    owner_id: str,
+    recipient_raw: Optional[str],
+    recipient_type_hint: Optional[Any] = None,
+) -> List[dict]:
+    """Return all active contacts matching ``recipient_raw`` for an owner.
+
+    DB-driven recipient resolution. Matching is owner-scoped, exact on ``name``
+    (deterministic), active-only, optionally narrowed by ``recipient_type_hint``
+    (a RecipientType or its string value). The caller decides:
+      * 0 candidates  -> unknown recipient
+      * 1 candidate   -> proceed to resolve_send_plan
+      * 2+ candidates -> ambiguous recipient
+    Each candidate dict carries: id, name, recipient_type, phone, last_inbound_at.
+    """
+    if not recipient_raw:
+        return []
+    params: Dict[str, Any] = {
+        "owner_id": f"eq.{owner_id}",
+        "name": f"eq.{recipient_raw}",
+        "status": "eq.active",
+        "select": "id,name,recipient_type,phone,last_inbound_at",
+    }
+    if recipient_type_hint is not None:
+        hint = (
+            recipient_type_hint.value
+            if isinstance(recipient_type_hint, RecipientType)
+            else str(recipient_type_hint)
+        )
+        params["recipient_type"] = f"eq.{hint}"
+    rows = await _rest_request("GET", TABLE_CONTACTS, params=params)
+    return list(rows or ())
+
+
 async def list_active_templates(owner_id: str) -> Set[MessageType]:
     rows = await _rest_request(
         "GET",
@@ -199,18 +233,23 @@ async def insert_scheduled_message(
     owner_id: str,
     intent: ParsedIntent,
     *,
+    raw_command: Optional[str] = None,
     contact_id: Optional[str] = None,
     send_plan: Optional[str] = None,
     status: str = "needs_clarification",
     body: Optional[str] = None,
 ) -> Optional[str]:
-    """Persist a parsed intent as a scheduled-message row. Returns the new id."""
+    """Persist a parsed intent as a scheduled-message row. Returns the new id.
+
+    ``raw_command`` is the original natural-language command; when omitted it
+    falls back to ``intent.body`` for backward compatibility.
+    """
     payload = {
         "owner_id": owner_id,
         "contact_id": contact_id,
         "recipient_type": intent.recipient_type.value if intent.recipient_type else None,
         "message_type": intent.message_type.value if intent.message_type else None,
-        "raw_command": intent.body or "",
+        "raw_command": raw_command if raw_command is not None else (intent.body or ""),
         "scheduled_at": intent.scheduled_at_local,
         "is_explicit_time": intent.is_explicit_time,
         "related_event_date": intent.related_event_date,
@@ -252,6 +291,31 @@ async def update_scheduled_status(
         prefer="return=minimal",
     )
     return rows is not None
+
+
+async def insert_pending_clarification(
+    owner_id: str,
+    raw_command: str,
+    clarification_prompt: str,
+    clarification_type: str,
+    *,
+    scheduled_message_id: Optional[str] = None,
+    detail: Optional[dict] = None,
+) -> Optional[str]:
+    """Persist an open clarification (missing/unknown/ambiguous). Returns new id."""
+    payload = {
+        "owner_id": owner_id,
+        "scheduled_message_id": scheduled_message_id,
+        "raw_command": raw_command,
+        "clarification_prompt": clarification_prompt,
+        "clarification_type": clarification_type,
+        "status": "open",
+        "resolved_payload": detail,
+    }
+    rows = await _rest_request("POST", TABLE_CLARIFICATIONS, json=payload)
+    if not rows:
+        return None
+    return rows[0].get("id")
 
 
 async def log_activity(
