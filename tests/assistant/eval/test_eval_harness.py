@@ -9,6 +9,7 @@ from __future__ import annotations
 import ast
 import asyncio
 import inspect
+import sys
 
 import pytest
 
@@ -28,10 +29,12 @@ from tools.assistant_eval.report import format_report, summarize, to_dict
 from tools.assistant_eval.run_eval import (
     KEY_ENV,
     RUN_FLAG,
+    _configure_utf8_output,
     evaluate_cases,
     gate_blockers,
     live_allowed,
     run,
+    safe_print,
 )
 
 
@@ -244,6 +247,75 @@ def test_gate_blockers_never_echo_key_value(monkeypatch):
     monkeypatch.delenv(RUN_FLAG, raising=False)
     monkeypatch.setenv(KEY_ENV, "super-secret-value")
     assert all("super-secret-value" not in b for b in gate_blockers())
+
+
+# ── unicode-safe console output (regression: Windows cp1252 crash) ────────────
+
+class _Cp1252Stream:
+    """Simulates a default Windows console: only encodes cp1252; non-encodable
+    chars (Hebrew, the ★ marker) raise UnicodeEncodeError on write — exactly
+    the failure observed when printing the live report."""
+
+    encoding = "cp1252"
+
+    def __init__(self):
+        self.data = ""
+
+    def write(self, s):
+        s.encode("cp1252")  # raises UnicodeEncodeError on Hebrew / ★
+        self.data += s
+        return len(s)
+
+
+def test_safe_print_does_not_crash_on_cp1252_stream():
+    stream = _Cp1252Stream()
+    safe_print("ascii only", stream=stream)
+    assert "ascii only" in stream.data
+
+
+def test_full_report_with_unicode_survives_cp1252_stdout():
+    # Regression: the live report contains Hebrew case text AND the ★ marker.
+    case = next(c for c in CASES if c.id == 1)
+    res = compare_case(case, _intent_from_expect(case))
+    text = format_report([res], model="claude-sonnet-4-6",
+                         now_anchor="2026-06-15T12:00:00 IDT", mode="live")
+    assert "★" in text  # the offending glyph is present
+    stream = _Cp1252Stream()
+    safe_print(text, stream=stream)  # must NOT raise
+    assert "case  1" in stream.data        # ASCII content preserved
+    assert "claude-sonnet-4-6" in stream.data
+
+
+def test_safe_print_preserves_unicode_on_utf8_stream():
+    import io
+    buf = io.StringIO()  # StringIO accepts any unicode (UTF-8-like)
+    safe_print("שלום ★", stream=buf)
+    assert "שלום ★" in buf.getvalue()
+
+
+def test_configure_utf8_output_handles_missing_reconfigure(monkeypatch):
+    class _NoReconfigure:
+        encoding = "cp1252"
+
+    monkeypatch.setattr(sys, "stdout", _NoReconfigure())
+    monkeypatch.setattr(sys, "stderr", _NoReconfigure())
+    _configure_utf8_output()  # must be a safe no-op, not raise
+
+
+def test_configure_utf8_output_requests_utf8(monkeypatch):
+    calls = []
+
+    class _Reconfigurable:
+        encoding = "cp1252"
+
+        def reconfigure(self, **kw):
+            calls.append(kw)
+
+    monkeypatch.setattr(sys, "stdout", _Reconfigurable())
+    monkeypatch.setattr(sys, "stderr", _Reconfigurable())
+    _configure_utf8_output()
+    assert all(c.get("encoding") == "utf-8" for c in calls)
+    assert len(calls) == 2
 
 
 # ── isolation: no Supabase/data adapter, no eager Anthropic ───────────────────

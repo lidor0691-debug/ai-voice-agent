@@ -21,6 +21,7 @@ import asyncio
 import inspect
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Any, List, Optional, Tuple
 
@@ -33,6 +34,43 @@ KEY_ENV = "ANTHROPIC_API_KEY"
 
 # Local artifacts live under a gitignored directory; never committed.
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
+
+
+# ── unicode-safe console output ───────────────────────────────────────────────
+
+def _configure_utf8_output() -> None:
+    """Best-effort: switch stdout/stderr to UTF-8 so Unicode reports (Hebrew
+    case text, the must-pass ``★`` marker) don't crash on a default Windows
+    console (cp1252). Stdlib only; a no-op when the stream cannot be
+    reconfigured (e.g. already-wrapped or replaced streams). Saves the user
+    from having to set PYTHONIOENCODING=utf-8 by hand.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (ValueError, OSError, LookupError):
+            pass
+
+
+def safe_print(text: str = "", *, stream: Any = None) -> None:
+    """Print a line without ever raising ``UnicodeEncodeError``.
+
+    Primary path is a normal write — once stdout is UTF-8 (see
+    ``_configure_utf8_output``) Hebrew and the ``★`` marker are preserved
+    exactly. If the underlying console still cannot encode a character (UTF-8
+    could not be configured), degrade with ``errors="replace"`` rather than
+    crash — content is only lost in that already-degraded fallback.
+    """
+    out = stream if stream is not None else sys.stdout
+    line = f"{text}\n"
+    try:
+        out.write(line)
+    except UnicodeEncodeError:
+        enc = getattr(out, "encoding", None) or "utf-8"
+        out.write(line.encode(enc, errors="replace").decode(enc, errors="replace"))
 
 
 # ── safety gates ──────────────────────────────────────────────────────────────
@@ -114,17 +152,17 @@ def run(
     anchor = anchored_now().strftime("%Y-%m-%dT%H:%M:%S %Z")
 
     # Pre-flight: always state the spend BEFORE any client is built.
-    print(
+    safe_print(
         f"[eval] About to run {len(cases)} live Claude call(s) "
         f"(model={resolved_model}, now={anchor})."
     )
 
     blockers = gate_blockers()
     if blockers:
-        print("[eval] LIVE EVAL BLOCKED — no Anthropic call made:")
+        safe_print("[eval] LIVE EVAL BLOCKED — no Anthropic call made:")
         for b in blockers:
-            print(f"        - {b}")
-        print(f"[eval] To run: set {RUN_FLAG}=1 and {KEY_ENV}, then re-run.")
+            safe_print(f"        - {b}")
+        safe_print(f"[eval] To run: set {RUN_FLAG}=1 and {KEY_ENV}, then re-run.")
         return 0, None
 
     # Gates passed — construct the real parser lazily (only now).
@@ -135,10 +173,10 @@ def run(
 
     doc = to_dict(results, model=resolved_model, now_anchor=anchor, mode="live")
     if do_print:
-        print(format_report(results, model=resolved_model, now_anchor=anchor, mode="live"))
+        safe_print(format_report(results, model=resolved_model, now_anchor=anchor, mode="live"))
     if out:
         written = _write_results(doc, out)
-        print(f"[eval] results written to {written}")
+        safe_print(f"[eval] results written to {written}")
 
     return (2 if doc["summary"]["hard_fail"] else (1 if doc["summary"]["failed"] else 0)), doc
 
@@ -159,6 +197,7 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    _configure_utf8_output()  # make Unicode reports safe on default consoles
     args = _parse_args(argv)
     only = [int(x) for x in args.only.split(",") if x.strip()] if args.only else None
     code, _ = run(model=args.model, only=only, out=args.out, do_print=args.do_print)
