@@ -181,6 +181,51 @@ def test_now_anchored_to_jerusalem_in_prompt():
     assert "שלח לדנה הודעה" in content
 
 
+# ── recipient_type teacher inference (prompt contract + mapping) ──────────────
+
+def test_prompt_states_lesson_coordination_implies_teacher():
+    prompt = llm_parser_mod._SYSTEM_PROMPT
+    assert "recipient_type inference" in prompt
+    assert "lesson_coordination" in prompt and "teacher" in prompt
+    assert "coordinate lessons WITH teachers" in prompt
+    # the explicit student/parent/client override is documented
+    assert "תלמיד" in prompt and "הורה" in prompt
+
+
+def test_prompt_states_dual_date_does_not_change_recipient_type():
+    prompt = llm_parser_mod._SYSTEM_PROMPT
+    assert "Dual-date" in prompt
+    assert "must NOT change recipient_type" in prompt
+
+
+def test_prompt_has_teacher_dual_date_example_not_overfit_to_case_23():
+    prompt = llm_parser_mod._SYSTEM_PROMPT
+    # a structurally-equivalent lesson_coordination/teacher dual-date example
+    assert "תיאום שיעור" in prompt
+    assert 'recipient_type="teacher"' in prompt
+    # NOT the exact case-23 command text — pattern taught, not hardcoded
+    assert "שלח ליוסי תיאום שיעור ל-20.6 ב-17.6 בשעה 09:00" not in prompt
+
+
+def test_dual_date_teacher_output_maps_through():
+    # Mapping-only (no network): a correct teacher/lesson_coordination dual-date
+    # structured output must map to recipient_type=teacher with both dates kept.
+    out = LLMParseResult(
+        status="parsed", recipient_name="יוסי", recipient_type="teacher",
+        message_type="lesson_coordination", scheduled_at_local="2026-06-17T09:00:00",
+        is_explicit_time=True, related_event_date="2026-06-20",
+    )
+    intent = asyncio.run(
+        _parser(resp=_Resp(out)).parse(
+            "שלח ליוסי תיאום שיעור ל-20.6 ב-17.6 בשעה 09:00", now=NOW
+        )
+    )
+    assert intent.recipient_type == RecipientType.TEACHER
+    assert intent.message_type == MessageType.LESSON_COORDINATION
+    assert intent.scheduled_at_local == "2026-06-17T09:00:00"
+    assert intent.related_event_date == "2026-06-20"
+
+
 # ── isolation: no contact lookup / no data adapter ────────────────────────────
 
 def _imported_modules(mod):

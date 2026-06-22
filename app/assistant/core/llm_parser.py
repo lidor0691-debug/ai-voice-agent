@@ -71,6 +71,15 @@ Rules (locked contract):
     status="needs_clarification" (never invent a time or recipient).
   - Resolve "today / tomorrow / מחר / מחרתיים / היום" against the provided
     current date/time, in Asia/Jerusalem.
+  - recipient_type inference:
+      * A lesson_coordination message (תיאום שיעור / "תזכיר ... על השיעור" /
+        coordinating or reminding about a lesson) addressed to a named person
+        means recipient_type="teacher" — you coordinate lessons WITH teachers —
+        UNLESS the wording explicitly marks the recipient as a student/parent/
+        client (e.g. תלמיד / תלמידה / הורה / לקוח).
+      * Dual-date phrasing — a ל-/עד/של EVENT date TOGETHER WITH a ב- SEND date
+        in the same command — must NOT change recipient_type. Classify the
+        recipient exactly as you would if only one date were present.
 
 Examples:
   "שלח לדנה תזכורת ב-29.6 בשעה 18:00"
@@ -83,6 +92,12 @@ Examples:
   "שלח לדנה הודעה מחר"
     -> parsed, recipient_name="דנה", message_type="custom",
        scheduled_at_local="<tomorrow>T10:00:00", is_explicit_time=false.
+  "שלח לרון תיאום שיעור ל-25.6 ב-22.6 בשעה 08:00"
+    -> parsed, recipient_name="רון", recipient_type="teacher",
+       message_type="lesson_coordination", related_event_date="2026-06-25",
+       scheduled_at_local="2026-06-22T08:00:00", is_explicit_time=true
+       (dual-date: ל-25.6 is the EVENT date, ב-22.6 is the SEND date; the extra
+        event date does NOT change the teacher classification).
 """
 
 
