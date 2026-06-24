@@ -37,6 +37,15 @@ class Settings(BaseSettings):
     # How long to cache sheet data in seconds (0 = no cache)
     GOOGLE_SHEETS_CACHE_TTL: int = 60
 
+    # Assistant Telegram intake (owner-only). Default OFF + dry-run ON.
+    # Persist requires BOTH enabled=true AND dry_run=false.
+    ASSISTANT_TELEGRAM_INTAKE_ENABLED: bool = False
+    ASSISTANT_TELEGRAM_DRY_RUN: bool = True
+    ASSISTANT_TELEGRAM_BOT_TOKEN: str = ""
+    ASSISTANT_TELEGRAM_WEBHOOK_SECRET: str = ""
+    ASSISTANT_TELEGRAM_ALLOWED_USER_IDS: str = ""   # CSV of numeric ids
+    ASSISTANT_TELEGRAM_OWNER_MAP: str = ""          # CSV of "<tg_id>:<owner_uuid>"
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
 
