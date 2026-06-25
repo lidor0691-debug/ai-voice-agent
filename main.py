@@ -110,6 +110,14 @@ app.include_router(attribution_router)
 app.include_router(admin_maya_actions_router)
 app.include_router(maya_actions_execute_router)
 
+# Assistant Telegram intake — mounted ONLY when explicitly enabled (default OFF).
+# When disabled, the route module, ClaudeParser, Command Core, Supabase adapter,
+# and Telegram client are never imported.
+from app.config.settings import settings as _settings
+if _settings.ASSISTANT_TELEGRAM_INTAKE_ENABLED:
+    from app.routes.assistant_telegram_api import router as assistant_telegram_router
+    app.include_router(assistant_telegram_router)
+
 # Serve mockup files for development (skip if directory doesn't exist, e.g. Railway)
 import pathlib
 _mockup_dir = ".superpowers/brainstorm/142-1776577129/content"
