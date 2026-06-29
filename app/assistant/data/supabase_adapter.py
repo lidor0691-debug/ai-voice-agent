@@ -18,6 +18,7 @@ import logging
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Set
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -38,6 +39,7 @@ TABLE_CLARIFICATIONS = "assistant_pending_clarifications"
 
 _TIMEOUT = 5.0
 _WINDOW = timedelta(hours=24)
+_TZ = ZoneInfo("Asia/Jerusalem")  # studio-local timezone for scheduled_at
 
 
 def env_ready() -> bool:
@@ -59,6 +61,32 @@ def _iso(dt: Optional[datetime]) -> Optional[str]:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt.isoformat()
+
+
+def _local_to_utc_iso(local_iso: Optional[str]) -> Optional[str]:
+    """Convert an Asia/Jerusalem wall-clock ISO string to a correct UTC instant.
+
+    ``intent.scheduled_at_local`` is a NAIVE local wall-clock value (e.g.
+    "2026-06-30T10:00:00" = 10:00 in Israel). The ``scheduled_at`` column is
+    ``timestamptz``; writing a naive value lets Postgres assume UTC, shifting it
+    by the IDT/IST offset. Here we attach the Asia/Jerusalem zone (DST-aware)
+    and convert to UTC so the stored instant is correct:
+
+        "2026-06-30T10:00:00" (IDT, +03) -> "2026-06-30T07:00:00+00:00"
+        "2026-01-15T10:00:00" (IST, +02) -> "2026-01-15T08:00:00+00:00"
+
+    None/empty -> None. An already tz-aware string is converted to UTC as-is
+    (never double-localized).
+    """
+    if not local_iso:
+        return None
+    try:
+        dt = datetime.fromisoformat(local_iso)
+    except ValueError:
+        return local_iso  # leave unparseable values untouched (fail safe)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=_TZ)
+    return dt.astimezone(timezone.utc).isoformat()
 
 
 async def _rest_request(
@@ -250,7 +278,7 @@ async def insert_scheduled_message(
         "recipient_type": intent.recipient_type.value if intent.recipient_type else None,
         "message_type": intent.message_type.value if intent.message_type else None,
         "raw_command": raw_command if raw_command is not None else (intent.body or ""),
-        "scheduled_at": intent.scheduled_at_local,
+        "scheduled_at": _local_to_utc_iso(intent.scheduled_at_local),
         "is_explicit_time": intent.is_explicit_time,
         "related_event_date": intent.related_event_date,
         "send_plan": send_plan,

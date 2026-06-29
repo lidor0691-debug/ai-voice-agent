@@ -271,3 +271,56 @@ def test_send_plan_check_matches_contract():
 
 def test_template_message_type_check_matches_template_types():
     assert _check_values("chk_amt_message_type") == {e.value for e in TEMPLATE_TYPES}
+
+
+# ── scheduled_at timezone correctness (Asia/Jerusalem local -> UTC instant) ───
+
+def test_local_to_utc_iso_summer_idt():
+    # 2026-06-30 is summer (IDT, +03): 10:00 local -> 07:00 UTC
+    assert adapter._local_to_utc_iso("2026-06-30T10:00:00") == "2026-06-30T07:00:00+00:00"
+
+
+def test_local_to_utc_iso_winter_ist():
+    # 2026-01-15 is winter (IST, +02): 10:00 local -> 08:00 UTC
+    assert adapter._local_to_utc_iso("2026-01-15T10:00:00") == "2026-01-15T08:00:00+00:00"
+
+
+def test_local_to_utc_iso_none_and_empty_stay_none():
+    assert adapter._local_to_utc_iso(None) is None
+    assert adapter._local_to_utc_iso("") is None
+
+
+def test_local_to_utc_iso_already_offset_not_double_localized():
+    # Already UTC -> unchanged
+    assert adapter._local_to_utc_iso("2026-06-30T10:00:00+00:00") == "2026-06-30T10:00:00+00:00"
+    # Already +03:00 -> converted to UTC, not re-localized
+    assert adapter._local_to_utc_iso("2026-06-30T10:00:00+03:00") == "2026-06-30T07:00:00+00:00"
+
+
+def test_local_to_utc_iso_unparseable_is_returned_untouched():
+    assert adapter._local_to_utc_iso("not-a-timestamp") == "not-a-timestamp"
+
+
+def test_insert_scheduled_message_persists_utc_instant_summer(monkeypatch):
+    capture = []
+    monkeypatch.setattr(adapter, "_rest_request", make_fake_rest(capture=capture))
+    intent = _intent()
+    intent.scheduled_at_local = "2026-06-30T10:00:00"   # 10:00 Israel (IDT)
+    smid = asyncio.run(adapter.insert_scheduled_message(
+        OWNER, intent, raw_command="cmd", contact_id="c-1",
+        send_plan="manual_fallback", status="scheduled"))
+    assert smid == "new-id-123"
+    post = [c for c in capture if c["method"] == "POST"][0]
+    assert post["json"]["scheduled_at"] == "2026-06-30T07:00:00+00:00"
+
+
+def test_insert_scheduled_message_none_scheduled_at_stays_none(monkeypatch):
+    capture = []
+    monkeypatch.setattr(adapter, "_rest_request", make_fake_rest(capture=capture))
+    intent = _intent()
+    intent.scheduled_at_local = None
+    asyncio.run(adapter.insert_scheduled_message(
+        OWNER, intent, raw_command="cmd", contact_id="c-1",
+        send_plan="manual_fallback", status="needs_clarification"))
+    post = [c for c in capture if c["method"] == "POST"][0]
+    assert post["json"]["scheduled_at"] is None
