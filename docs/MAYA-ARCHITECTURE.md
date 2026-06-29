@@ -7,6 +7,8 @@ Two non-negotiables:
 1. **Privacy isolation by construction.** A client's raw messages, lead names, phones, summaries, and successful replies never reach another tenant — even indirectly through "shared learnings."
 2. **Evidence-based knowledge only.** Every pattern Maya uses must point to specific events that produced it. Findings without evidence are dropped.
 
+> Operational handoff for the owner-only Telegram intake (live, dry-run): [assistant/telegram-intake-handoff.md](assistant/telegram-intake-handoff.md).
+
 ---
 
 ## The four-layer learning model
