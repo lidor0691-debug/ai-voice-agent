@@ -28,8 +28,11 @@ from fastapi import APIRouter, Request
 
 from app.assistant.telegram import replies
 from app.assistant.telegram.intake import (
+    extract_body,
     extract_update,
+    is_immediate_command,
     parse_allowed_user_ids,
+    parse_owner_agent_map,
     parse_owner_map,
     verify_secret,
 )
@@ -186,7 +189,25 @@ async def telegram_webhook(request: Request):
         intent = await intent
 
     # 6) Reply per mode.
-    if settings.ASSISTANT_TELEGRAM_DRY_RUN:
+    #    Immediate "now" (עכשיו) commands take priority and use the opt-in
+    #    WhatsApp send pilot; they are gated ONLY by the separate WhatsApp flag
+    #    (independent of global dry-run). Future/scheduled commands keep the
+    #    existing dry-run preview / persist behavior below.
+    if is_immediate_command(text):
+        if not settings.ASSISTANT_TELEGRAM_WHATSAPP_SEND_ENABLED:
+            reply = replies.reply_wa_disabled()
+        else:
+            # Lazy: heavy WhatsApp/data path loads only on an enabled immediate send.
+            from app.assistant.telegram.whatsapp_flow import handle_immediate_whatsapp
+
+            reply = await handle_immediate_whatsapp(
+                owner_id=owner_id,
+                recipient_name=intent.recipient_name,
+                recipient_type=intent.recipient_type,
+                body=extract_body(text),
+                agent_map=parse_owner_agent_map(settings.ASSISTANT_TELEGRAM_WHATSAPP_AGENT_MAP),
+            )
+    elif settings.ASSISTANT_TELEGRAM_DRY_RUN:
         reply = _dry_run_reply(intent)
     else:
         # Persist path — lazy import so the adapter loads only when used.
