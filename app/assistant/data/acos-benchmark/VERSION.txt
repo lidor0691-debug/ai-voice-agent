@@ -1,0 +1,26 @@
+ACOS Morning Brief — version acos-v0.1
+frozen: 2026-07-04
+
+MODELS / CONFIG
+  generation model: claude-sonnet-4-6
+  judge model:      claude-opus-4-8
+  max_tokens:       2048
+  temperature:      0 (generation)
+
+BASELINE SCORE (eval: results_2048_fndfix.jsonl / judged_results_2048_fndfix.jsonl)
+  ARM B all-4 pass: 93% (56/60)
+  catastrophic:     4/60
+  token ratio B/A:  1.87x
+
+FROZEN ARTIFACTS (immutable for v0.1)
+  arm_b_prompts/acos_C-FND.txt   (includes zero-A no-invented-leads fix)
+  arm_b_prompts/acos_C-SLS.txt
+  benchmark_tasks.jsonl
+  bare_prompt.txt
+  run_benchmark.py
+  judge_results.py
+  results_2048_fndfix.jsonl
+  judged_results_2048_fndfix.jsonl
+
+PRODUCTION PROMPT
+  prompts/acos_morning_brief_v0.1.txt  (merged FND+SLS; production reads only this copy)

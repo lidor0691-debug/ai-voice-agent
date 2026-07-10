@@ -99,3 +99,53 @@ def reply_ambiguous(*, recipient_name: Optional[str], dry_run: bool = False) -> 
     who = recipient_name or "—"
     body = f'🤔 יש כמה אנשי קשר בשם "{who}". למי התכוונת?'
     return (_DRY_PREFIX + body) if dry_run else body
+
+
+# ── immediate WhatsApp send (pilot) — owner-facing result replies ─────────────
+
+def reply_wa_sent(name: Optional[str]) -> str:
+    return f"✅ נשלח WhatsApp ל{name or '—'}"
+
+
+def reply_wa_window_closed(name: Optional[str]) -> str:
+    who = name or "הנמען"
+    return (
+        f"אי אפשר לשלוח עדיין — צריך ש{who} ישלח/תשלח קודם הודעה "
+        f"למספר מאיה כדי לפתוח חלון WhatsApp."
+    )
+
+
+def reply_wa_missing_phone() -> str:
+    return "מצאתי את איש הקשר, אבל אין לו מספר טלפון."
+
+
+def reply_wa_no_lead() -> str:
+    return "מצאתי את איש הקשר, אבל אין ליד תואם לשליחה."
+
+
+def reply_wa_ambiguous_contact() -> str:
+    return "מצאתי יותר מאיש קשר אחד בשם הזה. צריך לדייק למי לשלוח."
+
+
+def reply_wa_ambiguous_lead() -> str:
+    return "מצאתי יותר מליד אחד עם המספר הזה. עצרתי כדי לא לשלוח בטעות."
+
+
+def reply_wa_disabled() -> str:
+    return "שליחת WhatsApp מטלגרם עדיין כבויה. כרגע זו בדיקה בלבד."
+
+
+def reply_wa_contact_not_found() -> str:
+    return "לא מצאתי איש קשר בשם הזה."
+
+
+def reply_wa_no_body() -> str:
+    return 'לא הצלחתי לזהות את תוכן ההודעה. כתבי אחרי "הודעה:".'
+
+
+def reply_wa_not_configured() -> str:
+    return "שליחת WhatsApp לא מוגדרת כרגע."
+
+
+def reply_wa_send_failed() -> str:
+    return "שליחת ה-WhatsApp נכשלה. אפשר לנסות שוב מאוחר יותר."

@@ -7,8 +7,16 @@ malformed input (bad entries are skipped, not fatal).
 from __future__ import annotations
 
 import hmac
+import re
 import uuid
 from typing import Dict, Optional, Set, TypedDict
+
+# Lexical marker that a command means "send immediately / now" (vs a future
+# scheduled command). Kept deliberately narrow for the immediate-send pilot.
+_IMMEDIATE_MARKERS = ("עכשיו",)
+
+# Body delimiter: the message content follows "הודעה:" (Hebrew "message:").
+_BODY_RE = re.compile(r"הודעה\s*:\s*(.+)$", re.DOTALL)
 
 
 class Update(TypedDict):
@@ -56,6 +64,49 @@ def parse_owner_map(raw: str) -> Dict[int, str]:
             continue
         out[tg_id] = owner_raw
     return out
+
+
+def parse_owner_agent_map(raw: str) -> Dict[str, str]:
+    """CSV of ``<owner_uuid>:<agent_uuid>`` -> dict[str, str] (owner -> WhatsApp
+    agent). Splits on the FIRST ':'. Both sides must be UUIDs; bad pairs skipped.
+    """
+    out: Dict[str, str] = {}
+    for item in (raw or "").split(","):
+        item = item.strip()
+        if not item or ":" not in item:
+            continue
+        owner_raw, agent_raw = item.split(":", 1)
+        owner_raw, agent_raw = owner_raw.strip(), agent_raw.strip()
+        try:
+            uuid.UUID(owner_raw)
+            uuid.UUID(agent_raw)
+        except (ValueError, AttributeError, TypeError):
+            continue
+        out[owner_raw] = agent_raw
+    return out
+
+
+def is_immediate_command(text: Optional[str]) -> bool:
+    """True if the command clearly means "send now" (contains עכשיו). Purely
+    lexical — future/scheduled commands (e.g. "מחר ב-10:00") return False."""
+    if not text:
+        return False
+    return any(marker in text for marker in _IMMEDIATE_MARKERS)
+
+
+def extract_body(text: Optional[str]) -> Optional[str]:
+    """Extract the message body after the "הודעה:" delimiter, trimmed.
+
+    Returns None when there is no delimiter or the body is empty. Deterministic;
+    no NLP — the send path requires an explicit body.
+    """
+    if not text:
+        return None
+    m = _BODY_RE.search(text)
+    if not m:
+        return None
+    body = m.group(1).strip()
+    return body or None
 
 
 def verify_secret(header_value: Optional[str], configured: Optional[str]) -> bool:

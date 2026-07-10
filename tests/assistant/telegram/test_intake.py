@@ -4,8 +4,11 @@ from __future__ import annotations
 from app.assistant.nlp.contract import MessageType, SendPlan
 from app.assistant.telegram import replies
 from app.assistant.telegram.intake import (
+    extract_body,
     extract_update,
+    is_immediate_command,
     parse_allowed_user_ids,
+    parse_owner_agent_map,
     parse_owner_map,
     verify_secret,
 )
@@ -149,3 +152,52 @@ def test_reply_handles_none_message_type():
     r = replies.reply_scheduled(recipient_name="x", message_type=None,
                                 scheduled_at_local="2026-06-16T10:00:00")
     assert "הודעה" in r  # default noun
+
+
+# ── immediate-command detection / body extraction / owner-agent map ───────────
+
+def test_is_immediate_command_true_on_achshav():
+    assert is_immediate_command("שלח לאני עכשיו הודעה: היי") is True
+
+
+def test_is_immediate_command_false_on_future():
+    assert is_immediate_command("שלח לאני מחר ב-10:00 הודעה: היי") is False
+    assert is_immediate_command("שלח לדנה הודעה") is False
+    assert is_immediate_command("") is False
+    assert is_immediate_command(None) is False
+
+
+def test_extract_body_after_delimiter():
+    assert extract_body("שלח לאני עכשיו הודעה: היי, זו בדיקה 🙏") == "היי, זו בדיקה 🙏"
+    assert extract_body("שלח לקסניה עכשיו הודעה:היי קסניה") == "היי קסניה"
+
+
+def test_extract_body_none_without_delimiter():
+    assert extract_body("שלח לאני עכשיו") is None
+    assert extract_body("שלח לאני עכשיו הודעה:   ") is None
+    assert extract_body(None) is None
+
+
+def test_parse_owner_agent_map_valid():
+    assert parse_owner_agent_map(f"{UUID1}:{UUID2}") == {UUID1: UUID2}
+
+
+def test_parse_owner_agent_map_skips_bad_and_empty():
+    assert parse_owner_agent_map("") == {}
+    assert parse_owner_agent_map(f"{UUID1}:not-a-uuid") == {}
+    assert parse_owner_agent_map("no-colon") == {}
+    assert parse_owner_agent_map(f"{UUID1}:{UUID2},bad:{UUID1}") == {UUID1: UUID2}
+
+
+# ── WhatsApp immediate-send reply strings ─────────────────────────────────────
+
+def test_wa_reply_strings():
+    assert "נשלח WhatsApp" in replies.reply_wa_sent("אני")
+    assert "חלון WhatsApp" in replies.reply_wa_window_closed("קסניה")
+    assert "אין לו מספר" in replies.reply_wa_missing_phone()
+    assert "אין ליד" in replies.reply_wa_no_lead()
+    assert "יותר מאיש קשר" in replies.reply_wa_ambiguous_contact()
+    assert "יותר מליד" in replies.reply_wa_ambiguous_lead()
+    assert "כבויה" in replies.reply_wa_disabled()
+    assert "לא מצאתי" in replies.reply_wa_contact_not_found()
+    assert "תוכן ההודעה" in replies.reply_wa_no_body()

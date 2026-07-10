@@ -46,6 +46,11 @@ class Settings(BaseSettings):
     ASSISTANT_TELEGRAM_ALLOWED_USER_IDS: str = ""   # CSV of numeric ids
     ASSISTANT_TELEGRAM_OWNER_MAP: str = ""          # CSV of "<tg_id>:<owner_uuid>"
 
+    # Immediate Telegram->WhatsApp send pilot. Separate explicit gate; default
+    # OFF. Only "now" (עכשיו) commands may send; future commands stay preview.
+    ASSISTANT_TELEGRAM_WHATSAPP_SEND_ENABLED: bool = False
+    ASSISTANT_TELEGRAM_WHATSAPP_AGENT_MAP: str = ""  # CSV of "<owner_uuid>:<agent_id>"
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
 

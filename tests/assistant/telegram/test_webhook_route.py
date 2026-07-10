@@ -305,21 +305,31 @@ def test_route_module_imports_no_heavy_deps_at_import_time():
     assert not any(m == "anthropic" for m in top_level), top_level
 
 
-def test_no_twilio_whatsapp_make_scheduler_imports():
+def test_route_does_not_import_twilio_make_scheduler_or_whatsapp_sender():
+    # The route may reference the WhatsApp *flow* (lazily), but must NOT import
+    # Twilio, Make, a scheduler, or the Twilio-backed whatsapp_sender directly —
+    # and the heavy flow must be imported LAZILY (not at module top level).
     import ast
     import inspect
 
-    for mod in (tg,):
-        src = inspect.getsource(mod)
-        tree = ast.parse(src)
-        names = set()
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                names.update(a.name for a in node.names)
-            elif isinstance(node, ast.ImportFrom) and node.module:
-                names.add(node.module)
-        joined = " ".join(names).lower()
-        assert "twilio" not in joined
-        assert "whatsapp" not in joined
-        assert "make_webhook" not in joined
-        assert "scheduler" not in joined and "apscheduler" not in joined
+    tree = ast.parse(inspect.getsource(tg))
+    all_names, top_level = set(), set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            all_names.update(a.name for a in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            all_names.add(node.module)
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            top_level.update(a.name for a in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            top_level.add(node.module)
+
+    joined = " ".join(all_names).lower()
+    assert "twilio" not in joined, all_names
+    assert "make_webhook" not in joined, all_names
+    assert "scheduler" not in joined and "apscheduler" not in joined, all_names
+    # Twilio-backed sender reached only via whatsapp_flow, never imported directly.
+    assert not any("whatsapp_sender" in m for m in all_names), all_names
+    # Heavy WhatsApp flow must stay lazy (not a top-level import).
+    assert not any("whatsapp_flow" in m for m in top_level), top_level
