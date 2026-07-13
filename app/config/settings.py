@@ -51,6 +51,12 @@ class Settings(BaseSettings):
     ASSISTANT_TELEGRAM_WHATSAPP_SEND_ENABLED: bool = False
     ASSISTANT_TELEGRAM_WHATSAPP_AGENT_MAP: str = ""  # CSV of "<owner_uuid>:<agent_id>"
 
+    # Scheduled Telegram->WhatsApp jobs (PR-A). Separate explicit gate; default
+    # OFF. When ON, a FUTURE command PERSISTS a scheduled row (send_plan=
+    # api_freeform, status=scheduled) even while DRY_RUN is on — but NEVER sends.
+    # Sending is a later dispatcher PR. Immediate (עכשיו) commands are unaffected.
+    ASSISTANT_TELEGRAM_WHATSAPP_SCHEDULE_ENABLED: bool = False
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
 

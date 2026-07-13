@@ -191,8 +191,10 @@ async def telegram_webhook(request: Request):
     # 6) Reply per mode.
     #    Immediate "now" (עכשיו) commands take priority and use the opt-in
     #    WhatsApp send pilot; they are gated ONLY by the separate WhatsApp flag
-    #    (independent of global dry-run). Future/scheduled commands keep the
-    #    existing dry-run preview / persist behavior below.
+    #    (independent of global dry-run). A FUTURE command, when the separate
+    #    schedule flag is on, is PERSISTED as a scheduled WhatsApp job (never
+    #    sent — dispatcher is a later PR); this also works while dry-run is on.
+    #    Otherwise future commands keep the dry-run preview / persist behavior.
     if is_immediate_command(text):
         if not settings.ASSISTANT_TELEGRAM_WHATSAPP_SEND_ENABLED:
             reply = replies.reply_wa_disabled()
@@ -207,6 +209,14 @@ async def telegram_webhook(request: Request):
                 body=extract_body(text),
                 agent_map=parse_owner_agent_map(settings.ASSISTANT_TELEGRAM_WHATSAPP_AGENT_MAP),
             )
+    elif settings.ASSISTANT_TELEGRAM_WHATSAPP_SCHEDULE_ENABLED:
+        # Lazy: persist-only scheduled path (no Twilio, no send). Loads the data
+        # adapter only when an enabled future command is being scheduled.
+        from app.assistant.telegram.whatsapp_schedule_flow import handle_scheduled_whatsapp
+
+        reply = await handle_scheduled_whatsapp(
+            owner_id=owner_id, intent=intent, raw_command=text
+        )
     elif settings.ASSISTANT_TELEGRAM_DRY_RUN:
         reply = _dry_run_reply(intent)
     else:

@@ -266,11 +266,13 @@ async def insert_scheduled_message(
     send_plan: Optional[str] = None,
     status: str = "needs_clarification",
     body: Optional[str] = None,
+    parsed_intent: Optional[dict] = None,
 ) -> Optional[str]:
     """Persist a parsed intent as a scheduled-message row. Returns the new id.
 
     ``raw_command`` is the original natural-language command; when omitted it
-    falls back to ``intent.body`` for backward compatibility.
+    falls back to ``intent.body`` for backward compatibility. ``parsed_intent``
+    is an optional JSON-safe snapshot stored in the ``parsed_intent`` column.
     """
     payload = {
         "owner_id": owner_id,
@@ -284,6 +286,7 @@ async def insert_scheduled_message(
         "send_plan": send_plan,
         "status": status,
         "body": body,
+        "parsed_intent": parsed_intent,
         "inferred_notes": intent.inferred_notes or None,
     }
     rows = await _rest_request("POST", TABLE_SCHEDULED, json=payload)
