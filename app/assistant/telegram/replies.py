@@ -149,3 +149,9 @@ def reply_wa_not_configured() -> str:
 
 def reply_wa_send_failed() -> str:
     return "שליחת ה-WhatsApp נכשלה. אפשר לנסות שוב מאוחר יותר."
+
+
+# ── scheduled WhatsApp job (PR-A) — persist-only, never sends ─────────────────
+
+def reply_wa_schedule_save_failed() -> str:
+    return "לא הצלחתי לשמור את המשימה המתוזמנת. אפשר לנסות שוב."
