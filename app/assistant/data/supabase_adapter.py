@@ -324,6 +324,83 @@ async def update_scheduled_status(
     return rows is not None
 
 
+async def list_due_scheduled_messages(
+    now_iso: str, *, limit: int = 200
+) -> List[dict]:
+    """Rows that are DUE to send: status=scheduled, send_plan=api_freeform,
+    scheduled_at <= now, not yet claimed (approved_at IS NULL), with a body and
+    a contact. The DB does the filtering so future rows, non-api_freeform rows,
+    and non-scheduled rows are never returned. Oldest send-time first.
+    """
+    rows = await _rest_request(
+        "GET",
+        TABLE_SCHEDULED,
+        params={
+            "status": "eq.scheduled",
+            "send_plan": "eq.api_freeform",
+            "scheduled_at": f"lte.{now_iso}",
+            "approved_at": "is.null",
+            "contact_id": "not.is.null",
+            "body": "not.is.null",
+            "select": "id,owner_id,contact_id,recipient_type,body,scheduled_at",
+            "order": "scheduled_at.asc",
+            "limit": str(limit),
+        },
+    )
+    return list(rows or ())
+
+
+async def get_contact_by_id(contact_id: Optional[str]) -> Optional[dict]:
+    """Fetch a single ACTIVE contact by id (id, name, recipient_type, phone,
+    last_inbound_at). None if missing/inactive/on error."""
+    if not contact_id:
+        return None
+    rows = await _rest_request(
+        "GET",
+        TABLE_CONTACTS,
+        params={
+            "id": f"eq.{contact_id}",
+            "status": "eq.active",
+            "select": "id,name,recipient_type,phone,last_inbound_at",
+            "limit": "1",
+        },
+    )
+    if not rows:
+        return None
+    return rows[0]
+
+
+async def claim_scheduled_message(
+    message_id: str, *, now: Optional[datetime] = None
+) -> bool:
+    """Optimistic single-winner claim for the dispatcher (no schema change).
+
+    Conditionally PATCHes the row ONLY while it is still ``status=scheduled`` AND
+    unclaimed (``approved_at IS NULL``), stamping ``approval_requested_at`` +
+    ``approved_at`` = now as the dispatch lock. ``status`` stays ``scheduled``
+    (the due query excludes ``approved_at NOT NULL``, so a claimed row is not
+    re-picked). Both timestamps are set together to satisfy
+    ``chk_asm_approval_pairing``.
+
+    Returns True only for the worker whose PATCH matched a row (exactly one);
+    a concurrent claimer, an already-terminal row, or a seam error -> False
+    (the caller then skips — never sends).
+    """
+    ts = _iso(now or datetime.now(timezone.utc))
+    rows = await _rest_request(
+        "PATCH",
+        TABLE_SCHEDULED,
+        params={
+            "id": f"eq.{message_id}",
+            "status": "eq.scheduled",
+            "approved_at": "is.null",
+        },
+        json={"approval_requested_at": ts, "approved_at": ts},
+        prefer="return=representation",
+    )
+    return bool(rows)
+
+
 async def insert_pending_clarification(
     owner_id: str,
     raw_command: str,

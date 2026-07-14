@@ -118,6 +118,13 @@ if _settings.ASSISTANT_TELEGRAM_INTAKE_ENABLED:
     from app.routes.assistant_telegram_api import router as assistant_telegram_router
     app.include_router(assistant_telegram_router)
 
+# Assistant scheduled-WhatsApp dispatcher — mounted ONLY when explicitly enabled
+# (default OFF). When disabled, the dispatcher core, Twilio, and Supabase adapter
+# are never imported. Endpoints are secret-protected; sending stays server-side.
+if _settings.ASSISTANT_SCHEDULER_ENABLED:
+    from app.routes.assistant_scheduler_api import router as assistant_scheduler_router
+    app.include_router(assistant_scheduler_router)
+
 # Serve mockup files for development (skip if directory doesn't exist, e.g. Railway)
 import pathlib
 _mockup_dir = ".superpowers/brainstorm/142-1776577129/content"

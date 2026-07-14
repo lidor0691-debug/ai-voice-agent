@@ -57,6 +57,13 @@ class Settings(BaseSettings):
     # Sending is a later dispatcher PR. Immediate (עכשיו) commands are unaffected.
     ASSISTANT_TELEGRAM_WHATSAPP_SCHEDULE_ENABLED: bool = False
 
+    # Scheduled WhatsApp dispatcher (PR-B). Router is mounted ONLY when enabled;
+    # both endpoints require the secret header. Default OFF. Sends due
+    # api_freeform rows using the SAME server-side gates as the immediate pilot
+    # (contact/lead/24h-window/agent); the 24h window is never bypassed.
+    ASSISTANT_SCHEDULER_ENABLED: bool = False
+    ASSISTANT_SCHEDULER_SECRET: str = ""  # required when enabled (X-Assistant-Scheduler-Secret)
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
 
