@@ -6,6 +6,7 @@ Extracted from voice_gemini.py to avoid duplication.
 import json
 import os
 import logging
+from datetime import datetime
 
 import httpx
 
@@ -17,6 +18,60 @@ _OPENAI_API_KEY = (
     .replace("\u2028", "")
     .replace("\u2029", "")
 )
+
+_SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+_SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
+
+
+# \u2500\u2500 Customer history (new vs existing) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+
+async def get_customer_history(phone: str, before_iso: str) -> dict:
+    """
+    Look up prior call history for a caller phone, EXCLUDING the current call.
+
+    `before_iso` must be a timestamp captured at the START of the current call;
+    call_logs rows with created_at < before_iso are treated as prior interactions
+    (the current call's call_logs row is written at end-of-call, so it is excluded).
+
+    Returns {customer_status, prior_count, last_date}. Never raises \u2014 on any
+    error or no history, returns the "new customer" default.
+    """
+    default = {"customer_status": "\u05dc\u05e7\u05d5\u05d7 \u05d7\u05d3\u05e9", "prior_count": 0, "last_date": None}
+    if not phone or not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
+        return default
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(
+                f"{_SUPABASE_URL}/rest/v1/call_logs",
+                params={
+                    "phone_number": f"eq.{phone}",
+                    "created_at":   f"lt.{before_iso}",
+                    "select":       "created_at",
+                    "order":        "created_at.desc",
+                },
+                headers={
+                    "apikey":        _SUPABASE_SERVICE_KEY,
+                    "Authorization": f"Bearer {_SUPABASE_SERVICE_KEY}",
+                },
+            )
+            resp.raise_for_status()
+            rows = resp.json() or []
+    except Exception as exc:
+        print(f"[CUST-HISTORY] lookup failed for phone={phone}: {exc}")
+        return default
+
+    if not rows:
+        return default
+
+    last_iso  = rows[0].get("created_at")
+    last_date = None
+    if last_iso:
+        try:
+            last_date = datetime.fromisoformat(last_iso.replace("Z", "+00:00")).strftime("%d/%m/%Y")
+        except Exception:
+            last_date = last_iso[:10]
+
+    return {"customer_status": "\u05dc\u05e7\u05d5\u05d7 \u05e7\u05d9\u05d9\u05dd", "prior_count": len(rows), "last_date": last_date}
 
 # ── Webhook delivery ─────────────────────────────────────────────────────────
 

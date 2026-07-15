@@ -32,6 +32,7 @@ from app.services.agent_config import fetch_supabase_agent_config
 from app.services.lead_capture import save_lead
 from app.services.voice_shared import extract_lead_from_transcript as _extract_lead_from_transcript
 from app.services.voice_shared import send_voice_webhook as _send_gemini_webhook
+from app.services.voice_shared import get_customer_history as _get_customer_history
 from app.integrations.twilio_client import _get_client as _get_twilio_client
 
 router = APIRouter()
@@ -145,6 +146,9 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
       Gemini Live (PCM16 24 kHz) → convert → Twilio (μ-law 8 kHz)
     """
     await twilio_ws.accept()
+    # Captured at call start so post-call customer-history lookup can exclude
+    # the current call (its call_logs row is written at end-of-call).
+    _call_started_at = datetime.utcnow().isoformat()
     print(f"[GEMINI-WS] Twilio connection accepted — call_sid={call_sid!r}")
 
     # ── Resolve call context — deferred until after Twilio start event ───────────
@@ -510,6 +514,12 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
         # explicit; followup_target_phone gives Make the WhatsApp destination.
         if caller_phone and webhook_url:
             _booking_status = "booked" if _appointment_at else "not_booked"
+            # New-vs-existing customer enrichment (excludes the current call).
+            _history = await _get_customer_history(caller_phone, _call_started_at)
+            print(
+                f"[GEMINI-HISTORY] status={_history['customer_status']} "
+                f"prior_count={_history['prior_count']} last_date={_history['last_date']}"
+            )
             webhook_payload = {
                 "timestamp":             datetime.now().isoformat(),
                 "source":                "voice_gemini",
@@ -525,6 +535,10 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
                 "appointment_at":        _appointment_at or "",
                 "booking_status":        _booking_status,
                 "followup_target_phone": caller_phone,
+                # Customer-status block for the lead-summary email (Make → Gmail)
+                "customer_status":       _history["customer_status"],
+                "prior_count":           _history["prior_count"],
+                "last_date":             _history["last_date"] or "",
             }
             print(
                 f"[GEMINI-WEBHOOK] booking_status={_booking_status} "
