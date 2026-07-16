@@ -47,8 +47,24 @@ def test_closing_phrase_not_in_midconversation():
 # ── 2 & 3. Idle-timer reset only on real caller speech, not media/audio ──────
 
 def test_real_caller_speech_resets_timer():
+    # Only a genuine (non-empty, stripped) input transcription counts.
     assert vg._is_caller_activity({"inputTranscription": {"text": "היי, שם ומספר"}}) is True
-    assert vg._is_caller_activity({"interrupted": True}) is True
+
+
+def test_empty_or_whitespace_transcription_does_not_reset_timer():
+    # Point 2: empty / whitespace / noise-as-blank transcription must NOT reset.
+    assert vg._is_caller_activity({"inputTranscription": {"text": ""}}) is False
+    assert vg._is_caller_activity({"inputTranscription": {"text": "   "}}) is False
+    assert vg._is_caller_activity({"inputTranscription": {"text": "\n\t "}}) is False
+    assert vg._is_caller_activity({"inputTranscription": {}}) is False
+
+
+def test_interrupted_alone_does_not_reset_timer():
+    # Point 3: a bare interrupt (VAD may fire on background noise) must NOT reset
+    # the idle timer. Genuine barge-in still resets it via its transcription.
+    assert vg._is_caller_activity({"interrupted": True}) is False
+    # interrupt WITH a real transcription in the same message DOES count (speech)
+    assert vg._is_caller_activity({"interrupted": True, "inputTranscription": {"text": "רגע"}}) is True
 
 
 def test_silent_media_and_model_output_do_not_reset_timer():
@@ -58,8 +74,6 @@ def test_silent_media_and_model_output_do_not_reset_timer():
     assert vg._is_caller_activity({"outputTranscription": {"text": "מאיה מדברת"}}) is False
     # Turn boundary is not caller activity
     assert vg._is_caller_activity({"turnComplete": True}) is False
-    # Empty / whitespace transcription does not count
-    assert vg._is_caller_activity({"inputTranscription": {"text": "   "}}) is False
     assert vg._is_caller_activity({}) is False
     # NOTE: raw Twilio media frames are handled in the Twilio loop and never
     # reach _is_caller_activity, so they can never reset the idle timer.

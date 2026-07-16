@@ -94,15 +94,16 @@ def _contains_closing_phrase(text: str) -> bool:
 
 def _is_caller_activity(server_content: dict) -> bool:
     """
-    True only for REAL caller speech from Gemini — a non-empty input
-    transcription, or an interruption (caller barged in). Model audio, output
-    transcription and turn events are NOT caller activity, and raw Twilio media
-    frames never reach this function (they are handled in the Twilio loop). Used
-    to reset the idle-hangup timer so silence cannot keep the call open forever.
+    True ONLY for genuine caller speech — a non-empty, whitespace-stripped input
+    transcription. Deliberately NOT triggered by an `interrupted` event alone
+    (Gemini VAD can fire on background noise, which must not keep resetting the
+    idle timer), nor by empty/whitespace transcriptions, model audio, output
+    transcription, or turn events. Raw Twilio media frames never reach this
+    function (they are handled in the Twilio loop). Used to reset the idle-hangup
+    timer so silence/noise cannot keep the call open forever. Genuine barge-in
+    still resets it, because real speech produces a non-empty transcription.
     """
     sc = server_content or {}
-    if sc.get("interrupted"):
-        return True
     it = sc.get("inputTranscription") or {}
     return bool((it.get("text") or "").strip())
 
@@ -592,12 +593,13 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
                             print(f"[GEMINI-TOOL] tool_response send failed: {_e}")
                     continue
 
-                # Gemini interrupted its own response (user barged in)
+                # Gemini interrupted its own response (VAD detected sound during
+                # Maya's turn). Clear Twilio's queued audio. NOTE: this does NOT
+                # reset the idle timer — an interrupt can be background noise, and
+                # only a real transcription (below) counts as caller activity.
                 if msg.get("serverContent", {}).get("interrupted"):
-                    # Gemini's VAD detected user speech — clear Twilio's queued audio
                     print("[GEMINI-DIAG] interrupted / response_cancelled (caller barge-in)")
                     _gemini_speaking = False
-                    _last_activity_ts = asyncio.get_event_loop().time()  # real caller speech → reset idle timer
                     if stream_sid:
                         await twilio_ws.send_json({"event": "clear", "streamSid": stream_sid})
                         print("[GEMINI-DIAG] twilio_clear_sent")
@@ -609,11 +611,16 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
                 if not server_content.get("modelTurn", {}).get("parts"):
                     print(f"[GEMINI-DIAG] server_event keys={list(server_content.keys())}")
 
+                # Reset the idle-hangup timer ONLY on genuine caller speech (a
+                # non-empty, stripped transcription). Never on interrupted-alone
+                # (can be noise), empty/whitespace text, or raw Twilio media.
+                if _is_caller_activity(server_content):
+                    _last_activity_ts = asyncio.get_event_loop().time()
+
                 # ── Capture transcripts for post-call extraction ──────────────
                 input_t = server_content.get("inputTranscription", {})
                 if input_t.get("text"):
                     _transcript_lines.append(f"לקוח: {input_t['text']}")
-                    _last_activity_ts = asyncio.get_event_loop().time()  # real caller speech → reset idle timer
                     print(f"[GEMINI-DIAG] input_transcription: {input_t['text']!r}")
 
                 output_t = server_content.get("outputTranscription", {})
