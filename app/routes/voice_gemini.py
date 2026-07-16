@@ -33,6 +33,7 @@ from app.services.lead_capture import save_lead
 from app.services.voice_shared import extract_lead_from_transcript as _extract_lead_from_transcript
 from app.services.voice_shared import send_voice_webhook as _send_gemini_webhook
 from app.services.voice_shared import get_customer_history as _get_customer_history
+from app.services.voice_shared import clean_caller_name as _clean_caller_name
 from app.integrations.twilio_client import _get_client as _get_twilio_client
 
 router = APIRouter()
@@ -65,6 +66,29 @@ def _normalize_phone(phone: str) -> str:
 # Centralized model choice — swap here to try newer preview models.
 # gemini-2.0-flash-live-001 is the current stable Live audio model.
 GEMINI_LIVE_MODEL = os.getenv("GEMINI_LIVE_MODEL", "gemini-3.1-flash-live-preview")
+
+# Structured in-call capture via Gemini function calling. Default OFF (instant
+# rollback). When ON, Maya calls a `save_lead` tool during the call; captured
+# fields (caller_name / callback_phone / insurance_type_or_reason) take priority
+# over the post-call transcript extraction, which remains the fallback.
+GEMINI_TOOLS_CAPTURE_ENABLED = os.getenv("GEMINI_TOOLS_CAPTURE_ENABLED", "false").strip().lower() in ("1", "true", "yes", "on")
+
+# Per-tenant allowlist (CSV of client_id UUIDs). Capture is active ONLY for a
+# call whose client_id is listed here — so it can be enabled for Roi alone while
+# every other tenant keeps the current behavior. Empty = off for everyone.
+GEMINI_TOOLS_CLIENT_IDS = {
+    _c.strip() for _c in os.getenv("GEMINI_TOOLS_CLIENT_IDS", "").split(",") if _c.strip()
+}
+
+
+def _tools_capture_enabled(client_id: str) -> bool:
+    """Function-calling capture is on only when globally enabled AND this call's
+    client_id is allowlisted. Empty allowlist = off for all tenants."""
+    return (
+        GEMINI_TOOLS_CAPTURE_ENABLED
+        and bool(client_id)
+        and client_id in GEMINI_TOOLS_CLIENT_IDS
+    )
 
 # Gemini Live WebSocket endpoint (BidiGenerateContent)
 _GEMINI_WS_URL = (
@@ -220,6 +244,21 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
         base_prompt = f"פתחי את השיחה תמיד עם המשפט הבא בדיוק:\n\"{first_message}\"\n\n{base_prompt}"
         print(f"[GEMINI-WS] first_message injected into system prompt")
     system_instruction = base_prompt
+    # Per-tenant gate: capture is active only when globally enabled AND this
+    # call's client_id is allowlisted (Roi only, for now). Every other tenant
+    # keeps the current transcript-extraction behavior, unchanged.
+    _tools_enabled = _tools_capture_enabled(client_id)
+    if _tools_enabled:
+        print(f"[GEMINI-TOOL] structured capture ENABLED for client_id={client_id}")
+    # Instruct Maya to record the lead via the save_lead tool. This does NOT
+    # change the insurance conversation flow — it is a silent structured-capture
+    # instruction, active only for allowlisted tenants.
+    if _tools_enabled:
+        system_instruction += (
+            "\n\nרישום פרטי הפונה (חשוב): ברגע שיש לך את שם הפונה, מספר הטלפון לחזרה, "
+            "וסוג הביטוח או סיבת הפנייה — קראי לכלי save_lead כדי לרשום אותם, עוד לפני סיום השיחה. "
+            "אם פרט משתנה בהמשך — קראי שוב עם הערך המעודכן. השם הוא של הפונה בלבד, לעולם לא שמך."
+        )
     print(f"[GEMINI-WS] Prompt source: Supabase config for '{client_name}'")
     print(
         f"[ROUTE-AUDIT] route=voice_gemini_ws to={agent_cfg.get('whatsapp_number') or 'voice'} "
@@ -280,6 +319,28 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
             },
         }
     }
+    if _tools_enabled:
+        setup_msg["setup"]["tools"] = [{
+            "function_declarations": [{
+                "name": "save_lead",
+                "description": (
+                    "רשום את פרטי הפונה ברגע שידועים, לפני סיום השיחה. "
+                    "קרא לפונקציה כשיש שם הפונה, מספר טלפון לחזרה, וסוג הביטוח או סיבת הפנייה. "
+                    "אם פרט משתנה — קרא שוב עם הערך המעודכן."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "caller_name": {"type": "string", "description": "שם הפונה כפי שמסר. לא השם של מאיה/העוזרת. אם לא נמסר — השאר ריק."},
+                        "callback_phone": {"type": "string", "description": "מספר הטלפון לחזרה כפי שמסר הפונה. אם לא נמסר — השאר ריק."},
+                        "insurance_type_or_reason": {"type": "string", "description": "סוג הביטוח או סיבת הפנייה, בקצרה."},
+                    },
+                    "required": ["caller_name", "insurance_type_or_reason"],
+                },
+            }]
+        }]
+        setup_msg["setup"]["tool_config"] = {"function_calling_config": {"mode": "AUTO"}}
+        print("[GEMINI-WS] Tools capture ENABLED — save_lead declared")
     try:
         await gemini_ws.send(json.dumps(setup_msg))
         # Wait for Gemini's setup acknowledgement before streaming audio
@@ -310,6 +371,7 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
     _gemini_speaking       = False   # True while we are forwarding Gemini audio to Twilio
     _transcript_lines: list[str] = []  # accumulated conversation for post-call extraction
     _should_hangup         = False   # set when Maya signals end of call
+    _tool_capture: dict    = {}      # structured save_lead fields (last value wins)
 
     # Phrases in Maya's output that signal the call should end.
     # Keep these specific — common words like "שיהיה" trigger false positives mid-conversation.
@@ -368,6 +430,35 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
         try:
             async for raw in gemini_ws:
                 msg = json.loads(raw)
+
+                # ── Structured lead capture: handle save_lead tool calls ──────
+                # Flag-gated at the source (tools only declared when enabled).
+                # Captured fields override transcript extraction at end of call
+                # (last value wins). Ack every call so the model (synchronous
+                # function calling) can continue speaking.
+                _tc = msg.get("toolCall")
+                if _tc:
+                    for _fc in _tc.get("functionCalls", []):
+                        if _fc.get("name") == "save_lead":
+                            _args = _fc.get("args", {}) or {}
+                            for _k in ("caller_name", "callback_phone", "insurance_type_or_reason"):
+                                _v = (_args.get(_k) or "").strip()
+                                if _v:
+                                    _tool_capture[_k] = _v
+                            print(f"[GEMINI-TOOL] save_lead captured -> {_tool_capture}")
+                        try:
+                            await gemini_ws.send(json.dumps({
+                                "tool_response": {
+                                    "function_responses": [{
+                                        "id":       _fc.get("id"),
+                                        "name":     _fc.get("name"),
+                                        "response": {"status": "ok"},
+                                    }]
+                                }
+                            }))
+                        except Exception as _e:
+                            print(f"[GEMINI-TOOL] tool_response send failed: {_e}")
+                    continue
 
                 # Gemini interrupted its own response (user barged in)
                 if msg.get("serverContent", {}).get("interrupted"):
@@ -449,6 +540,26 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
             print(f"[GEMINI-EXTRACT] Result: {extracted}")
         else:
             print("[GEMINI-EXTRACT] No customer transcript captured — skipping extraction")
+
+        # ── Structured in-call capture overrides transcript extraction ────────
+        # Flag-gated. Tool-captured caller_name / insurance_type_or_reason /
+        # callback_phone are authoritative (last value already won in the loop);
+        # transcript extraction stays as the fallback for any field the tool did
+        # not set. The name is ALWAYS sanitized: never empty, never the
+        # assistant's own name (→ "לא נמסר"). callback_phone is normalized to
+        # Israeli E.164 for the email only — leads.phone stays the Twilio number.
+        if _tools_enabled:
+            if _tool_capture:
+                print(f"[GEMINI-TOOL] applying tool capture over extraction: {_tool_capture}")
+                if _tool_capture.get("caller_name"):
+                    extracted["name"] = _tool_capture["caller_name"]
+                if _tool_capture.get("insurance_type_or_reason"):
+                    extracted["topic"] = _tool_capture["insurance_type_or_reason"]
+                _cb = (_tool_capture.get("callback_phone") or "").strip()
+                if _cb:
+                    extracted["phone_number"] = _normalize_phone(_cb)
+            extracted["name"] = _clean_caller_name(extracted.get("name"), assistant_name=client_name)
+            print(f"[GEMINI-TOOL] final name after sanitize: {extracted.get('name')!r}")
 
         # ── Lead persistence: always save a record to Supabase leads table ────
         if caller_phone:

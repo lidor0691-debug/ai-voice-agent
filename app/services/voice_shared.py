@@ -73,6 +73,35 @@ async def get_customer_history(phone: str, before_iso: str) -> dict:
 
     return {"customer_status": "\u05dc\u05e7\u05d5\u05d7 \u05e7\u05d9\u05d9\u05dd", "prior_count": len(rows), "last_date": last_date}
 
+
+# \u2500\u2500 Caller-name sanitizer (never store empty / the assistant's own name) \u2500\u2500\u2500\u2500\u2500\u2500
+
+_NAME_UNKNOWN = "\u05dc\u05d0 \u05e0\u05de\u05e1\u05e8"
+_ASSISTANT_NAME_TOKENS = {"\u05de\u05d0\u05d9\u05d4", "maya"}
+
+
+def clean_caller_name(name, assistant_name: str = "") -> str:
+    """
+    Return a safe caller name for the lead record / email.
+
+    - Empty / whitespace / None -> "\u05dc\u05d0 \u05e0\u05de\u05e1\u05e8" (never blank).
+    - The assistant's own name  -> "\u05dc\u05d0 \u05e0\u05de\u05e1\u05e8" (never store Maya as the caller):
+      matches "\u05de\u05d0\u05d9\u05d4"/"Maya", the configured assistant_name, or its first token,
+      case-insensitively.
+    Otherwise returns the trimmed name unchanged.
+    """
+    n = (name or "").strip()
+    if not n:
+        return _NAME_UNKNOWN
+    deny = set(_ASSISTANT_NAME_TOKENS)
+    a = (assistant_name or "").strip().lower()
+    if a:
+        deny.add(a)
+        deny.add(a.split()[0])
+    if n.lower() in deny:
+        return _NAME_UNKNOWN
+    return n
+
 # ── Webhook delivery ─────────────────────────────────────────────────────────
 
 async def send_voice_webhook(webhook_url: str, payload: dict) -> None:
