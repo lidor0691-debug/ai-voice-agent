@@ -29,6 +29,7 @@ from twilio.twiml.voice_response import VoiceResponse, Connect
 
 from app.utils.audio_gemini import twilio_to_gemini, gemini_to_twilio
 from app.services.agent_config import fetch_supabase_agent_config
+from app.services.agent_config import fetch_agent_config_by_client_id
 from app.services.lead_capture import save_lead
 from app.services.voice_shared import extract_lead_from_transcript as _extract_lead_from_transcript
 from app.services.voice_shared import send_voice_webhook as _send_gemini_webhook
@@ -153,9 +154,60 @@ async def voice_gemini_entry(request: Request):
 
     response = VoiceResponse()
     connect  = Connect()
-    connect.stream(url=stream_url)
+    stream   = connect.stream(url=stream_url)
+    # Durable context handoff: pass minimal identifiers so the WebSocket can
+    # re-resolve the active agent from Supabase without shared in-memory state.
+    # No prompt or secret is sent in TwiML — only ids + the caller phone.
+    stream.parameter(name="call_sid",     value=call_sid)
+    stream.parameter(name="client_id",    value=str(agent_cfg.get("client_id") or ""))
+    stream.parameter(name="caller_phone", value=norm_from)
     response.append(connect)
     return Response(content=str(response), media_type="application/xml")
+
+
+async def _resolve_gemini_context(custom_params: dict, call_sid: str) -> dict:
+    """
+    Resolve the Gemini call context WITHOUT relying on cross-process memory.
+
+    Primary source: `client_id` passed via Twilio <Stream><Parameter> — the
+    active agent config is re-resolved from Supabase by client_id.
+    Fallback (temporary): the in-memory _GEMINI_CALL_CONTEXT[call_sid] entry.
+
+    Returns {agent_cfg, caller_phone, client_id, client_name, source}. Only a
+    genuinely active agent (not fallback, has prompt_override) is accepted from
+    either source; otherwise agent_cfg is empty and the caller MUST fail-closed.
+    """
+    cp = custom_params or {}
+    p_client_id    = (cp.get("client_id") or "").strip()
+    p_caller_phone = (cp.get("caller_phone") or "").strip()
+
+    agent_cfg: dict = {}
+    source = "none"
+
+    # Primary: client_id from Stream parameters → Supabase re-resolution
+    if p_client_id:
+        _cfg = await fetch_agent_config_by_client_id(p_client_id)
+        if _cfg and not _cfg.get("fallback_used") and _cfg.get("prompt_override"):
+            agent_cfg = _cfg
+            source = "custom_parameters"
+
+    # Fallback: legacy in-memory store (kept temporarily)
+    if not agent_cfg:
+        _ctx = _GEMINI_CALL_CONTEXT.get(call_sid, {})
+        _cfg = _ctx.get("agent_cfg") or {}
+        if _cfg and not _cfg.get("fallback_used") and _cfg.get("prompt_override"):
+            agent_cfg = _cfg
+            source = "in_memory_fallback"
+        if not p_caller_phone:
+            p_caller_phone = _ctx.get("from", "")
+
+    return {
+        "agent_cfg":    agent_cfg,
+        "caller_phone": p_caller_phone or "",
+        "client_id":    agent_cfg.get("client_id") or p_client_id or None,
+        "client_name":  agent_cfg.get("client_name", ""),
+        "source":       source,
+    }
 
 
 # ── WebSocket bridge ──────────────────────────────────────────────────────────
@@ -201,18 +253,21 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
             evt = json.loads(raw)
             if evt["event"] == "start":
                 stream_sid = evt["start"]["streamSid"]
-                # Twilio strips query params from WebSocket URLs — read callSid from the start event
+                _custom = evt["start"].get("customParameters", {}) or {}
+                # Twilio strips query params from WS URLs — prefer the call_sid
+                # passed via <Parameter>, then the start event's callSid.
                 if not call_sid:
-                    call_sid = evt["start"].get("callSid", "")
-                print(f"[GEMINI-WS] Start event received — stream_sid={stream_sid} call_sid={call_sid!r}")
-                # Always re-resolve context after start event so call_sid is guaranteed correct
-                ctx          = _GEMINI_CALL_CONTEXT.get(call_sid, {})
-                caller_phone = ctx.get("from", "")
-                agent_cfg    = ctx.get("agent_cfg", {})
+                    call_sid = _custom.get("call_sid") or evt["start"].get("callSid", "")
+                print(f"[GEMINI-WS] Start event received — stream_sid={stream_sid} call_sid={call_sid!r} custom_keys={list(_custom.keys())}")
+                # Durable handoff: re-resolve the active agent from the Stream
+                # parameters (Supabase), falling back to the legacy in-memory store.
+                _resolved    = await _resolve_gemini_context(_custom, call_sid)
+                agent_cfg    = _resolved["agent_cfg"]
+                caller_phone = _resolved["caller_phone"]
                 webhook_url  = agent_cfg.get("webhook_url", "")
-                client_id    = agent_cfg.get("client_id") or None
-                client_name  = agent_cfg.get("client_name", "")
-                print(f"[GEMINI-WS] Agent context loaded — caller={caller_phone} client='{client_name}' webhook={'yes' if webhook_url else 'no'}")
+                client_id    = _resolved["client_id"]
+                client_name  = _resolved["client_name"]
+                print(f"[GEMINI-WS] context source={_resolved['source']} caller={caller_phone} client='{client_name}' webhook={'yes' if webhook_url else 'no'}")
                 break
             elif evt["event"] == "media":
                 # buffer any audio that arrives before start (rare but possible)

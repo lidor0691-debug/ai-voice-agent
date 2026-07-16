@@ -554,6 +554,42 @@ async def fetch_supabase_agent_config(to_number: str) -> dict:
     }
 
 
+# ── Fetch by client ID (Gemini WS context handoff via Stream parameters) ────
+
+async def fetch_agent_config_by_client_id(client_id: str) -> dict:
+    """
+    Fetch the active agent config for a client_id (the single active agent).
+
+    Used by the Gemini WebSocket to re-resolve context from a client_id passed
+    through Twilio <Stream><Parameter> — no cross-process shared state needed.
+    Returns the same dict shape as fetch_agent_config_by_id(); on any failure or
+    no active agent, returns _AGENT_SAFE_DEFAULT (fallback_used=True).
+    """
+    if not _is_configured() or not client_id:
+        return _AGENT_SAFE_DEFAULT
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(
+                f"{_SUPABASE_URL}/rest/v1/agents_config",
+                params={
+                    "client_id": f"eq.{client_id}",
+                    "is_active": "eq.true",
+                    "select":    "id",
+                    "limit":     "1",
+                },
+                headers=_headers(),
+            )
+            resp.raise_for_status()
+            rows = resp.json() or []
+    except Exception as exc:
+        logger.error("fetch_agent_config_by_client_id failed for %s: %s — safe default", client_id, exc)
+        return _AGENT_SAFE_DEFAULT
+    if not rows:
+        logger.info("No active agent for client_id=%s — safe default", client_id)
+        return _AGENT_SAFE_DEFAULT
+    return await fetch_agent_config_by_id(rows[0]["id"])
+
+
 # ── Fetch by agent ID (for browser-based live voice) ────────────────────────
 
 async def fetch_agent_config_by_id(agent_id: str) -> dict:
