@@ -78,6 +78,69 @@ def _inject_opening_instruction(base_prompt: str, first_message: str) -> str:
     return f"בתחילת השיחה בלבד, פתחי במשפט הבא בדיוק:\n\"{fm}\"\n\n{base_prompt}"
 
 
+# ── Call termination helpers ──────────────────────────────────────────────────
+# Broadened natural closing phrases, matched (substring) against Maya's OUTPUT
+# transcript. Kept reasonably specific to avoid false positives mid-call.
+_CLOSING_PHRASES = ("להתראות", "המשך יום", "יום טוב", "ביי", "תודה ויום טוב")
+IDLE_HANGUP_SECONDS   = 25.0   # hang up after this much silence following a Maya turn
+CLOSING_GRACE_SECONDS = 2.0    # let the final audio reach Twilio before hangup
+
+
+def _contains_closing_phrase(text: str) -> bool:
+    """True if Maya's spoken text contains a natural closing phrase."""
+    t = text or ""
+    return any(p in t for p in _CLOSING_PHRASES)
+
+
+def _is_caller_activity(server_content: dict) -> bool:
+    """
+    True ONLY for genuine caller speech — a non-empty, whitespace-stripped input
+    transcription. Deliberately NOT triggered by an `interrupted` event alone
+    (Gemini VAD can fire on background noise, which must not keep resetting the
+    idle timer), nor by empty/whitespace transcriptions, model audio, output
+    transcription, or turn events. Raw Twilio media frames never reach this
+    function (they are handled in the Twilio loop). Used to reset the idle-hangup
+    timer so silence/noise cannot keep the call open forever. Genuine barge-in
+    still resets it, because real speech produces a non-empty transcription.
+    """
+    sc = server_content or {}
+    it = sc.get("inputTranscription") or {}
+    return bool((it.get("text") or "").strip())
+
+
+def _should_idle_hangup(
+    now: float,
+    last_activity: float,
+    turn_completed_once: bool,
+    gemini_speaking: bool,
+    idle_seconds: float = IDLE_HANGUP_SECONDS,
+) -> bool:
+    """
+    Decide whether the idle safety-timeout should terminate the call:
+    - never before Maya has completed at least one turn;
+    - never while Maya is actively speaking (an in-progress response);
+    - otherwise fire once `now - last_activity` reaches `idle_seconds`.
+    """
+    if not turn_completed_once:
+        return False
+    if gemini_speaking:
+        return False
+    return (now - last_activity) >= idle_seconds
+
+
+async def _run_idle_watchdog(should_hangup, on_hangup, poll_seconds: float = 1.0) -> None:
+    """
+    Poll `should_hangup()`; when it returns True, call `on_hangup()` exactly once
+    and stop. Meant to run as a task and be cancelled on session end without
+    leaving orphaned work (the sleep is a cancellation point).
+    """
+    while True:
+        await asyncio.sleep(poll_seconds)
+        if should_hangup():
+            await on_hangup()
+            return
+
+
 # Centralized model choice — swap here to try newer preview models.
 # gemini-2.0-flash-live-001 is the current stable Live audio model.
 GEMINI_LIVE_MODEL = os.getenv("GEMINI_LIVE_MODEL", "gemini-3.1-flash-live-preview")
@@ -441,10 +504,10 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
     _transcript_lines: list[str] = []  # accumulated conversation for post-call extraction
     _should_hangup         = False   # set when Maya signals end of call
     _tool_capture: dict    = {}      # structured save_lead fields (last value wins)
-
-    # Phrases in Maya's output that signal the call should end.
-    # Keep these specific — common words like "שיהיה" trigger false positives mid-conversation.
-    _HANGUP_PHRASES = ("להתראות", "המשך יום")
+    _turn_completed_once   = False   # idle watchdog is armed only after Maya's first turn
+    # Idle-hangup timer. Updated ONLY on a Maya turnComplete or REAL caller speech
+    # (never on raw Twilio media), so silence cannot keep the call open forever.
+    _last_activity_ts      = asyncio.get_event_loop().time()
 
     # ── Forward Twilio audio → Gemini ─────────────────────────────────────────
     async def twilio_to_gemini_loop():
@@ -495,6 +558,7 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
     # ── Forward Gemini audio → Twilio ─────────────────────────────────────────
     async def gemini_to_twilio_loop():
         nonlocal _first_outbound_logged, _gemini_speaking, _should_hangup
+        nonlocal _turn_completed_once, _last_activity_ts
 
         try:
             async for raw in gemini_ws:
@@ -529,28 +593,42 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
                             print(f"[GEMINI-TOOL] tool_response send failed: {_e}")
                     continue
 
-                # Gemini interrupted its own response (user barged in)
+                # Gemini interrupted its own response (VAD detected sound during
+                # Maya's turn). Clear Twilio's queued audio. NOTE: this does NOT
+                # reset the idle timer — an interrupt can be background noise, and
+                # only a real transcription (below) counts as caller activity.
                 if msg.get("serverContent", {}).get("interrupted"):
-                    # Gemini's VAD detected user speech — clear Twilio's queued audio
-                    print("[GEMINI-WS] Gemini interrupted — sent Twilio clear")
+                    print("[GEMINI-DIAG] interrupted / response_cancelled (caller barge-in)")
                     _gemini_speaking = False
                     if stream_sid:
                         await twilio_ws.send_json({"event": "clear", "streamSid": stream_sid})
+                        print("[GEMINI-DIAG] twilio_clear_sent")
                     continue
 
                 server_content = msg.get("serverContent", {})
+
+                # ── TEMP diagnostics (Issue A): reveal non-audio server events ─
+                if not server_content.get("modelTurn", {}).get("parts"):
+                    print(f"[GEMINI-DIAG] server_event keys={list(server_content.keys())}")
+
+                # Reset the idle-hangup timer ONLY on genuine caller speech (a
+                # non-empty, stripped transcription). Never on interrupted-alone
+                # (can be noise), empty/whitespace text, or raw Twilio media.
+                if _is_caller_activity(server_content):
+                    _last_activity_ts = asyncio.get_event_loop().time()
 
                 # ── Capture transcripts for post-call extraction ──────────────
                 input_t = server_content.get("inputTranscription", {})
                 if input_t.get("text"):
                     _transcript_lines.append(f"לקוח: {input_t['text']}")
+                    print(f"[GEMINI-DIAG] input_transcription: {input_t['text']!r}")
 
                 output_t = server_content.get("outputTranscription", {})
                 if output_t.get("text"):
                     _transcript_lines.append(f"מאיה: {output_t['text']}")
-                    if any(p in output_t["text"] for p in _HANGUP_PHRASES):
+                    if _contains_closing_phrase(output_t["text"]):
                         _should_hangup = True
-                        print(f"[GEMINI-WS] Hangup phrase detected in Maya output — will disconnect after turn")
+                        print(f"[GEMINI-WS] Closing phrase detected in Maya output — will disconnect after turn")
 
                 # Audio chunks from Gemini
                 model_turn = server_content.get("modelTurn", {})
@@ -566,6 +644,8 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
                         if not _first_outbound_logged:
                             print(f"[GEMINI-WS] First outbound audio frame received from Gemini — mimeType={mime!r}")
                             _first_outbound_logged = True
+                        if not _gemini_speaking:
+                            print("[GEMINI-DIAG] model_response_start")
 
                         _gemini_speaking = True
                         ulaw_b64 = gemini_to_twilio(data)
@@ -580,19 +660,50 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
                 # Turn complete — Gemini done speaking this turn
                 if server_content.get("turnComplete"):
                     _gemini_speaking = False
+                    _turn_completed_once = True
+                    # Arm/refresh the idle timer from Maya's turn end.
+                    _last_activity_ts = asyncio.get_event_loop().time()
+                    print("[GEMINI-DIAG] model_turn_complete / audio_playback_complete")
                     if _should_hangup:
-                        print("[GEMINI-WS] Turn complete after hangup phrase — closing session")
-                        await asyncio.sleep(2.5)  # let last audio frame reach Twilio
+                        print("[GEMINI-WS] Closing phrase — waiting for audio to finish, then terminating call")
+                        await asyncio.sleep(CLOSING_GRACE_SECONDS)  # let last audio frame reach Twilio
                         await gemini_ws.close()
                         break
 
         except Exception as e:
             print(f"[GEMINI-WS] Gemini receiver error: {e}")
 
+    # ── Idle safety-timeout watchdog ──────────────────────────────────────────
+    # Terminates the call if there is no real caller speech for
+    # IDLE_HANGUP_SECONDS after Maya has completed a turn (never before her first
+    # turn, never while she is speaking). Closing the Gemini WS unwinds into the
+    # `finally` below, which runs the existing REST hangup + finalization once.
+    _loop = asyncio.get_event_loop()
+
+    async def _idle_hangup_on_timeout():
+        print(f"[GEMINI-WS] idle timeout ({IDLE_HANGUP_SECONDS:.0f}s, no caller speech after a Maya turn) — terminating call")
+        try:
+            await gemini_ws.close()
+        except Exception:
+            pass
+
+    _watchdog_task = asyncio.create_task(_run_idle_watchdog(
+        should_hangup=lambda: _should_idle_hangup(
+            _loop.time(), _last_activity_ts, _turn_completed_once, _gemini_speaking, IDLE_HANGUP_SECONDS
+        ),
+        on_hangup=_idle_hangup_on_timeout,
+    ))
+
     # ── Run both loops concurrently ───────────────────────────────────────────
     try:
         await asyncio.gather(twilio_to_gemini_loop(), gemini_to_twilio_loop())
     finally:
+        # Cancel the watchdog first so no orphaned task survives the session.
+        _watchdog_task.cancel()
+        try:
+            await _watchdog_task
+        except (asyncio.CancelledError, Exception):
+            pass
         print("[GEMINI-WS] Session ended — running end-of-call business logic")
 
         # ── Extract structured lead fields from transcript ────────────────────
