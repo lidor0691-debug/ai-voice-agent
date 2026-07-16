@@ -64,6 +64,20 @@ def _normalize_phone(phone: str) -> str:
     return f"+972{national}"
 
 
+def _inject_opening_instruction(base_prompt: str, first_message: str) -> str:
+    """
+    Prepend a ONE-TIME opening instruction when a first_message is configured.
+
+    The model must open the call with exactly `first_message` a single time, at
+    the start only — never "always" (which made it re-greet on later turns).
+    Returns base_prompt unchanged when there is no first_message.
+    """
+    fm = (first_message or "").strip()
+    if not fm:
+        return base_prompt
+    return f"בתחילת השיחה בלבד, פתחי במשפט הבא בדיוק:\n\"{fm}\"\n\n{base_prompt}"
+
+
 # Centralized model choice — swap here to try newer preview models.
 # gemini-2.0-flash-live-001 is the current stable Live audio model.
 GEMINI_LIVE_MODEL = os.getenv("GEMINI_LIVE_MODEL", "gemini-3.1-flash-live-preview")
@@ -295,9 +309,9 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
     # If first_message is set, inject it as an opening instruction into the system prompt.
     # Do NOT use it as realtime_input — that would be interpreted as the caller speaking.
     first_message = (agent_cfg.get("first_message") or "").strip()
+    base_prompt = _inject_opening_instruction(base_prompt, first_message)
     if first_message:
-        base_prompt = f"פתחי את השיחה תמיד עם המשפט הבא בדיוק:\n\"{first_message}\"\n\n{base_prompt}"
-        print(f"[GEMINI-WS] first_message injected into system prompt")
+        print(f"[GEMINI-WS] one-time opening instruction injected into system prompt")
     system_instruction = base_prompt
     # Per-tenant gate: capture is active only when globally enabled AND this
     # call's client_id is allowlisted (Roi only, for now). Every other tenant
