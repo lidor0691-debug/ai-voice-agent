@@ -32,11 +32,13 @@ from datetime import datetime
 
 import websockets
 from fastapi import APIRouter, WebSocket, Query
+from starlette.websockets import WebSocketDisconnect
 
 from app.services.lead_capture import save_lead
 from app.services.voice_shared import extract_lead_from_transcript as _extract_lead_from_transcript
 from app.services.voice_shared import send_voice_webhook as _send_voice_webhook
 from app.services.voice_shared import get_customer_history as _get_customer_history
+from app.services.voice_shared import summarize_transcript as _summarize_transcript
 from app.integrations.twilio_client import _get_client as _get_twilio_client
 
 # One-way reuse from the Gemini route (voice_gemini NEVER imports this module —
@@ -44,7 +46,6 @@ from app.integrations.twilio_client import _get_client as _get_twilio_client
 from app.routes.voice_gemini import (
     _GEMINI_CALL_CONTEXT,
     _resolve_gemini_context,
-    _inject_opening_instruction,
     _contains_closing_phrase,
     CLOSING_GRACE_SECONDS,
 )
@@ -73,6 +74,18 @@ OPENAI_REALTIME_TRANSCRIBE_MODEL = os.getenv(
     "OPENAI_REALTIME_TRANSCRIBE_MODEL", "gpt-realtime-whisper"
 ).strip()
 
+# Dead-socket detector (M1.1): Twilio sends a media frame every ~20ms for the
+# whole call — even during total caller silence (the PSTN line always produces
+# audio). A multi-second gap therefore means the Twilio socket is DEAD (proxy
+# stall / half-open connection), never "the caller is quiet". 8s default per
+# incident review; env-tunable without deploy.
+OPENAI_INBOUND_GAP_SECONDS = float(os.getenv("OPENAI_INBOUND_GAP_SECONDS", "8.0"))
+
+# Backpressure trap (M1.1): openai_ws.send() should complete in microseconds.
+# If it blocks, OpenAI stopped reading (TCP backpressure) and the bridge is
+# effectively dead — fail fast into finalization instead of zombie-hanging.
+OPENAI_SEND_TIMEOUT_SECONDS = float(os.getenv("OPENAI_SEND_TIMEOUT_SECONDS", "2.0"))
+
 _OPENAI_WS_URL = "wss://api.openai.com/v1/realtime?model={model}"
 
 
@@ -96,7 +109,13 @@ def _build_session_update(system_instruction: str) -> dict:
             "audio": {
                 "input": {
                     "format": {"type": "audio/pcmu"},
-                    "transcription": {"model": OPENAI_REALTIME_TRANSCRIBE_MODEL},
+                    # language pinned to Hebrew (M1.1): without it, short phone
+                    # utterances hallucinate into other languages — which is
+                    # exactly where caller names live.
+                    "transcription": {
+                        "model": OPENAI_REALTIME_TRANSCRIBE_MODEL,
+                        "language": "he",
+                    },
                     "turn_detection": {
                         "type": "server_vad",
                         "threshold": 0.5,
@@ -111,6 +130,67 @@ def _build_session_update(system_instruction: str) -> dict:
             },
         },
     }
+
+
+def _openai_opening_instruction(base_prompt: str, first_message: str) -> str:
+    """
+    OpenAI-path opening (M1.1): the greeting is an INTENT, not a script.
+
+    Replaces the Gemini path's "open with exactly this sentence" (which produces
+    announcer/IVR cadence) with a warm, natural, one-time opening in everyday
+    Israeli Hebrew. Gemini path untouched — it keeps its own injection.
+    """
+    fm = (first_message or "").strip()
+    if not fm:
+        return base_prompt
+    return (
+        "פתיחת שיחה (פעם אחת בלבד): פתחי בברכה קצרה וטבעית ברוח המשפט: "
+        f"\"{fm}\". "
+        "דברי בעברית ישראלית יומיומית, בטון חם ואישי של פקידת קבלה אנושית — "
+        "לא כמו הודעה מוקלטת, תפריט קולי או כרוזה. אין צורך לדקלם מילה במילה. "
+        "אחרי הפתיחה המשיכי בשיחה רגילה ואל תחזרי על הברכה.\n\n"
+        + base_prompt
+    )
+
+
+# Name protocol (M1.1): ask once, confirm once, never invent, never nag.
+_NAME_PROTOCOL_INSTRUCTION = (
+    "\n\nשם הפונה: בשלב מוקדם בשיחה, שאלי פעם אחת בלבד לשם הפונה, באופן שיחתי. "
+    "כשנמסר שם — חזרי עליו בקצרה לאישור (למשל: \"נעים מאוד, דוד\"). "
+    "אם הפונה מסרב, מתחמק או לא מוסר שם — המשיכי בשיחה כרגיל ואל תשאלי שוב. "
+    "לעולם אל תמציאי שם ואל תסיקי אותו ממקור אחר."
+)
+
+
+def _has_hebrew(text: str) -> bool:
+    return any("֐" <= ch <= "׿" for ch in text or "")
+
+
+def _name_fallback(caller_lines: list[str]) -> str:
+    """
+    Post-call name value when extraction found no name — NEVER a guess:
+      - "לא זוהה בבירור" — speech/transcription quality was insufficient
+        (no usable caller lines at all, or a meaningful share of the caller's
+        lines came back without any Hebrew — the STT-garble signature).
+      - "לא נמסר"       — transcription looks fine; the caller simply did not
+        provide a name (refused / never asked to).
+    """
+    lines = [ln.strip() for ln in caller_lines if (ln or "").strip()]
+    if not lines:
+        return "לא זוהה בבירור"
+    garbled = sum(1 for ln in lines if not _has_hebrew(ln))
+    if garbled * 3 >= len(lines):  # ≥ one third garbled → quality problem
+        return "לא זוהה בבירור"
+    return "לא נמסר"
+
+
+def _transcript_excerpt(caller_lines: list[str], assistant_lines: list[str], max_chars: int = 500) -> str:
+    """Short role-tagged excerpt for the email — always available even when
+    structured extraction fails. Grouped by role (M1 buffers are separate)."""
+    full = _full_transcript(caller_lines, assistant_lines)
+    if len(full) <= max_chars:
+        return full
+    return full[:max_chars].rstrip() + "…"
 
 
 def _customer_transcript(caller_lines: list[str]) -> str:
@@ -159,6 +239,82 @@ def _compute_appointment_at(appt_day: str, appt_time: str) -> str | None:
     except Exception as exc:
         print(f"[OPENAI-LEAD] ⚠️ Failed to compute appointment_at: {exc}")
         return None
+
+
+# ── Twilio → OpenAI pump (M1.1: testable, exit-guaranteed) ────────────────────
+
+async def _pump_twilio(
+    receive_text,
+    forward_audio,
+    close_openai,
+    diag,
+    gap_seconds: float = None,
+    send_timeout: float = None,
+) -> str:
+    """
+    Pull Twilio frames and forward media payloads to OpenAI. Returns a terminal
+    exit-reason string; `close_openai()` is invoked on EVERY exit path (the
+    zombie-session fix), so the OpenAI receive loop is always unblocked and the
+    handler's single `finally` finalization is guaranteed to run.
+
+    Exit reasons:
+      twilio_stop            — Twilio sent the normal stop event
+      twilio_disconnect      — WS disconnect surfaced (code/reason diag'd)
+      twilio_exhausted       — receive ended without stop/disconnect exception
+      dead_socket_gap        — no Twilio frame for gap_seconds (frames normally
+                               arrive every ~20ms — a gap means a DEAD socket,
+                               never caller silence)
+      openai_send_timeout    — openai_ws.send blocked (backpressure)
+      openai_closed          — OpenAI WS closed mid-forward
+      error:<...>            — anything else
+    """
+    gap = OPENAI_INBOUND_GAP_SECONDS if gap_seconds is None else gap_seconds
+    tmo = OPENAI_SEND_TIMEOUT_SECONDS if send_timeout is None else send_timeout
+    reason = "twilio_exhausted"
+    last_frame_ts = time.monotonic()
+    try:
+        while True:
+            try:
+                raw = await asyncio.wait_for(receive_text(), timeout=gap)
+            except asyncio.TimeoutError:
+                elapsed = time.monotonic() - last_frame_ts
+                reason = "dead_socket_gap"
+                diag("dead_socket_gap", elapsed_seconds=round(elapsed, 3), threshold=gap)
+                break
+            last_frame_ts = time.monotonic()
+            evt = json.loads(raw)
+            if evt["event"] == "media":
+                try:
+                    await asyncio.wait_for(
+                        forward_audio(evt["media"]["payload"]), timeout=tmo
+                    )
+                except asyncio.TimeoutError:
+                    reason = "openai_send_timeout"
+                    diag(
+                        "openai_send_timeout",
+                        operation="input_audio_buffer.append",
+                        timeout_seconds=tmo,
+                    )
+                    break
+                except websockets.exceptions.ConnectionClosed as e:
+                    reason = "openai_closed"
+                    diag("openai_closed_during_send", code=e.code, reason=str(e.reason or ""))
+                    break
+            elif evt["event"] == "stop":
+                reason = "twilio_stop"
+                break
+    except WebSocketDisconnect as e:
+        reason = "twilio_disconnect"
+        diag("twilio_ws_disconnect", code=e.code, reason=str(getattr(e, "reason", "") or ""))
+    except Exception as e:
+        reason = f"error:{type(e).__name__}"
+        diag("twilio_pump_error", error=str(e)[:300])
+    finally:
+        try:
+            await close_openai()
+        except Exception:
+            pass
+    return reason
 
 
 # ── WebSocket bridge ──────────────────────────────────────────────────────────
@@ -222,12 +378,13 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
             pass
         return
 
-    # ── Prompt: same Roi system prompt + same one-time greeting injection ─────
+    # ── Prompt: same Roi system prompt + natural one-time opening (M1.1) ──────
     base_prompt = agent_cfg["prompt_override"].replace("{{caller_phone}}", caller_phone)
     first_message = (agent_cfg.get("first_message") or "").strip()
-    system_instruction = _inject_opening_instruction(base_prompt, first_message)
+    system_instruction = _openai_opening_instruction(base_prompt, first_message)
+    system_instruction += _NAME_PROTOCOL_INSTRUCTION
     if first_message:
-        print("[OPENAI-WS] one-time opening instruction injected into system prompt")
+        print("[OPENAI-WS] natural one-time opening instruction injected into system prompt")
 
     # ── Connect to OpenAI Realtime (GA) ──────────────────────────────────────
     # NOTE: default ping_interval kept ON (WS keepalive) — unlike the Gemini
@@ -263,30 +420,22 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
     _should_hangup = False
     _response_first_audio_logged = False
 
-    # ── Twilio → OpenAI (µ-law passthrough) ──────────────────────────────────
+    # ── Twilio → OpenAI (µ-law passthrough via exit-guaranteed pump) ─────────
+    async def _forward_audio(payload: str):
+        # Twilio payload is already base64 µ-law — append verbatim.
+        await openai_ws.send(json.dumps({
+            "type": "input_audio_buffer.append",
+            "audio": payload,
+        }))
+
     async def twilio_to_openai_loop():
-        try:
-            async for raw in twilio_ws.iter_text():
-                evt = json.loads(raw)
-                if evt["event"] == "media":
-                    # Twilio payload is already base64 µ-law — append verbatim.
-                    await openai_ws.send(json.dumps({
-                        "type": "input_audio_buffer.append",
-                        "audio": evt["media"]["payload"],
-                    }))
-                elif evt["event"] == "stop":
-                    print("[OPENAI-WS] Twilio stream stopped — closing OpenAI WS")
-                    try:
-                        await openai_ws.close()
-                    except Exception:
-                        pass
-                    break
-        except Exception as e:
-            print(f"[OPENAI-WS] Twilio receiver error: {e}")
-            try:
-                await openai_ws.close()
-            except Exception:
-                pass
+        exit_reason = await _pump_twilio(
+            receive_text=twilio_ws.receive_text,
+            forward_audio=_forward_audio,
+            close_openai=openai_ws.close,
+            diag=lambda event, **kw: _diag(event, call_sid, **kw),
+        )
+        print(f"[OPENAI-WS] Twilio pump exited — reason={exit_reason}")
 
     # ── OpenAI → Twilio ───────────────────────────────────────────────────────
     async def openai_to_twilio_loop():
@@ -392,6 +541,19 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
         else:
             print("[OPENAI-EXTRACT] No customer transcript captured — skipping extraction")
 
+        # Name for the email — NEVER a guess (M1.1):
+        #   real extracted name → as-is
+        #   no name, clean transcript → "לא נמסר" (caller didn't provide one)
+        #   no name, garbled/empty transcript → "לא זוהה בבירור" (STT quality)
+        _email_name = extracted.get("name") or _name_fallback(_caller_lines)
+
+        # Real 2–3 sentence Hebrew summary from BOTH speakers (roles tagged),
+        # plus a raw excerpt as an always-available fallback for the email.
+        _full_text = _full_transcript(_caller_lines, _assistant_lines)
+        _excerpt   = _transcript_excerpt(_caller_lines, _assistant_lines)
+        _summary   = await _summarize_transcript(_full_text) if _full_text.strip() else ""
+        print(f"[OPENAI-SUMMARY] {(_summary or '(empty)')[:200]}")
+
         # Lead persistence — same fields/contract as the Gemini path.
         _appt_day  = extracted.get("appointment_day") or ""
         _appt_time = extracted.get("appointment_time") or ""
@@ -404,7 +566,8 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
                 _summary_parts.append(f"נושא: {_topic}")
             if _notes:
                 _summary_parts.append(f"פרטים: {_notes}")
-            _last_call_summary = " | ".join(_summary_parts) or None
+            # Prefer the real conversation summary; legacy topic|notes as backup.
+            _last_call_summary = _summary or (" | ".join(_summary_parts) or None)
 
             await save_lead({
                 "phone":             caller_phone,
@@ -437,10 +600,13 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
                 "client":                client_name,
                 "caller_phone":          caller_phone,
                 "call_sid":              call_sid,
-                "name":                  extracted.get("name", ""),
+                "name":                  _email_name,
                 "phone_number":          extracted.get("phone_number") or caller_phone,
                 "topic":                 extracted.get("topic", ""),
                 "notes":                 extracted.get("notes", ""),
+                # M1.1: real conversation summary + raw excerpt fallback
+                "summary":               _summary,
+                "transcript_excerpt":    _excerpt,
                 "appointment_day":       _appt_day,
                 "appointment_time":      _appt_time,
                 "appointment_at":        _appointment_at or "",
