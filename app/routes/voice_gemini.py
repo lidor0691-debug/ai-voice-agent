@@ -240,7 +240,11 @@ async def voice_gemini_entry(request: Request):
 
     response = VoiceResponse()
     connect  = Connect()
-    stream   = connect.stream(url=stream_url)
+    # M3: authoritative Twilio-side stream telemetry (stream-started/stopped/
+    # error) → logging-only endpoint. Additive; no behavior change either arm.
+    _status_cb = f"https://{host}/voice-ai/stream-status"
+    stream   = connect.stream(url=stream_url, status_callback=_status_cb,
+                              status_callback_method="POST")
     # Durable context handoff: pass minimal identifiers so the WebSocket can
     # re-resolve the active agent from Supabase without shared in-memory state.
     # No prompt or secret is sent in TwiML — only ids + the caller phone.

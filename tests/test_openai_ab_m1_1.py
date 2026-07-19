@@ -186,13 +186,16 @@ class TestOpening:
         assert vol._openai_opening_instruction("BASE", "") == "BASE"
 
     def test_name_protocol_ask_after_reason_neutral_never_invent(self):
-        # M2: ask only after the reason, gender-neutral, no literal example name.
+        # M3: single authoritative natural phrasing (replaces the ambiguous M2
+        # "ולמי אני מעבירה את הפנייה?"). Ask after the reason, one clarification.
         p = vol._NAME_PROTOCOL_INSTRUCTION
         assert "אל תשאלי לשם מיד" in p                 # not immediate
-        assert "ולמי אני מעבירה את הפנייה?" in p       # neutral wording
+        assert "רק כדי שאוכל לרשום את הפנייה כמו שצריך, עם מי אני מדברת?" in p  # new wording
+        assert "ולמי אני מעבירה את הפנייה?" not in p    # old ambiguous wording gone
         assert "פעם אחת" in p                           # ask once
         assert "לאישור" in p                            # confirm once
-        assert "אל תשאלי שוב" in p                       # don't nag on refusal
+        assert "בקשי פעם אחת לחזור עליו" in p           # one clarification if unclear
+        assert "אם הפונה מסרב או מתחמק — המשיכי" in p    # refusal → continue
         assert "לעולם אל תאמרי שם שהפונה לא אמר במפורש" in p  # never invent
         assert "דוד" not in p                            # no literal example name
 
