@@ -152,12 +152,14 @@ class TestSessionUpdateShape:
         assert "tools" not in s and "tool_choice" not in s
 
     def test_instructions_carry_one_time_greeting_once(self):
+        # M1.1: the OpenAI path uses its own natural opening instruction
+        # (greeting-as-intent), not the Gemini "exactly this sentence" one.
         base = "PROMPT BODY"
         fm = "שלום, הגעתם לסוכנות הביטוח"
-        instruction = vg._inject_opening_instruction(base, fm)
+        instruction = vol._openai_opening_instruction(base, fm)
         s = self._session(instruction)
         assert s["instructions"].count(fm) == 1
-        assert "בתחילת השיחה בלבד" in s["instructions"]
+        assert "פעם אחת בלבד" in s["instructions"]
         assert "תמיד" not in s["instructions"]
         assert s["instructions"].endswith(base)
 

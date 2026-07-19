@@ -147,6 +147,52 @@ async def send_voice_webhook(webhook_url: str, payload: dict) -> None:
         print(f"[VOICE-WEBHOOK] delivery failed: {exc}")
 
 
+# ── Post-call summary (M1.1) ─────────────────────────────────────────────────
+
+_SUMMARY_PROMPT = """\
+כתוב סיכום קצר בעברית — 2 עד 3 משפטים — של שיחת טלפון בין לקוח לפקידת קבלה של סוכנות ביטוח.
+כללים:
+- התייחס למה שהלקוח ביקש במילים שלו, ומה סוכם או מה הצעד הבא.
+- אל תמציא פרטים שלא נאמרו. אל תסיק שם אם לא נמסר במפורש על ידי הלקוח.
+- שורות "לקוח:" הן דברי הלקוח; שורות "מאיה:" הן דברי הפקידה.
+- החזר את הסיכום בלבד, ללא כותרות וללא טקסט נוסף.
+
+שיחה:
+{transcript}
+"""
+
+
+async def summarize_transcript(full_transcript: str) -> str:
+    """
+    Real 2–3 sentence Hebrew summary of the whole conversation (both speakers,
+    role-tagged lines). Never raises — returns "" on any error, so callers can
+    fall back to a raw transcript excerpt.
+    """
+    if not _OPENAI_API_KEY or not (full_transcript or "").strip():
+        return ""
+    body = {
+        "model": "gpt-4o-mini",
+        "messages": [{"role": "user", "content": _SUMMARY_PROMPT.replace("{transcript}", full_transcript)}],
+        "temperature": 0.2,
+        "max_tokens": 220,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                "https://api.openai.com/v1/chat/completions",
+                json=body,
+                headers={
+                    "Authorization": f"Bearer {_OPENAI_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+            )
+            resp.raise_for_status()
+            return (resp.json()["choices"][0]["message"]["content"] or "").strip()
+    except Exception as exc:
+        print(f"[VOICE-SUMMARY] Summarization failed: {exc}")
+        return ""
+
+
 # ── Lead extraction ──────────────────────────────────────────────────────────
 
 _EXTRACT_PROMPT = """\
