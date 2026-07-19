@@ -155,24 +155,45 @@ _SUMMARY_PROMPT = """\
 - התייחס למה שהלקוח ביקש במילים שלו, ומה סוכם או מה הצעד הבא.
 - אל תמציא פרטים שלא נאמרו. אל תסיק שם אם לא נמסר במפורש על ידי הלקוח.
 - שורות "לקוח:" הן דברי הלקוח; שורות "מאיה:" הן דברי הפקידה.
-- החזר את הסיכום בלבד, ללא כותרות וללא טקסט נוסף.
+- אם שם פרטי מופיע רק בדברי מאיה ולא בשורות הלקוח — אל תשתמש בו; כנה את המתקשר "הלקוח".
+{allowed_names}- החזר את הסיכום בלבד, ללא כותרות וללא טקסט נוסף.
 
 שיחה:
 {transcript}
 """
 
 
-async def summarize_transcript(full_transcript: str) -> str:
+def _build_summary_prompt(full_transcript: str, caller_names_allowed=None) -> str:
+    """Pure builder (unit-tested). Injects the transcript and, if the caller
+    genuinely provided names, the explicit allow-list. RC3 guard: the hard rule
+    'a first name only in Maya's lines must not be used' is always present."""
+    names = [n for n in (caller_names_allowed or []) if (n or "").strip()]
+    allowed_line = (
+        f"- שמות שהלקוח מסר במפורש (מותר לייחס ללקוח): {', '.join(names)}.\n"
+        if names else ""
+    )
+    return (
+        _SUMMARY_PROMPT
+        .replace("{allowed_names}", allowed_line)
+        .replace("{transcript}", full_transcript)
+    )
+
+
+async def summarize_transcript(full_transcript: str, caller_names_allowed=None) -> str:
     """
     Real 2–3 sentence Hebrew summary of the whole conversation (both speakers,
     role-tagged lines). Never raises — returns "" on any error, so callers can
     fall back to a raw transcript excerpt.
+
+    `caller_names_allowed` (M2): names that actually appear in caller lines —
+    the ONLY names the summary may attribute to the caller. A name spoken only
+    by Maya (the "דניאל" confabulation, RC3) must never leak into the summary.
     """
     if not _OPENAI_API_KEY or not (full_transcript or "").strip():
         return ""
     body = {
         "model": "gpt-4o-mini",
-        "messages": [{"role": "user", "content": _SUMMARY_PROMPT.replace("{transcript}", full_transcript)}],
+        "messages": [{"role": "user", "content": _build_summary_prompt(full_transcript, caller_names_allowed)}],
         "temperature": 0.2,
         "max_tokens": 220,
     }
