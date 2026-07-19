@@ -169,12 +169,15 @@ class TestM11Config:
 
 class TestOpening:
     def test_opening_is_natural_one_time_not_verbatim(self):
+        # M2: greeting-as-intent, one opening turn, no second question, never
+        # replayed. Text updated per OPUS_PACKET_M2.md §C.
         base = "PROMPT BODY"
-        fm = "היי, הגעתם למשרד של רועי לוי, מדברת מאיה. איך אפשר לעזור?"
+        fm = "היי, מדברת מאיה מהמשרד של רועי. איך אפשר לעזור?"
         out = vol._openai_opening_instruction(base, fm)
         assert out.count(fm) == 1
         assert "פעם אחת בלבד" in out
-        assert "ברוח המשפט" in out
+        assert "ברוח" in out
+        assert "בלי שאלה נוספת באותו תור" in out   # one opening turn only
         assert "בדיוק" not in out       # no forced word-for-word recitation
         assert "תמיד" not in out        # no re-greeting trigger
         assert out.endswith(base)
@@ -182,12 +185,16 @@ class TestOpening:
     def test_no_first_message_returns_base(self):
         assert vol._openai_opening_instruction("BASE", "") == "BASE"
 
-    def test_name_protocol_ask_once_confirm_never_invent(self):
+    def test_name_protocol_ask_after_reason_neutral_never_invent(self):
+        # M2: ask only after the reason, gender-neutral, no literal example name.
         p = vol._NAME_PROTOCOL_INSTRUCTION
-        assert "פעם אחת" in p            # ask once
-        assert "לאישור" in p             # repeat back for confirmation
-        assert "אל תשאלי שוב" in p       # don't nag on refusal
-        assert "אל תמציאי" in p          # never invent
+        assert "אל תשאלי לשם מיד" in p                 # not immediate
+        assert "ולמי אני מעבירה את הפנייה?" in p       # neutral wording
+        assert "פעם אחת" in p                           # ask once
+        assert "לאישור" in p                            # confirm once
+        assert "אל תשאלי שוב" in p                       # don't nag on refusal
+        assert "לעולם אל תאמרי שם שהפונה לא אמר במפורש" in p  # never invent
+        assert "דוד" not in p                            # no literal example name
 
 
 # ── 4. Name fallback distinctions ────────────────────────────────────────────

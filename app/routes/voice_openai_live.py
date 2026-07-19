@@ -97,8 +97,17 @@ def _build_session_update(system_instruction: str) -> dict:
 
     - audio/pcmu both directions: Twilio Media Streams speak µ-law 8 kHz
       natively, so audio passes through base64-verbatim with NO transcoding.
-    - server_vad with documented defaults — no tuning experiments in M1.
-    - Input transcription ON (separate caller transcript buffer needs it).
+    - server_vad tuned for a noisy Israeli phone line (M2): threshold 0.6,
+      prefix_padding 300ms, silence 700ms.
+    - create_response=false / interrupt_response=false (M2, RC1): the SERVER
+      must NOT auto-create a reply from any speech_started/stopped, nor
+      auto-cancel a response on caller speech. Response creation and barge-in
+      are owned by the application (TurnController) and only ever happen after a
+      gated valid caller turn — so noise, echo, silence, and junk transcription
+      can never spawn or cancel a reply.
+    - Input transcription ON, language pinned to Hebrew (M1.1) — short phone
+      utterances otherwise hallucinate into other languages, which is exactly
+      where caller names live.
     """
     return {
         "type": "session.update",
@@ -109,18 +118,18 @@ def _build_session_update(system_instruction: str) -> dict:
             "audio": {
                 "input": {
                     "format": {"type": "audio/pcmu"},
-                    # language pinned to Hebrew (M1.1): without it, short phone
-                    # utterances hallucinate into other languages — which is
-                    # exactly where caller names live.
                     "transcription": {
                         "model": OPENAI_REALTIME_TRANSCRIBE_MODEL,
                         "language": "he",
                     },
                     "turn_detection": {
                         "type": "server_vad",
-                        "threshold": 0.5,
+                        "threshold": 0.6,
                         "prefix_padding_ms": 300,
-                        "silence_duration_ms": 500,
+                        "silence_duration_ms": 700,
+                        # App-owned turn-taking — see docstring (M2/RC1).
+                        "create_response": False,
+                        "interrupt_response": False,
                     },
                 },
                 "output": {
@@ -134,31 +143,39 @@ def _build_session_update(system_instruction: str) -> dict:
 
 def _openai_opening_instruction(base_prompt: str, first_message: str) -> str:
     """
-    OpenAI-path opening (M1.1): the greeting is an INTENT, not a script.
-
-    Replaces the Gemini path's "open with exactly this sentence" (which produces
-    announcer/IVR cadence) with a warm, natural, one-time opening in everyday
-    Israeli Hebrew. Gemini path untouched — it keeps its own injection.
+    OpenAI-path opening (M2): the greeting is an INTENT, not a script — one
+    short opening turn, no name question in the opening, never replayed even if
+    interrupted. Exact authoritative text per OPUS_PACKET_M2.md §C.
+    Gemini path untouched — it keeps its own injection.
     """
     fm = (first_message or "").strip()
     if not fm:
         return base_prompt
     return (
-        "פתיחת שיחה (פעם אחת בלבד): פתחי בברכה קצרה וטבעית ברוח המשפט: "
-        f"\"{fm}\". "
-        "דברי בעברית ישראלית יומיומית, בטון חם ואישי של פקידת קבלה אנושית — "
-        "לא כמו הודעה מוקלטת, תפריט קולי או כרוזה. אין צורך לדקלם מילה במילה. "
-        "אחרי הפתיחה המשיכי בשיחה רגילה ואל תחזרי על הברכה.\n\n"
+        "פתיחת שיחה (פעם אחת בלבד): פתחי בברכה קצרה, חמה וטבעית ברוח: "
+        f"\"{fm}\" — משפט פתיחה אחד בלבד, בלי שאלה נוספת באותו תור. "
+        "עברית ישראלית יומיומית, לא הודעה מוקלטת. "
+        "אל תחזרי על הברכה לעולם, גם אם קטעו אותך.\n\n"
         + base_prompt
     )
 
 
-# Name protocol (M1.1): ask once, confirm once, never invent, never nag.
+# Name protocol (M2): ask ONLY after the caller explains the reason; neutral
+# gender-free wording; confirm once; accept a correction; never invent; never
+# re-ask after refusal; no literal example name. Exact text per packet §C.
 _NAME_PROTOCOL_INSTRUCTION = (
-    "\n\nשם הפונה: בשלב מוקדם בשיחה, שאלי פעם אחת בלבד לשם הפונה, באופן שיחתי. "
-    "כשנמסר שם — חזרי עליו בקצרה לאישור (למשל: \"נעים מאוד, דוד\"). "
-    "אם הפונה מסרב, מתחמק או לא מוסר שם — המשיכי בשיחה כרגיל ואל תשאלי שוב. "
-    "לעולם אל תמציאי שם ואל תסיקי אותו ממקור אחר."
+    "\n\nשם הפונה: אל תשאלי לשם מיד. קודם תני לפונה להסביר במה מדובר. "
+    "אחרי שהבנת את הסיבה, שאלי פעם אחת, בניסוח ניטרלי: "
+    "\"ולמי אני מעבירה את הפנייה?\". "
+    "כשנמסר שם — חזרי עליו פעם אחת לאישור וקבלי תיקון אם יש. "
+    "אם לא נמסר שם, לא שמעת בבירור, או שהפונה מתחמק — המשיכי בשיחה ואל תשאלי שוב. "
+    "לעולם אל תאמרי שם שהפונה לא אמר במפורש."
+)
+
+# Optional one-off re-prompt spoken when the caller is silent after the greeting
+# (WAITING watchdog). App-created, gentle, single — not a caller turn.
+_REPROMPT_INSTRUCTION = (
+    "המתקשר שקט. שאלי בעדינות ובקצרה אם הוא עדיין על הקו ואיך אפשר לעזור."
 )
 
 
@@ -241,6 +258,239 @@ def _compute_appointment_at(appt_day: str, appt_time: str) -> str | None:
         return None
 
 
+# ── Turn-taking state machine (M2) ────────────────────────────────────────────
+# Pure, synchronous, unit-testable. It owns response creation, barge-in, the
+# playback clock (Twilio marks), and the valid-caller-turn gate. It performs NO
+# I/O — every method returns a list of Action tuples that the async wiring
+# executes. This is what removes server-VAD auto-response (RC1) and the
+# generation-vs-playback race (RC2).
+
+import enum
+
+
+class CallState(enum.Enum):
+    INITIALIZING          = "INITIALIZING"
+    GREETING_REQUESTED    = "GREETING_REQUESTED"
+    GREETING_PLAYING      = "GREETING_PLAYING"
+    WAITING_FOR_CALLER    = "WAITING_FOR_CALLER"
+    CALLER_SPEAKING       = "CALLER_SPEAKING"
+    PROCESSING_CALLER_TURN = "PROCESSING_CALLER_TURN"
+    ASSISTANT_RESPONDING  = "ASSISTANT_RESPONDING"   # generating (pre-first-delta)
+    RESPONDING_PLAYING    = "RESPONDING_PLAYING"     # audio playing, awaiting mark
+    ACTIVE_CONVERSATION   = "ACTIVE_CONVERSATION"    # == waiting, after ≥1 turn
+    CLOSING               = "CLOSING"
+    FINALIZING            = "FINALIZING"
+    CLOSED                = "CLOSED"
+
+
+class Action(enum.Enum):
+    RESPONSE_CREATE  = "RESPONSE_CREATE"
+    CANCEL_AND_CLEAR = "CANCEL_AND_CLEAR"
+    SEND_MARK        = "SEND_MARK"        # value = mark name
+    HANGUP_GRACE     = "HANGUP_GRACE"
+    REPROMPT         = "REPROMPT"
+
+
+# Valid-caller-turn gate (packet §B)
+_TURN_WHITELIST = {"כן", "לא", "היי", "שלום", "אוקיי", "סבבה"}
+MIN_TURN_DURATION_S      = 0.25   # reject sub-250ms blips
+BARGE_IN_MIN_DURATION_S  = 0.6    # only a strong turn interrupts playback
+CLOSING_TAIL_CHARS       = 30     # closing phrase must be near the end
+# WAITING watchdog: silence after greeting → one re-prompt, then close.
+OPENAI_WAITING_REPROMPT_SECONDS = float(os.getenv("OPENAI_WAITING_REPROMPT_SECONDS", "30.0"))
+
+_WAITING_STATES = (
+    CallState.WAITING_FOR_CALLER,
+    CallState.ACTIVE_CONVERSATION,
+    CallState.CALLER_SPEAKING,
+)
+_PLAYING_STATES = (
+    CallState.GREETING_PLAYING,
+    CallState.RESPONDING_PLAYING,
+)
+
+
+def is_valid_caller_turn(text: str, dur: float) -> bool:
+    """A gated valid caller turn: non-empty, contains Hebrew, and either ≥2
+    chars or an explicit short-Hebrew whitelist word, and ≥250ms of speech.
+    Multilingual junk (no Hebrew) is never a turn."""
+    t = (text or "").strip()
+    if not t or not _has_hebrew(t):
+        return False
+    if not (len(t) >= 2 or t in _TURN_WHITELIST):
+        return False
+    return dur >= MIN_TURN_DURATION_S
+
+
+def _phrase_in_tail(text: str, tail_chars: int = CLOSING_TAIL_CHARS) -> bool:
+    return _contains_closing_phrase((text or "")[-tail_chars:])
+
+
+class TurnController:
+    """See module comment. All methods are pure and return list[(Action, value)]."""
+
+    def __init__(self, monotonic=None):
+        self.state = CallState.INITIALIZING
+        self.greeting_done = False       # one-time greeting guard (create side)
+        self.valid_turns = 0
+        self.pending_marks: set[str] = set()
+        self._resp_seq = 0               # mark id counter
+        self._got_first_delta = False    # per-response first-delta flag
+        self._speech_started_at = None
+        self._last_segment_dur = 0.0
+        self._closing_armed = False
+        self._waiting_since = None
+        self._reprompted = False
+        self._now = monotonic or time.monotonic
+
+    # — greeting —
+    def on_session_updated(self):
+        if self.state == CallState.INITIALIZING and not self.greeting_done:
+            self.greeting_done = True
+            self.state = CallState.GREETING_REQUESTED
+            self._got_first_delta = False
+            return [(Action.RESPONSE_CREATE, None)]
+        return []
+
+    # — response lifecycle —
+    def on_response_created(self):
+        self._got_first_delta = False
+        return []
+
+    def on_output_delta(self):
+        # First audio chunk of a response → we are now PLAYING.
+        if not self._got_first_delta:
+            self._got_first_delta = True
+            self.state = (
+                CallState.GREETING_PLAYING if self.valid_turns == 0
+                else CallState.RESPONDING_PLAYING
+            )
+        return []
+
+    def on_response_done(self, status: str):
+        # Closing phrase (state-guarded) wins.
+        if self._closing_armed and status != "cancelled":
+            self._closing_armed = False
+            self.state = CallState.CLOSING
+            return [(Action.HANGUP_GRACE, None)]
+        # Cancelled (barge-in) responses played nothing new worth a mark — the
+        # Twilio clear already flushed and the new turn is driving the flow.
+        if status == "cancelled":
+            return []
+        # Completed response with audio → send a playback mark; stay *_PLAYING
+        # until Twilio echoes it back (the real playback clock, RC2).
+        if self.state in _PLAYING_STATES:
+            self._resp_seq += 1
+            name = f"resp:{self._resp_seq}"
+            self.pending_marks.add(name)
+            return [(Action.SEND_MARK, name)]
+        # Completed without audio (rare) → go straight to a waiting state.
+        self._enter_waiting()
+        return []
+
+    def on_twilio_mark(self, name: str):
+        self.pending_marks.discard(name)
+        if not self.pending_marks and self.state in _PLAYING_STATES:
+            self._enter_waiting()
+        return []
+
+    def _enter_waiting(self):
+        self.state = (
+            CallState.ACTIVE_CONVERSATION if self.valid_turns >= 1
+            else CallState.WAITING_FOR_CALLER
+        )
+        self._waiting_since = self._now()
+        # NOTE: _reprompted is reset ONLY by a genuine caller turn
+        # (on_input_transcription) — never here. Otherwise the re-prompt's OWN
+        # completion would clear it and the second silence timeout would
+        # re-prompt again instead of closing (packet: reprompt once, then close).
+
+    # — caller speech / turns —
+    def on_speech_started(self, t: float):
+        # NEVER creates or cancels by itself. Only a status marker; must not
+        # disturb a PLAYING state (needed for the barge-in decision).
+        self._speech_started_at = t
+        if self.state in (CallState.WAITING_FOR_CALLER, CallState.ACTIVE_CONVERSATION):
+            self.state = CallState.CALLER_SPEAKING
+        return []
+
+    def on_speech_stopped(self, t: float):
+        if self._speech_started_at is not None:
+            self._last_segment_dur = max(0.0, t - self._speech_started_at)
+        return []
+
+    def on_input_transcription(self, text: str, dur: float = None):
+        d = self._last_segment_dur if dur is None else dur
+        # Only a waiting state (fresh turn) or a PLAYING state (barge-in) may
+        # accept a caller turn. While a response is generating
+        # (ASSISTANT_RESPONDING/PROCESSING) or CLOSING, drop the transcription —
+        # this prevents a duplicate response.create for overlapping segments.
+        if not (self.state in _WAITING_STATES or self.state in _PLAYING_STATES):
+            return []
+        if not is_valid_caller_turn(text, d):
+            # Junk / noise / echo — revert a bare CALLER_SPEAKING marker.
+            if self.state == CallState.CALLER_SPEAKING:
+                self.state = (
+                    CallState.ACTIVE_CONVERSATION if self.valid_turns >= 1
+                    else CallState.WAITING_FOR_CALLER
+                )
+            return []
+        self.valid_turns += 1
+        self._reprompted = False
+        actions = []
+        if self.state in _PLAYING_STATES:
+            if d >= BARGE_IN_MIN_DURATION_S:
+                self.pending_marks.clear()            # Twilio clear flushes all
+                actions.append((Action.CANCEL_AND_CLEAR, None))
+            # else: let playback finish; the turn is still created below.
+        self.state = CallState.PROCESSING_CALLER_TURN
+        actions.append((Action.RESPONSE_CREATE, None))
+        self.state = CallState.ASSISTANT_RESPONDING
+        self._got_first_delta = False
+        return actions
+
+    # — assistant transcript (closing detection) —
+    def on_assistant_transcript(self, text: str):
+        # Closing hangup allowed ONLY after ≥1 real caller turn AND the phrase is
+        # near the end of Maya's line (never mid-conversation false positive).
+        if self.valid_turns >= 1 and _phrase_in_tail(text):
+            self._closing_armed = True
+        return []
+
+    # — waiting watchdog —
+    def check_waiting_timeout(self, now: float):
+        if self.state not in (CallState.WAITING_FOR_CALLER, CallState.ACTIVE_CONVERSATION):
+            return []
+        if self._waiting_since is None:
+            return []
+        if (now - self._waiting_since) < OPENAI_WAITING_REPROMPT_SECONDS:
+            return []
+        if not self._reprompted:
+            self._reprompted = True
+            self._waiting_since = now
+            self.state = CallState.ASSISTANT_RESPONDING
+            self._got_first_delta = False
+            return [(Action.REPROMPT, None)]
+        self.state = CallState.CLOSING
+        return [(Action.HANGUP_GRACE, None)]
+
+
+def _name_status(extracted_name, caller_lines: list[str]) -> tuple[str, str]:
+    """Post-call name value + status — NEVER a guess (packet §D):
+      confirmed     — extracted name AND it appears in ≥1 caller line
+      unconfirmed   — extracted name not verifiable in caller lines → "name (לא אומת)"
+      not_provided  — no name, clean transcript → "לא נמסר"
+      unclear_audio — no name, garbled/empty transcript → "לא זוהה בבירור"
+    """
+    name = (extracted_name or "").strip()
+    if name:
+        if any(name in (ln or "") for ln in caller_lines):
+            return name, "confirmed"
+        return f"{name} (לא אומת)", "unconfirmed"
+    fb = _name_fallback(caller_lines)
+    return fb, ("not_provided" if fb == "לא נמסר" else "unclear_audio")
+
+
 # ── Twilio → OpenAI pump (M1.1: testable, exit-guaranteed) ────────────────────
 
 async def _pump_twilio(
@@ -250,12 +500,16 @@ async def _pump_twilio(
     diag,
     gap_seconds: float = None,
     send_timeout: float = None,
+    on_mark=None,
 ) -> str:
     """
     Pull Twilio frames and forward media payloads to OpenAI. Returns a terminal
     exit-reason string; `close_openai()` is invoked on EVERY exit path (the
     zombie-session fix), so the OpenAI receive loop is always unblocked and the
     handler's single `finally` finalization is guaranteed to run.
+
+    `on_mark(name)` (M2, optional, sync): called for each Twilio `mark` event —
+    the playback clock. All other non-media/non-stop events are ignored.
 
     Exit reasons:
       twilio_stop            — Twilio sent the normal stop event
@@ -300,6 +554,9 @@ async def _pump_twilio(
                     reason = "openai_closed"
                     diag("openai_closed_during_send", code=e.code, reason=str(e.reason or ""))
                     break
+            elif evt["event"] == "mark":
+                if on_mark is not None:
+                    on_mark((evt.get("mark") or {}).get("name", ""))
             elif evt["event"] == "stop":
                 reason = "twilio_stop"
                 break
@@ -415,10 +672,49 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
     # ── Shared state ──────────────────────────────────────────────────────────
     _caller_lines: list[str] = []      # caller speech only (input transcription)
     _assistant_lines: list[str] = []   # assistant speech only (output transcript)
-    _assistant_speaking = False
-    _greeting_triggered = False
-    _should_hangup = False
     _response_first_audio_logged = False
+    _ctrl = TurnController()
+
+    # ── Action executor — the ONLY place I/O side-effects happen ─────────────
+    # Every response.create in this module is sent from here (RESPONSE_CREATE /
+    # REPROMPT), so the "app owns response creation" invariant is grep-checkable.
+    async def _send_response_create(instructions: str = None):
+        payload = {"type": "response.create"}
+        if instructions:
+            payload["response"] = {"instructions": instructions}
+        await openai_ws.send(json.dumps(payload))
+
+    async def _execute(actions) -> bool:
+        """Run controller actions. Returns True if the session should terminate."""
+        terminal = False
+        for act, val in actions:
+            if act == Action.RESPONSE_CREATE:
+                await _send_response_create()
+                _diag("response_create_sent", call_sid, reason="valid_turn_or_greeting")
+            elif act == Action.REPROMPT:
+                await _send_response_create(_REPROMPT_INSTRUCTION)
+                _diag("reprompt_sent", call_sid)
+            elif act == Action.CANCEL_AND_CLEAR:
+                await openai_ws.send(json.dumps({"type": "response.cancel"}))
+                if stream_sid:
+                    await twilio_ws.send_json({"event": "clear", "streamSid": stream_sid})
+                _diag("barge_in_cancel_and_clear", call_sid)
+            elif act == Action.SEND_MARK:
+                if stream_sid:
+                    await twilio_ws.send_json({
+                        "event": "mark", "streamSid": stream_sid,
+                        "mark": {"name": val},
+                    })
+                _diag("playback_mark_sent", call_sid, mark=val)
+            elif act == Action.HANGUP_GRACE:
+                _diag("closing_hangup", call_sid, state=_ctrl.state.value)
+                await asyncio.sleep(CLOSING_GRACE_SECONDS)
+                try:
+                    await openai_ws.close()
+                except Exception:
+                    pass
+                terminal = True
+        return terminal
 
     # ── Twilio → OpenAI (µ-law passthrough via exit-guaranteed pump) ─────────
     async def _forward_audio(payload: str):
@@ -428,18 +724,24 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
             "audio": payload,
         }))
 
+    def _on_twilio_mark(name: str):
+        # Playback clock (RC2): the mark echoes back only after Twilio finishes
+        # playing the audio. Sync, no I/O — safe to call from the pump loop.
+        _ctrl.on_twilio_mark(name)
+        _diag("playback_mark_returned", call_sid, mark=name, state=_ctrl.state.value)
+
     async def twilio_to_openai_loop():
         exit_reason = await _pump_twilio(
             receive_text=twilio_ws.receive_text,
             forward_audio=_forward_audio,
             close_openai=openai_ws.close,
             diag=lambda event, **kw: _diag(event, call_sid, **kw),
+            on_mark=_on_twilio_mark,
         )
         print(f"[OPENAI-WS] Twilio pump exited — reason={exit_reason}")
 
-    # ── OpenAI → Twilio ───────────────────────────────────────────────────────
+    # ── OpenAI → Twilio (controller-driven) ──────────────────────────────────
     async def openai_to_twilio_loop():
-        nonlocal _assistant_speaking, _greeting_triggered, _should_hangup
         nonlocal _response_first_audio_logged
         try:
             async for raw in openai_ws:
@@ -450,42 +752,45 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
                     _diag("session_created", call_sid, model=OPENAI_REALTIME_MODEL)
 
                 elif etype == "session.updated":
-                    # Trigger the one-time greeting exactly once: the opening
-                    # instruction lives in the system prompt; one response.create
-                    # makes the model speak it. No caller-text trigger needed.
-                    if not _greeting_triggered:
-                        _greeting_triggered = True
-                        await openai_ws.send(json.dumps({"type": "response.create"}))
+                    # One-time greeting: the controller emits RESPONSE_CREATE
+                    # exactly once (greeting_done guard). No caller-text trigger.
+                    acts = _ctrl.on_session_updated()
+                    if acts:
                         _diag("greeting_response_created", call_sid)
+                        await _execute(acts)
 
                 elif etype == "input_audio_buffer.speech_started":
-                    _diag("speech_started", call_sid, assistant_speaking=_assistant_speaking)
-                    if _assistant_speaking and stream_sid:
-                        # Barge-in: server VAD cancels the response server-side
-                        # (interrupt_response default); we clear Twilio's queue.
-                        await twilio_ws.send_json({"event": "clear", "streamSid": stream_sid})
-                        _diag("interruption_twilio_clear_sent", call_sid)
+                    _ctrl.on_speech_started(time.monotonic())
+                    _diag("speech_started", call_sid, state=_ctrl.state.value)
+                    # NOTE: bare speech_started never cancels/clears (RC1/RC2).
 
                 elif etype == "input_audio_buffer.speech_stopped":
+                    _ctrl.on_speech_stopped(time.monotonic())
                     _diag("speech_stopped", call_sid)
 
                 elif etype == "conversation.item.input_audio_transcription.completed":
                     _text = (event.get("transcript") or "").strip()
                     if _text:
                         _caller_lines.append(_text)
-                    _diag("input_transcription", call_sid, text=_text)
+                    acts = _ctrl.on_input_transcription(_text)
+                    _diag("input_transcription", call_sid, text=_text,
+                          valid_turn=bool(acts), state=_ctrl.state.value)
+                    if acts:
+                        if await _execute(acts):
+                            break
 
                 elif etype == "response.created":
+                    _ctrl.on_response_created()
                     _response_first_audio_logged = False
                     _diag("response_created", call_sid)
 
                 elif etype == "response.output_audio.delta":
                     delta = event.get("delta", "")
                     if delta and stream_sid:
+                        _ctrl.on_output_delta()
                         if not _response_first_audio_logged:
                             _response_first_audio_logged = True
                             _diag("first_outbound_audio", call_sid)
-                        _assistant_speaking = True
                         # µ-law passthrough — forward the base64 verbatim.
                         await twilio_ws.send_json({
                             "event":     "media",
@@ -497,21 +802,17 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
                     _text = (event.get("transcript") or "").strip()
                     if _text:
                         _assistant_lines.append(_text)
-                        if _contains_closing_phrase(_text):
-                            _should_hangup = True
-                            print("[OPENAI-WS] Closing phrase detected in assistant output — will disconnect after response")
+                        _ctrl.on_assistant_transcript(_text)
 
                 elif etype == "response.done":
-                    _assistant_speaking = False
                     _status = (event.get("response") or {}).get("status", "")
-                    _diag("response_completed", call_sid, status=_status)
+                    _diag("response_completed", call_sid, status=_status, state=_ctrl.state.value)
                     if _status == "cancelled":
                         _diag("response_cancelled", call_sid)
-                    if _should_hangup:
-                        print("[OPENAI-WS] Closing phrase — grace period, then terminating call")
-                        await asyncio.sleep(CLOSING_GRACE_SECONDS)
-                        await openai_ws.close()
-                        break
+                    acts = _ctrl.on_response_done(_status)
+                    if acts:
+                        if await _execute(acts):
+                            break
 
                 elif etype == "error":
                     _diag("openai_error", call_sid, error=str(event.get("error", ""))[:300])
@@ -521,10 +822,31 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
         except Exception as e:
             _diag("openai_receiver_error", call_sid, error=str(e)[:300])
 
+    # ── WAITING watchdog: silence after greeting → one re-prompt, then close ──
+    async def waiting_watchdog():
+        try:
+            while True:
+                await asyncio.sleep(1.0)
+                acts = _ctrl.check_waiting_timeout(time.monotonic())
+                if acts:
+                    await _execute(acts)
+        except asyncio.CancelledError:
+            return
+        except Exception as e:
+            _diag("waiting_watchdog_error", call_sid, error=str(e)[:200])
+
+    _watchdog_task = asyncio.create_task(waiting_watchdog())
+
     # ── Run both loops, then the shared post-call pipeline ────────────────────
     try:
         await asyncio.gather(twilio_to_openai_loop(), openai_to_twilio_loop())
     finally:
+        # Cancel the watchdog first so no orphaned task survives the session.
+        _watchdog_task.cancel()
+        try:
+            await _watchdog_task
+        except (asyncio.CancelledError, Exception):
+            pass
         _diag(
             "session_ended", call_sid,
             caller_lines=len(_caller_lines), assistant_lines=len(_assistant_lines),
@@ -541,17 +863,24 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
         else:
             print("[OPENAI-EXTRACT] No customer transcript captured — skipping extraction")
 
-        # Name for the email — NEVER a guess (M1.1):
-        #   real extracted name → as-is
-        #   no name, clean transcript → "לא נמסר" (caller didn't provide one)
-        #   no name, garbled/empty transcript → "לא זוהה בבירור" (STT quality)
-        _email_name = extracted.get("name") or _name_fallback(_caller_lines)
+        # Name for the email + status — NEVER a guess (M2, packet §D):
+        #   confirmed / unconfirmed / not_provided ("לא נמסר") / unclear_audio
+        #   ("לא זוהה בבירור"). A name only "confirmed" if it appears in a
+        #   caller line; otherwise it is suffixed "(לא אומת)".
+        _email_name, _name_stat = _name_status(extracted.get("name"), _caller_lines)
+        print(f"[OPENAI-NAME] status={_name_stat} email_name={_email_name!r}")
 
-        # Real 2–3 sentence Hebrew summary from BOTH speakers (roles tagged),
-        # plus a raw excerpt as an always-available fallback for the email.
+        # Real 2–3 sentence Hebrew summary from BOTH speakers (roles tagged).
+        # RC3 guard: only names that actually appear in caller lines may be
+        # attributed to the caller — a name spoken only by Maya must never leak.
+        _confirmed_name = extracted.get("name") if _name_stat == "confirmed" else None
+        _allowed_names = [_confirmed_name] if _confirmed_name else []
         _full_text = _full_transcript(_caller_lines, _assistant_lines)
         _excerpt   = _transcript_excerpt(_caller_lines, _assistant_lines)
-        _summary   = await _summarize_transcript(_full_text) if _full_text.strip() else ""
+        _summary   = (
+            await _summarize_transcript(_full_text, caller_names_allowed=_allowed_names)
+            if _full_text.strip() else ""
+        )
         print(f"[OPENAI-SUMMARY] {(_summary or '(empty)')[:200]}")
 
         # Lead persistence — same fields/contract as the Gemini path.
@@ -601,6 +930,7 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
                 "caller_phone":          caller_phone,
                 "call_sid":              call_sid,
                 "name":                  _email_name,
+                "name_status":           _name_stat,
                 "phone_number":          extracted.get("phone_number") or caller_phone,
                 "topic":                 extracted.get("topic", ""),
                 "notes":                 extracted.get("notes", ""),
