@@ -102,6 +102,30 @@ def clean_caller_name(name, assistant_name: str = "") -> str:
         return _NAME_UNKNOWN
     return n
 
+# ── OpenAI Realtime A/B gate (Milestone 1) ───────────────────────────────────
+# Lives here (not in a route module) so voice_gemini can read it without a
+# circular import: voice_gemini → voice_shared ← voice_openai_live.
+# Default OFF; tenant-scoped via a client_id allowlist (Roi only, for now).
+
+OPENAI_REALTIME_AB_ENABLED = (
+    os.getenv("OPENAI_REALTIME_AB_ENABLED", "false").strip().lower()
+    in ("1", "true", "yes", "on")
+)
+OPENAI_REALTIME_CLIENT_IDS = {
+    _c.strip() for _c in os.getenv("OPENAI_REALTIME_CLIENT_IDS", "").split(",") if _c.strip()
+}
+
+
+def openai_ab_enabled(client_id: str) -> bool:
+    """OpenAI Realtime A/B is on only when globally enabled AND this call's
+    client_id is allowlisted. Empty allowlist = off for all tenants."""
+    return (
+        OPENAI_REALTIME_AB_ENABLED
+        and bool(client_id)
+        and client_id in OPENAI_REALTIME_CLIENT_IDS
+    )
+
+
 # ── Webhook delivery ─────────────────────────────────────────────────────────
 
 async def send_voice_webhook(webhook_url: str, payload: dict) -> None:

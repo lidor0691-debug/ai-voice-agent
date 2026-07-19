@@ -35,6 +35,7 @@ from app.services.voice_shared import extract_lead_from_transcript as _extract_l
 from app.services.voice_shared import send_voice_webhook as _send_gemini_webhook
 from app.services.voice_shared import get_customer_history as _get_customer_history
 from app.services.voice_shared import clean_caller_name as _clean_caller_name
+from app.services.voice_shared import openai_ab_enabled as _openai_ab_enabled
 from app.integrations.twilio_client import _get_client as _get_twilio_client
 
 router = APIRouter()
@@ -225,8 +226,16 @@ async def voice_gemini_entry(request: Request):
         "created_at": datetime.now().timestamp(),
     }
 
-    host       = request.url.hostname
-    stream_url = f"wss://{host}/voice-ai/stream-gemini?call_sid={quote(call_sid, safe='')}"
+    host = request.url.hostname
+    # ── OpenAI Realtime A/B dispatch (Milestone 1, Roi-only) ─────────────────
+    # Flag-gated + client_id-allowlisted (see voice_shared.openai_ab_enabled).
+    # When OFF (default) this is a no-op and the call runs the Gemini path
+    # exactly as today. Same fail-closed check above, same <Parameter> handoff
+    # below — only the WebSocket route differs.
+    _ab_openai  = _openai_ab_enabled(str(agent_cfg.get("client_id") or ""))
+    stream_path = "stream-openai" if _ab_openai else "stream-gemini"
+    print(f"[AB-DISPATCH] provider={'openai' if _ab_openai else 'gemini'} client_id={agent_cfg.get('client_id')}")
+    stream_url = f"wss://{host}/voice-ai/{stream_path}?call_sid={quote(call_sid, safe='')}"
     print(f"[GEMINI-VOICE] stream_url={stream_url}")
 
     response = VoiceResponse()
