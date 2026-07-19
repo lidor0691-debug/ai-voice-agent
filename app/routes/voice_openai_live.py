@@ -31,7 +31,8 @@ import time
 from datetime import datetime
 
 import websockets
-from fastapi import APIRouter, WebSocket, Query
+from fastapi import APIRouter, WebSocket, Query, Request
+from fastapi.responses import Response
 from starlette.websockets import WebSocketDisconnect
 
 from app.services.lead_capture import save_lead
@@ -51,6 +52,43 @@ from app.routes.voice_gemini import (
 )
 
 router = APIRouter()
+
+
+# ── Twilio <Stream> status callback (M3) — AUTHORITATIVE TELEMETRY ONLY ───────
+# Twilio POSTs stream lifecycle events here (stream-started / stream-stopped /
+# stream-error) with its OWN view of what happened — the discriminator for
+# "who stalled" during a dead-socket gap. It NEVER finalizes a call, closes a
+# socket, or changes any conversational state: logging only.
+
+@router.post("/stream-status")
+async def stream_status(request: Request):
+    try:
+        form = await request.form()
+    except Exception as exc:
+        print(f"[STREAM-STATUS] could not parse form: {exc}")
+        return Response(status_code=204)
+    call_sid    = form.get("CallSid", "")
+    stream_sid  = form.get("StreamSid", "")
+    stream_evt  = form.get("StreamEvent", "")
+    stream_err  = form.get("StreamError", "")
+    timestamp   = form.get("Timestamp", "")
+    # client_id only if safely resolvable from the in-memory handoff store
+    # (never from the callback body, which carries no tenant identity). Best
+    # effort — absent under cross-process routing, which is fine for telemetry.
+    client_id = ""
+    try:
+        _ctx = _GEMINI_CALL_CONTEXT.get(call_sid) or {}
+        client_id = str((_ctx.get("agent_cfg") or {}).get("client_id") or "")
+    except Exception:
+        client_id = ""
+    print(
+        "[STREAM-STATUS] " + json.dumps({
+            "call_sid": call_sid, "stream_sid": stream_sid,
+            "stream_event": stream_evt, "stream_error": stream_err,
+            "timestamp": timestamp, "client_id": client_id,
+        }, ensure_ascii=False)
+    )
+    return Response(status_code=204)
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
@@ -86,7 +124,19 @@ OPENAI_INBOUND_GAP_SECONDS = float(os.getenv("OPENAI_INBOUND_GAP_SECONDS", "8.0"
 # effectively dead — fail fast into finalization instead of zombie-hanging.
 OPENAI_SEND_TIMEOUT_SECONDS = float(os.getenv("OPENAI_SEND_TIMEOUT_SECONDS", "2.0"))
 
+# Transport heartbeat (M3): every N seconds send a uniquely-named Twilio mark
+# ("hb:<n>"). Purpose is DIAGNOSTIC + keepalive only — its echo is an inbound
+# frame that proves the Railway→Twilio→Railway control path is alive, and it
+# keeps the outbound direction non-idle through any proxy. Heartbeat marks and
+# their echoes NEVER touch the TurnController and NEVER reset the media-frame
+# dead-socket detector (which measures caller-audio liveness specifically).
+OPENAI_HEARTBEAT_SECONDS = float(os.getenv("OPENAI_HEARTBEAT_SECONDS", "5.0"))
+
 _OPENAI_WS_URL = "wss://api.openai.com/v1/realtime?model={model}"
+
+# Heartbeat mark name prefix — kept distinct from response playback marks
+# ("resp:") so the pump can route echoes correctly (diag only vs controller).
+_HEARTBEAT_MARK_PREFIX = "hb:"
 
 
 # ── Pure helpers (unit-tested) ────────────────────────────────────────────────
@@ -160,22 +210,25 @@ def _openai_opening_instruction(base_prompt: str, first_message: str) -> str:
     )
 
 
-# Name protocol (M2): ask ONLY after the caller explains the reason; neutral
-# gender-free wording; confirm once; accept a correction; never invent; never
-# re-ask after refusal; no literal example name. Exact text per packet §C.
+# Name protocol (M3): ONE authoritative natural phrasing. Ask only after the
+# reason is understood; ask once; confirm once; accept a correction; one
+# clarification if unclear; never invent; never re-ask after refusal. Exact
+# text per OPUS_PACKET_M3.md §C. (Replaces the ambiguous M2 "ולמי אני מעבירה
+# את הפנייה?" — which sounded like asking where to TRANSFER the call.)
 _NAME_PROTOCOL_INSTRUCTION = (
     "\n\nשם הפונה: אל תשאלי לשם מיד. קודם תני לפונה להסביר במה מדובר. "
-    "אחרי שהבנת את הסיבה, שאלי פעם אחת, בניסוח ניטרלי: "
-    "\"ולמי אני מעבירה את הפנייה?\". "
-    "כשנמסר שם — חזרי עליו פעם אחת לאישור וקבלי תיקון אם יש. "
-    "אם לא נמסר שם, לא שמעת בבירור, או שהפונה מתחמק — המשיכי בשיחה ואל תשאלי שוב. "
+    "אחרי שהבנת את הסיבה, שאלי פעם אחת: "
+    "\"רק כדי שאוכל לרשום את הפנייה כמו שצריך, עם מי אני מדברת?\". "
+    "כשנמסר שם — חזרי עליו פעם אחת לאישור, בטבעיות, וקבלי תיקון אם יש. "
+    "אם לא שמעת את השם ברור — בקשי פעם אחת לחזור עליו; אם עדיין לא ברור, המשיכי בשיחה. "
+    "אם הפונה מסרב או מתחמק — המשיכי ואל תשאלי שוב. "
     "לעולם אל תאמרי שם שהפונה לא אמר במפורש."
 )
 
-# Optional one-off re-prompt spoken when the caller is silent after the greeting
-# (WAITING watchdog). App-created, gentle, single — not a caller turn.
+# Natural one-off check-in spoken when the caller is silent (WAITING watchdog,
+# M3). App-created, single, no re-greeting — one short sentence.
 _REPROMPT_INSTRUCTION = (
-    "המתקשר שקט. שאלי בעדינות ובקצרה אם הוא עדיין על הקו ואיך אפשר לעזור."
+    "שאלי בקצרה וטבעי אם עדיין שומעים אותך, למשל: \"הלו? עדיין איתי?\""
 )
 
 
@@ -296,8 +349,12 @@ _TURN_WHITELIST = {"כן", "לא", "היי", "שלום", "אוקיי", "סבבה
 MIN_TURN_DURATION_S      = 0.25   # reject sub-250ms blips
 BARGE_IN_MIN_DURATION_S  = 0.6    # only a strong turn interrupts playback
 CLOSING_TAIL_CHARS       = 30     # closing phrase must be near the end
-# WAITING watchdog: silence after greeting → one re-prompt, then close.
-OPENAI_WAITING_REPROMPT_SECONDS = float(os.getenv("OPENAI_WAITING_REPROMPT_SECONDS", "30.0"))
+# WAITING watchdog (M3, conservative pilot timers): after this long in a genuine
+# waiting state with no valid caller turn → ONE natural check-in (re-prompt).
+OPENAI_WAITING_REPROMPT_SECONDS = float(os.getenv("OPENAI_WAITING_REPROMPT_SECONDS", "50.0"))
+# After the check-in's playback mark returns (a fresh waiting interval), this
+# much more silence → close. Counted only from the re-prompt's mark return.
+OPENAI_WAITING_CLOSE_SECONDS = float(os.getenv("OPENAI_WAITING_CLOSE_SECONDS", "40.0"))
 
 _WAITING_STATES = (
     CallState.WAITING_FOR_CALLER,
@@ -341,6 +398,7 @@ class TurnController:
         self._closing_armed = False
         self._waiting_since = None
         self._reprompted = False
+        self._timeout_gen = 0            # M3: generation id for the waiting timer
         self._now = monotonic or time.monotonic
 
     # — greeting —
@@ -400,6 +458,10 @@ class TurnController:
             else CallState.WAITING_FOR_CALLER
         )
         self._waiting_since = self._now()
+        # M3: every fresh waiting interval (greeting mark, or any assistant
+        # playback-mark return — including the re-prompt's) arms a NEW timeout
+        # generation. Logged by the wiring so a stale generation is detectable.
+        self._timeout_gen += 1
         # NOTE: _reprompted is reset ONLY by a genuine caller turn
         # (on_input_transcription) — never here. Otherwise the re-prompt's OWN
         # completion would clear it and the second silence timeout would
@@ -457,22 +519,34 @@ class TurnController:
             self._closing_armed = True
         return []
 
-    # — waiting watchdog —
+    # — waiting watchdog (M3: generation-owned, two-stage) —
     def check_waiting_timeout(self, now: float):
+        # Never during CALLER_SPEAKING / PROCESSING / ASSISTANT_RESPONDING /
+        # *_PLAYING / CLOSING — a stale generation can never close a later state.
         if self.state not in (CallState.WAITING_FOR_CALLER, CallState.ACTIVE_CONVERSATION):
             return []
         if self._waiting_since is None:
             return []
-        if (now - self._waiting_since) < OPENAI_WAITING_REPROMPT_SECONDS:
+        # T1 (REPROMPT) before the check-in; T2 (CLOSE) after it. T2 is counted
+        # from the re-prompt's playback-mark return (_enter_waiting), NOT from
+        # the REPROMPT emission — so the close countdown starts only once the
+        # caller has actually heard the check-in.
+        threshold = (
+            OPENAI_WAITING_CLOSE_SECONDS if self._reprompted
+            else OPENAI_WAITING_REPROMPT_SECONDS
+        )
+        if (now - self._waiting_since) < threshold:
             return []
+        gen = self._timeout_gen
         if not self._reprompted:
             self._reprompted = True
-            self._waiting_since = now
+            # Leave _waiting_since UNCHANGED: the close countdown must not start
+            # until the re-prompt's mark returns and re-arms a fresh interval.
             self.state = CallState.ASSISTANT_RESPONDING
             self._got_first_delta = False
-            return [(Action.REPROMPT, None)]
+            return [(Action.REPROMPT, gen)]
         self.state = CallState.CLOSING
-        return [(Action.HANGUP_GRACE, None)]
+        return [(Action.HANGUP_GRACE, gen)]
 
 
 def _name_status(extracted_name, caller_lines: list[str]) -> tuple[str, str]:
@@ -501,6 +575,7 @@ async def _pump_twilio(
     gap_seconds: float = None,
     send_timeout: float = None,
     on_mark=None,
+    gap_context=None,
 ) -> str:
     """
     Pull Twilio frames and forward media payloads to OpenAI. Returns a terminal
@@ -509,35 +584,56 @@ async def _pump_twilio(
     handler's single `finally` finalization is guaranteed to run.
 
     `on_mark(name)` (M2, optional, sync): called for each Twilio `mark` event —
-    the playback clock. All other non-media/non-stop events are ignored.
+    the playback clock AND heartbeat echoes. All other non-media/non-stop
+    events are ignored.
+
+    M3 — MEDIA-ONLY dead-socket detector: the gap is measured strictly from the
+    last inbound MEDIA frame. Mark echoes (playback marks AND heartbeat marks)
+    are received and dispatched to `on_mark` but do NOT reset the media timer —
+    otherwise a live heartbeat echo would mask a real caller-audio stall. This
+    is why the loop re-checks the media gap on every iteration rather than
+    relying solely on a receive timeout. `gap_context()` (optional) supplies
+    extra forensic fields for the dead_socket_gap diag (hb ids/echo age, state).
 
     Exit reasons:
       twilio_stop            — Twilio sent the normal stop event
       twilio_disconnect      — WS disconnect surfaced (code/reason diag'd)
       twilio_exhausted       — receive ended without stop/disconnect exception
-      dead_socket_gap        — no Twilio frame for gap_seconds (frames normally
-                               arrive every ~20ms — a gap means a DEAD socket,
-                               never caller silence)
+      dead_socket_gap        — no inbound MEDIA frame for gap_seconds (media
+                               normally arrives every ~20ms — a gap means the
+                               caller-audio path is DEAD, never caller silence)
       openai_send_timeout    — openai_ws.send blocked (backpressure)
       openai_closed          — OpenAI WS closed mid-forward
       error:<...>            — anything else
     """
     gap = OPENAI_INBOUND_GAP_SECONDS if gap_seconds is None else gap_seconds
     tmo = OPENAI_SEND_TIMEOUT_SECONDS if send_timeout is None else send_timeout
+    poll = min(gap, 1.0)   # wake at least this often to re-check the media gap
     reason = "twilio_exhausted"
-    last_frame_ts = time.monotonic()
+    last_media_ts = time.monotonic()
     try:
         while True:
-            try:
-                raw = await asyncio.wait_for(receive_text(), timeout=gap)
-            except asyncio.TimeoutError:
-                elapsed = time.monotonic() - last_frame_ts
+            # Media-only gap check FIRST — fires even while mark/hb echoes flow.
+            media_gap = time.monotonic() - last_media_ts
+            if media_gap >= gap:
                 reason = "dead_socket_gap"
-                diag("dead_socket_gap", elapsed_seconds=round(elapsed, 3), threshold=gap)
+                fields = {"elapsed_seconds": round(media_gap, 3),
+                          "seconds_since_media": round(media_gap, 3),
+                          "threshold": gap}
+                if gap_context is not None:
+                    try:
+                        fields.update(gap_context())
+                    except Exception:
+                        pass
+                diag("dead_socket_gap", **fields)
                 break
-            last_frame_ts = time.monotonic()
+            try:
+                raw = await asyncio.wait_for(receive_text(), timeout=poll)
+            except asyncio.TimeoutError:
+                continue   # re-check the media gap at the top of the loop
             evt = json.loads(raw)
             if evt["event"] == "media":
+                last_media_ts = time.monotonic()   # ONLY media resets the timer
                 try:
                     await asyncio.wait_for(
                         forward_audio(evt["media"]["payload"]), timeout=tmo
@@ -555,6 +651,8 @@ async def _pump_twilio(
                     diag("openai_closed_during_send", code=e.code, reason=str(e.reason or ""))
                     break
             elif evt["event"] == "mark":
+                # Playback + heartbeat echoes — dispatched, but NEVER reset the
+                # media timer (M3 media-only detector).
                 if on_mark is not None:
                     on_mark((evt.get("mark") or {}).get("name", ""))
             elif evt["event"] == "stop":
@@ -693,7 +791,7 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
                 _diag("response_create_sent", call_sid, reason="valid_turn_or_greeting")
             elif act == Action.REPROMPT:
                 await _send_response_create(_REPROMPT_INSTRUCTION)
-                _diag("reprompt_sent", call_sid)
+                _diag("reprompt_sent", call_sid, gen=val)
             elif act == Action.CANCEL_AND_CLEAR:
                 await openai_ws.send(json.dumps({"type": "response.cancel"}))
                 if stream_sid:
@@ -707,7 +805,7 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
                     })
                 _diag("playback_mark_sent", call_sid, mark=val)
             elif act == Action.HANGUP_GRACE:
-                _diag("closing_hangup", call_sid, state=_ctrl.state.value)
+                _diag("closing_hangup", call_sid, state=_ctrl.state.value, gen=val)
                 await asyncio.sleep(CLOSING_GRACE_SECONDS)
                 try:
                     await openai_ws.close()
@@ -724,11 +822,46 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
             "audio": payload,
         }))
 
+    # ── Transport heartbeat state (M3) — diagnostics only ────────────────────
+    _hb = {"seq": 0, "sent_id": "", "ack_id": "", "echo_ts": None}
+
     def _on_twilio_mark(name: str):
-        # Playback clock (RC2): the mark echoes back only after Twilio finishes
-        # playing the audio. Sync, no I/O — safe to call from the pump loop.
+        # M3: route marks. Heartbeat echoes ("hb:…") are pure transport
+        # diagnostics — they NEVER touch the TurnController, NEVER count as
+        # playback completion, NEVER reset caller timers. Response playback
+        # marks ("resp:…") drive the RC2 playback clock as before.
+        if name.startswith(_HEARTBEAT_MARK_PREFIX):
+            _hb["ack_id"] = name
+            _hb["echo_ts"] = time.monotonic()
+            _diag("heartbeat_returned", call_sid, hb=name)
+            return
         _ctrl.on_twilio_mark(name)
         _diag("playback_mark_returned", call_sid, mark=name, state=_ctrl.state.value)
+        # A returned playback mark may have re-armed a fresh waiting generation.
+        if _ctrl.state in (CallState.WAITING_FOR_CALLER, CallState.ACTIVE_CONVERSATION):
+            _diag("waiting_armed", call_sid, gen=_ctrl._timeout_gen,
+                  state=_ctrl.state.value,
+                  timeout=(OPENAI_WAITING_CLOSE_SECONDS if _ctrl._reprompted
+                           else OPENAI_WAITING_REPROMPT_SECONDS))
+
+    def _gap_context():
+        # Forensic fields attached to a dead_socket_gap diag (media-vs-hb
+        # divergence tells Twilio-side vs proxy-side stall apart).
+        now = time.monotonic()
+        echo_age = None if _hb["echo_ts"] is None else round(now - _hb["echo_ts"], 3)
+        return {
+            "stream_sid": stream_sid,
+            "seconds_since_hb_echo": echo_age,
+            "last_hb_sent": _hb["sent_id"],
+            "last_hb_ack": _hb["ack_id"],
+            "state": _ctrl.state.value,
+            "caller_active": _ctrl.state in (CallState.CALLER_SPEAKING,
+                                             CallState.PROCESSING_CALLER_TURN),
+            "assistant_active": _ctrl.state in (CallState.GREETING_REQUESTED,
+                                                CallState.GREETING_PLAYING,
+                                                CallState.ASSISTANT_RESPONDING,
+                                                CallState.RESPONDING_PLAYING),
+        }
 
     async def twilio_to_openai_loop():
         exit_reason = await _pump_twilio(
@@ -737,8 +870,33 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
             close_openai=openai_ws.close,
             diag=lambda event, **kw: _diag(event, call_sid, **kw),
             on_mark=_on_twilio_mark,
+            gap_context=_gap_context,
         )
         print(f"[OPENAI-WS] Twilio pump exited — reason={exit_reason}")
+
+    # ── Heartbeat task (M3): send hb marks every N s while the stream is up ──
+    async def heartbeat_loop():
+        try:
+            while True:
+                await asyncio.sleep(OPENAI_HEARTBEAT_SECONDS)
+                if not stream_sid:
+                    continue
+                _hb["seq"] += 1
+                name = f"{_HEARTBEAT_MARK_PREFIX}{_hb['seq']}"
+                _hb["sent_id"] = name
+                try:
+                    await twilio_ws.send_json({
+                        "event": "mark", "streamSid": stream_sid,
+                        "mark": {"name": name},
+                    })
+                    _diag("heartbeat_sent", call_sid, hb=name)
+                except Exception as e:
+                    _diag("heartbeat_send_failed", call_sid, error=str(e)[:200])
+                    return
+        except asyncio.CancelledError:
+            return
+        except Exception as e:
+            _diag("heartbeat_loop_error", call_sid, error=str(e)[:200])
 
     # ── OpenAI → Twilio (controller-driven) ──────────────────────────────────
     async def openai_to_twilio_loop():
@@ -836,17 +994,19 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
             _diag("waiting_watchdog_error", call_sid, error=str(e)[:200])
 
     _watchdog_task = asyncio.create_task(waiting_watchdog())
+    _heartbeat_task = asyncio.create_task(heartbeat_loop())
 
     # ── Run both loops, then the shared post-call pipeline ────────────────────
     try:
         await asyncio.gather(twilio_to_openai_loop(), openai_to_twilio_loop())
     finally:
-        # Cancel the watchdog first so no orphaned task survives the session.
-        _watchdog_task.cancel()
-        try:
-            await _watchdog_task
-        except (asyncio.CancelledError, Exception):
-            pass
+        # Cancel the background tasks first so no orphan survives the session.
+        for _t in (_watchdog_task, _heartbeat_task):
+            _t.cancel()
+            try:
+                await _t
+            except (asyncio.CancelledError, Exception):
+                pass
         _diag(
             "session_ended", call_sid,
             caller_lines=len(_caller_lines), assistant_lines=len(_assistant_lines),
