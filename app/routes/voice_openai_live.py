@@ -25,8 +25,10 @@ Model rollback: OPENAI_REALTIME_MODEL=gpt-realtime-2 (handshake-verified).
 """
 
 import asyncio
+import html
 import json
 import os
+import re
 import time
 from datetime import datetime
 
@@ -105,6 +107,42 @@ OPENAI_REALTIME_MODEL = os.getenv("OPENAI_REALTIME_MODEL", "gpt-realtime-2.1").s
 
 # Realtime output voice (GA voices include marin/cedar + the classic set).
 OPENAI_REALTIME_VOICE = os.getenv("OPENAI_REALTIME_VOICE", "marin").strip()
+
+# ── Vocal pace (M5) ───────────────────────────────────────────────────────────
+# Native GA control `session.audio.output.speed` (live-probe verified on
+# gpt-realtime-2.1). Scales DELIVERY pace only — it does not change wording,
+# sentence structure, warmth, VAD, silence thresholds, interruption logic, or
+# the state machine. Default 1.0 keeps deployment behavior-neutral; the pilot
+# value (≈+6%) is set via the environment, so rollback = unset the variable.
+# Deliberately NO prompt instruction about speed (native control only).
+OPENAI_REALTIME_SPEED_DEFAULT = 1.0
+OPENAI_REALTIME_SPEED_MIN = 0.7   # conservative guard: blocks typos like "0.06"
+OPENAI_REALTIME_SPEED_MAX = 1.3   # conservative guard: blocks typos like "10.6"
+
+
+def _parse_realtime_speed(raw, default: float = OPENAI_REALTIME_SPEED_DEFAULT) -> float:
+    """Pure/testable. Return a safe speed within the conservative range.
+    Unset, unparsable, NaN/inf, or out-of-range values fall back to `default`
+    (1.0) with a non-secret warning. Never raises."""
+    s = (raw or "").strip()
+    if not s:
+        return default
+    try:
+        value = float(s)
+    except (TypeError, ValueError):
+        print(f"[OPENAI-CONFIG] ⚠️ invalid OPENAI_REALTIME_SPEED={s!r} — using {default}")
+        return default
+    # NaN fails both comparisons, so it falls back too.
+    if not (OPENAI_REALTIME_SPEED_MIN <= value <= OPENAI_REALTIME_SPEED_MAX):
+        print(
+            f"[OPENAI-CONFIG] ⚠️ OPENAI_REALTIME_SPEED={value} outside "
+            f"[{OPENAI_REALTIME_SPEED_MIN}, {OPENAI_REALTIME_SPEED_MAX}] — using {default}"
+        )
+        return default
+    return value
+
+
+OPENAI_REALTIME_SPEED = _parse_realtime_speed(os.getenv("OPENAI_REALTIME_SPEED"))
 
 # Streaming STT model for caller-side transcription (must be enabled explicitly
 # in the GA session config; feeds the caller transcript buffer).
@@ -185,6 +223,8 @@ def _build_session_update(system_instruction: str) -> dict:
                 "output": {
                     "format": {"type": "audio/pcmu"},
                     "voice": OPENAI_REALTIME_VOICE,
+                    # M5: native delivery pace. 1.0 = unchanged (API default).
+                    "speed": OPENAI_REALTIME_SPEED,
                 },
             },
         },
@@ -261,6 +301,75 @@ def _transcript_excerpt(caller_lines: list[str], assistant_lines: list[str], max
     if len(full) <= max_chars:
         return full
     return full[:max_chars].rstrip() + "…"
+
+
+# ── Chronological transcript rendering for the email (M5) ────────────────────
+# The stored buffers (_caller_lines / _assistant_lines) are grouped BY ROLE, so
+# `_full_transcript` / `transcript_excerpt` genuinely lose chronology. M5 adds a
+# separate, additive per-call turn list captured in true event order and renders
+# it as RTL-safe HTML for Gmail. Raw buffers, the excerpt, extraction, name
+# status and the summary are all UNCHANGED — this is presentation only.
+
+# A phone-ish run: optional +, then digits/dashes/spaces/parens, digit-terminated.
+_PHONE_RE = re.compile(r"(\+?\d[\d\-\s().]{6,}\d)")
+
+TRANSCRIPT_HTML_MAX_TURNS = 20
+TRANSCRIPT_HTML_MAX_CHARS = 2500
+
+
+def _bidi_phone_spans(escaped_text: str) -> str:
+    """Isolate phone-like runs as LTR so they never render reversed inside RTL
+    Hebrew. Must run AFTER HTML-escaping (it only matches digit-ish runs)."""
+    return _PHONE_RE.sub(r'<span dir="ltr">\1</span>', escaped_text)
+
+
+def _transcript_html(
+    turns,
+    max_turns: int = TRANSCRIPT_HTML_MAX_TURNS,
+    max_chars: int = TRANSCRIPT_HTML_MAX_CHARS,
+) -> str:
+    """Render chronological turns as RTL-safe Gmail HTML.
+
+    Pure and total: returns "" on empty or malformed input so the Make template
+    falls back to the existing raw `transcript_excerpt` (never worse than today).
+    Order is preserved exactly as captured — nothing is reordered or inferred.
+    """
+    try:
+        items = [t for t in (turns or []) if (t.get("text") or "").strip()]
+        if not items:
+            return ""
+
+        def build(count: int) -> str:
+            blocks = []
+            for turn in items[:count]:
+                body = html.escape(turn["text"], quote=False)
+                body = _bidi_phone_spans(body)
+                body = body.replace("\n", "<br>")
+                blocks.append(
+                    '<div style="margin-bottom:12px;">'
+                    f'<div><strong>{html.escape(turn["role"], quote=False)}</strong></div>'
+                    f'<div dir="auto" style="unicode-bidi:plaintext;">{body}</div>'
+                    "</div>"
+                )
+            out = (
+                '<div dir="rtl" style="direction:rtl;text-align:right;">'
+                + "".join(blocks)
+                + "</div>"
+            )
+            if len(items) > count:
+                out += '<div dir="rtl" style="direction:rtl;text-align:right;">…</div>'
+            return out
+
+        count = min(len(items), max_turns)
+        rendered = build(count)
+        # Trim from the END only (never reorder, never slice mid-tag).
+        while count > 1 and len(rendered) > max_chars:
+            count -= 1
+            rendered = build(count)
+        return rendered if len(rendered) <= max_chars else ""
+    except Exception as exc:
+        print(f"[OPENAI-TRANSCRIPT] ⚠️ transcript_html build failed: {exc}")
+        return ""
 
 
 def _customer_transcript(caller_lines: list[str]) -> str:
@@ -869,6 +978,9 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
     # ── Shared state ──────────────────────────────────────────────────────────
     _caller_lines: list[str] = []      # caller speech only (input transcription)
     _assistant_lines: list[str] = []   # assistant speech only (output transcript)
+    # M5: additive, chronological view of the same accepted turns (email only).
+    # Fresh per call; never feeds extraction/summary/excerpt.
+    _transcript_turns: list[dict] = []
     _response_first_audio_logged = False
     _ctrl = TurnController()
 
@@ -1047,6 +1159,7 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
                     # excerpt). Every other decision keeps the M3 behavior.
                     if _text and _decision != "held_greeting":
                         _caller_lines.append(_text)
+                        _transcript_turns.append({"role": "לקוח", "text": _text})
                     if _decision == "held_greeting":
                         _diag("greeting_fragment_held", call_sid,
                               segment_id=_ctrl.last_segment_id, text=_text[:40],
@@ -1088,6 +1201,7 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
                     _text = (event.get("transcript") or "").strip()
                     if _text:
                         _assistant_lines.append(_text)
+                        _transcript_turns.append({"role": "מאיה", "text": _text})
                         _ctrl.on_assistant_transcript(_text)
 
                 elif etype == "response.done":
@@ -1165,6 +1279,9 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
         _allowed_names = [_confirmed_name] if _confirmed_name else []
         _full_text = _full_transcript(_caller_lines, _assistant_lines)
         _excerpt   = _transcript_excerpt(_caller_lines, _assistant_lines)
+        # M5: chronological RTL-safe rendering for the email. Additive — the raw
+        # excerpt above is unchanged and remains the fallback + diagnostic value.
+        _transcript_html_value = _transcript_html(_transcript_turns)
         _summary   = (
             await _summarize_transcript(_full_text, caller_names_allowed=_allowed_names)
             if _full_text.strip() else ""
@@ -1225,6 +1342,9 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
                 # M1.1: real conversation summary + raw excerpt fallback
                 "summary":               _summary,
                 "transcript_excerpt":    _excerpt,
+                # M5: chronological RTL-safe HTML (Make prefers it, falls back
+                # to transcript_excerpt when empty)
+                "transcript_html":       _transcript_html_value,
                 "appointment_day":       _appt_day,
                 "appointment_time":      _appt_time,
                 "appointment_at":        _appointment_at or "",
