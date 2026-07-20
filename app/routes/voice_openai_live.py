@@ -367,6 +367,33 @@ _PLAYING_STATES = (
 )
 
 
+# ── Greeting-protection gate (M4) ─────────────────────────────────────────────
+# Incident (calls 3–4 of the M3 acceptance): line noise/echo during greeting
+# playback was transcribed by the Hebrew-pinned STT as plausible SHORT Hebrew
+# ("תודה" @1.10s, "רק נשמע" @2.16s). Those passed the generic turn gate, were
+# treated as verified barge-ins, truncated the greeting, and seeded a response
+# with a content-free caller turn — so the model answered from the business
+# prompt ("איזה ביטוח?"). During GREETING_PLAYING ONLY, an interruption must
+# therefore clear a HIGHER bar: real length + real duration + not a bare
+# pleasantry. Anything weaker is HELD (silently ignored, greeting continues).
+GREETING_BARGE_MIN_CHARS = 10     # stripped length
+GREETING_BARGE_MIN_DUR_S = 1.2    # sustained speech, not a blip
+_GREETING_FRAGMENT_STOPLIST = {
+    "תודה", "תודה רבה", "שלום", "היי", "הלו", "כן", "לא", "אוקיי", "סבבה", "בסדר",
+}
+
+
+def is_verified_greeting_interruption(text: str, dur: float) -> bool:
+    """True only for a caller turn strong enough to justify cutting the greeting
+    off. Callers of this must already have passed `is_valid_caller_turn`."""
+    t = (text or "").strip()
+    if t in _GREETING_FRAGMENT_STOPLIST:
+        return False
+    if len(t) < GREETING_BARGE_MIN_CHARS:
+        return False
+    return dur >= GREETING_BARGE_MIN_DUR_S
+
+
 def is_valid_caller_turn(text: str, dur: float) -> bool:
     """A gated valid caller turn: non-empty, contains Hebrew, and either ≥2
     chars or an explicit short-Hebrew whitelist word, and ≥250ms of speech.
@@ -400,6 +427,19 @@ class TurnController:
         self._reprompted = False
         self._timeout_gen = 0            # M3: generation id for the waiting timer
         self._now = monotonic or time.monotonic
+        # ── M4: segment/turn binding + audit state (all per-call) ────────────
+        self._segment_seq = 0            # incremented on every speech_stopped
+        self._turn_seq = 0               # incremented on every ACCEPTED turn
+        self._unconsumed_segment = None  # segment awaiting its transcription
+        self._pending_item_id = None     # OpenAI item_id of that segment
+        self._generation_active = False  # a response is generating right now
+        # Result of the most recent on_input_transcription (read by the wiring
+        # for diagnostics and the caller-context decision).
+        self.last_decision = None        # accepted|held_greeting|orphan|
+                                         # obsolete_segment|rejected_gate|ignored_state
+        self.last_segment_id = None
+        self.last_turn_id = None
+        self.last_turn_text = ""
 
     # — greeting —
     def on_session_updated(self):
@@ -413,6 +453,7 @@ class TurnController:
     # — response lifecycle —
     def on_response_created(self):
         self._got_first_delta = False
+        self._generation_active = True   # M4: cancel is meaningful only now
         return []
 
     def on_output_delta(self):
@@ -426,6 +467,9 @@ class TurnController:
         return []
 
     def on_response_done(self, status: str):
+        # M4: generation is over — only playback may remain. A later barge-in
+        # must NOT send response.cancel (that produced response_cancel_not_active).
+        self._generation_active = False
         # Closing phrase (state-guarded) wins.
         if self._closing_armed and status != "cancelled":
             self._closing_armed = False
@@ -476,34 +520,89 @@ class TurnController:
             self.state = CallState.CALLER_SPEAKING
         return []
 
-    def on_speech_stopped(self, t: float):
+    def on_speech_stopped(self, t: float, item_id: str = None):
         if self._speech_started_at is not None:
             self._last_segment_dur = max(0.0, t - self._speech_started_at)
+        # M4: a COMPLETED speech pair mints exactly one segment, which exactly
+        # one transcription may consume. speech_started alone never does, so a
+        # transcription can never bind to a half-open segment.
+        self._segment_seq += 1
+        self._unconsumed_segment = self._segment_seq
+        self._pending_item_id = item_id
         return []
 
-    def on_input_transcription(self, text: str, dur: float = None):
+    def _reset_turn_audit(self):
+        self.last_segment_id = None
+        self.last_turn_id = None
+        self.last_turn_text = ""
+
+    def _release_segment(self):
+        self._unconsumed_segment = None
+        self._pending_item_id = None
+
+    def on_input_transcription(self, text: str, dur: float = None, item_id: str = None):
         d = self._last_segment_dur if dur is None else dur
+        self._reset_turn_audit()
         # Only a waiting state (fresh turn) or a PLAYING state (barge-in) may
         # accept a caller turn. While a response is generating
         # (ASSISTANT_RESPONDING/PROCESSING) or CLOSING, drop the transcription —
         # this prevents a duplicate response.create for overlapping segments.
         if not (self.state in _WAITING_STATES or self.state in _PLAYING_STATES):
+            self.last_decision = "ignored_state"
             return []
+        # ── M4 segment binding ───────────────────────────────────────────────
+        # ORPHAN: no completed speech pair is awaiting a transcription. Covers a
+        # transcription with no segment AND a duplicate for an already-consumed
+        # segment (its segment was released on consumption).
+        if self._unconsumed_segment is None:
+            self.last_decision = "orphan"
+            return []
+        # LATE/OBSOLETE: this transcription belongs to an older speech item than
+        # the segment currently awaiting one.
+        if (item_id is not None and self._pending_item_id is not None
+                and item_id != self._pending_item_id):
+            self.last_decision = "obsolete_segment"
+            return []
+        segment_id = self._unconsumed_segment
+        self.last_segment_id = segment_id
+
         if not is_valid_caller_turn(text, d):
-            # Junk / noise / echo — revert a bare CALLER_SPEAKING marker.
+            # Junk / noise / echo — consume the segment and revert a bare
+            # CALLER_SPEAKING marker.
+            self._release_segment()
+            self.last_decision = "rejected_gate"
             if self.state == CallState.CALLER_SPEAKING:
                 self.state = (
                     CallState.ACTIVE_CONVERSATION if self.valid_turns >= 1
                     else CallState.WAITING_FOR_CALLER
                 )
             return []
+        # ── M4 greeting protection ───────────────────────────────────────────
+        # During the greeting, only a strong interruption may cut Maya off.
+        # Anything weaker is HELD: no cancel, no clear, no response, no state
+        # change, and (in the wiring) never added to caller conversation
+        # context. The greeting finishes and the real mark drives the WAITING
+        # transition — so a held fragment can never trigger a later response.
+        if self.state == CallState.GREETING_PLAYING and not is_verified_greeting_interruption(text, d):
+            self._release_segment()
+            self.last_decision = "held_greeting"
+            return []
+
+        # ── Accepted caller turn ─────────────────────────────────────────────
+        self._release_segment()
+        self._turn_seq += 1
+        self.last_turn_id = self._turn_seq
+        self.last_turn_text = (text or "").strip()
+        self.last_decision = "accepted"
         self.valid_turns += 1
         self._reprompted = False
         actions = []
         if self.state in _PLAYING_STATES:
             if d >= BARGE_IN_MIN_DURATION_S:
                 self.pending_marks.clear()            # Twilio clear flushes all
-                actions.append((Action.CANCEL_AND_CLEAR, None))
+                # M4: cancel only while the response is genuinely generating;
+                # the Twilio clear is always sent (barge-in behavior unchanged).
+                actions.append((Action.CANCEL_AND_CLEAR, {"cancel": self._generation_active}))
             # else: let playback finish; the turn is still created below.
         self.state = CallState.PROCESSING_CALLER_TURN
         actions.append((Action.RESPONSE_CREATE, None))
@@ -788,15 +887,28 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
         for act, val in actions:
             if act == Action.RESPONSE_CREATE:
                 await _send_response_create()
-                _diag("response_create_sent", call_sid, reason="valid_turn_or_greeting")
+                # M4 audit: every caller-driven create is traceable to exactly
+                # one accepted turn (call_sid, segment_id, turn_id, text, state).
+                if _ctrl.last_decision == "accepted" and _ctrl.last_turn_id is not None:
+                    _diag("response_create_sent", call_sid, reason="valid_turn",
+                          segment_id=_ctrl.last_segment_id, turn_id=_ctrl.last_turn_id,
+                          text=_ctrl.last_turn_text[:60], state=_ctrl.state.value)
+                else:
+                    _diag("response_create_sent", call_sid, reason="greeting",
+                          state=_ctrl.state.value)
             elif act == Action.REPROMPT:
                 await _send_response_create(_REPROMPT_INSTRUCTION)
-                _diag("reprompt_sent", call_sid, gen=val)
+                _diag("reprompt_sent", call_sid, reason="watchdog_checkin", gen=val)
             elif act == Action.CANCEL_AND_CLEAR:
-                await openai_ws.send(json.dumps({"type": "response.cancel"}))
+                # M4: response.cancel ONLY while a response is genuinely
+                # generating (avoids response_cancel_not_active); the Twilio
+                # clear is always sent so barge-in behavior is unchanged.
+                _do_cancel = val.get("cancel", True) if isinstance(val, dict) else True
+                if _do_cancel:
+                    await openai_ws.send(json.dumps({"type": "response.cancel"}))
                 if stream_sid:
                     await twilio_ws.send_json({"event": "clear", "streamSid": stream_sid})
-                _diag("barge_in_cancel_and_clear", call_sid)
+                _diag("barge_in_cancel_and_clear", call_sid, cancel_sent=bool(_do_cancel))
             elif act == Action.SEND_MARK:
                 if stream_sid:
                     await twilio_ws.send_json({
@@ -923,16 +1035,32 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
                     # NOTE: bare speech_started never cancels/clears (RC1/RC2).
 
                 elif etype == "input_audio_buffer.speech_stopped":
-                    _ctrl.on_speech_stopped(time.monotonic())
-                    _diag("speech_stopped", call_sid)
+                    _ctrl.on_speech_stopped(time.monotonic(), item_id=event.get("item_id"))
+                    _diag("speech_stopped", call_sid, segment_id=_ctrl._unconsumed_segment)
 
                 elif etype == "conversation.item.input_audio_transcription.completed":
                     _text = (event.get("transcript") or "").strip()
-                    if _text:
+                    acts = _ctrl.on_input_transcription(_text, item_id=event.get("item_id"))
+                    _decision = _ctrl.last_decision
+                    # M4: a HELD greeting fragment is noise — it must never enter
+                    # accepted caller conversation context (extraction/summary/
+                    # excerpt). Every other decision keeps the M3 behavior.
+                    if _text and _decision != "held_greeting":
                         _caller_lines.append(_text)
-                    acts = _ctrl.on_input_transcription(_text)
+                    if _decision == "held_greeting":
+                        _diag("greeting_fragment_held", call_sid,
+                              segment_id=_ctrl.last_segment_id, text=_text[:40],
+                              state=_ctrl.state.value)
+                    elif _decision == "orphan":
+                        _diag("orphan_transcription", call_sid, text=_text[:40],
+                              state=_ctrl.state.value)
+                    elif _decision == "obsolete_segment":
+                        _diag("obsolete_transcription", call_sid, text=_text[:40],
+                              state=_ctrl.state.value)
                     _diag("input_transcription", call_sid, text=_text,
-                          valid_turn=bool(acts), state=_ctrl.state.value)
+                          valid_turn=(_decision == "accepted"), decision=_decision,
+                          segment_id=_ctrl.last_segment_id, turn_id=_ctrl.last_turn_id,
+                          state=_ctrl.state.value)
                     if acts:
                         if await _execute(acts):
                             break
