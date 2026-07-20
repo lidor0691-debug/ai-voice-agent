@@ -131,9 +131,12 @@ def test_4_startup_noise_does_not_cancel_greeting():
 # ── 5. valid Hebrew barge-in during greeting ≥600ms → cancel+clear + create ──
 
 def test_5_valid_barge_in_during_greeting():
+    # M4: cutting the greeting off now requires a STRONG interruption
+    # (>=10 chars AND >=1.2s AND not a bare pleasantry). A genuine sustained
+    # sentence still barges in exactly as in M2/M3.
     c = TurnController()
     _greeting_to_playing(c)
-    acts = _valid_turn(c, "רגע, יש לי שאלה", dur=0.7)
+    acts = _valid_turn(c, "רגע, יש לי שאלה חשובה", dur=1.5)
     assert _acts(acts) == [Action.CANCEL_AND_CLEAR, Action.RESPONSE_CREATE]
     assert c.state == CallState.ASSISTANT_RESPONDING
 
