@@ -378,6 +378,23 @@ def _customer_transcript(caller_lines: list[str]) -> str:
     return "\n".join(f"לקוח: {ln}" for ln in caller_lines if (ln or "").strip())
 
 
+# Deterministic, truthful summary for a call with NO valid caller content.
+# Incident 2026-07-21: when the transcript held only Maya's greeting, the LLM
+# summarizer fabricated an imaginary caller request + Maya reply. If the caller
+# contributed nothing clear, we skip the summarizer entirely and use this.
+_EMPTY_CALLER_SUMMARY = (
+    "לא התקבל מהלקוח תוכן ברור שניתן לסכם. "
+    "ייתכן שהשיחה נותקה או שהדיבור לא תומלל."
+)
+
+
+def _has_valid_caller_content(caller_lines) -> bool:
+    """True iff at least one caller line has non-empty content after stripping.
+    Empty / whitespace-only lines never count as caller content — the guard that
+    decides whether the summary LLM may run at all."""
+    return any((ln or "").strip() for ln in (caller_lines or []))
+
+
 def _full_transcript(caller_lines: list[str], assistant_lines: list[str]) -> str:
     """Interleaving is not preserved in M1 (separate buffers); grouped by role.
     Used for logging/inspection only — extraction uses _customer_transcript."""
@@ -1282,10 +1299,15 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
         # M5: chronological RTL-safe rendering for the email. Additive — the raw
         # excerpt above is unchanged and remains the fallback + diagnostic value.
         _transcript_html_value = _transcript_html(_transcript_turns)
-        _summary   = (
-            await _summarize_transcript(_full_text, caller_names_allowed=_allowed_names)
-            if _full_text.strip() else ""
-        )
+        # Fabrication guard (incident 2026-07-21): NEVER run the summary LLM when
+        # the caller contributed no clear content — a transcript of only Maya's
+        # greeting made the model invent a caller request + reply. Use a
+        # deterministic, truthful summary instead. Normal two-sided calls (≥1
+        # valid caller line) keep the existing summarization behavior unchanged.
+        if _has_valid_caller_content(_caller_lines):
+            _summary = await _summarize_transcript(_full_text, caller_names_allowed=_allowed_names)
+        else:
+            _summary = _EMPTY_CALLER_SUMMARY
         print(f"[OPENAI-SUMMARY] {(_summary or '(empty)')[:200]}")
 
         # Lead persistence — same fields/contract as the Gemini path.
