@@ -42,6 +42,7 @@ from app.services.voice_shared import extract_lead_from_transcript as _extract_l
 from app.services.voice_shared import send_voice_webhook as _send_voice_webhook
 from app.services.voice_shared import get_customer_history as _get_customer_history
 from app.services.voice_shared import summarize_transcript as _summarize_transcript
+from app.services.voice_shared import two_stage_greeting_enabled as _two_stage_greeting_enabled
 from app.integrations.twilio_client import _get_client as _get_twilio_client
 
 # One-way reuse from the Gemini route (voice_gemini NEVER imports this module —
@@ -468,6 +469,7 @@ class Action(enum.Enum):
     SEND_MARK        = "SEND_MARK"        # value = mark name
     HANGUP_GRACE     = "HANGUP_GRACE"
     REPROMPT         = "REPROMPT"
+    SPEAK_SCRIPTED   = "SPEAK_SCRIPTED"   # value = per-response instruction (M6)
 
 
 # Valid-caller-turn gate (packet §B)
@@ -536,12 +538,101 @@ def _phrase_in_tail(text: str, tail_chars: int = CLOSING_TAIL_CHARS) -> bool:
     return _contains_closing_phrase((text or "")[-tail_chars:])
 
 
+# ── Two-stage phone greeting (M6) ─────────────────────────────────────────────
+# Roi-only (client-allowlisted in voice_shared). The opening is delivered as two
+# human turns instead of one recorded-sounding line, so a caller is less likely
+# to assume voicemail and hang up:
+#   Stage 1  → a short "הלו?" (SPEAK_SCRIPTED), then wait for a real response.
+#   Stage 2  → self-identification, chosen by what the caller actually said:
+#              • only greeted / acknowledged / identity-checked → a FIXED question
+#              • already gave substantive content → a normal model reply prefixed
+#                with a brief self-intro (never re-asks the reason).
+#   Fallback → if ~1.7s pass after "הלו?" with no accepted caller turn, Stage 2
+#              (a warm fixed line) fires automatically via a one-shot task.
+# `stage2_done` is the single guard, so Stage 2 can never play twice. With the
+# client NOT allowlisted (two_stage=False) the controller is byte-identical to
+# the M2–M5 single-greeting flow.
+OPENAI_GREETING_STAGE2_FALLBACK_DEFAULT = 1.7
+OPENAI_GREETING_STAGE2_FALLBACK_MIN = 1.0   # guard against typos / hot-mic races
+OPENAI_GREETING_STAGE2_FALLBACK_MAX = 3.0   # a longer silence is the WAITING job
+
+
+def _parse_stage2_fallback_seconds(raw, default: float = OPENAI_GREETING_STAGE2_FALLBACK_DEFAULT) -> float:
+    """Pure/testable. Post-"הלו?" fallback delay, within a conservative range.
+    Unset, unparsable, NaN/inf, or out-of-range → `default` (1.7) with a
+    non-secret warning. Never raises. (Mirrors _parse_realtime_speed.)"""
+    s = (raw or "").strip()
+    if not s:
+        return default
+    try:
+        value = float(s)
+    except (TypeError, ValueError):
+        print(f"[OPENAI-CONFIG] ⚠️ invalid OPENAI_GREETING_STAGE2_FALLBACK_S={s!r} — using {default}")
+        return default
+    if not (OPENAI_GREETING_STAGE2_FALLBACK_MIN <= value <= OPENAI_GREETING_STAGE2_FALLBACK_MAX):
+        print(
+            f"[OPENAI-CONFIG] ⚠️ OPENAI_GREETING_STAGE2_FALLBACK_S={value} outside "
+            f"[{OPENAI_GREETING_STAGE2_FALLBACK_MIN}, {OPENAI_GREETING_STAGE2_FALLBACK_MAX}] — using {default}"
+        )
+        return default
+    return value
+
+
+OPENAI_GREETING_STAGE2_FALLBACK_S = _parse_stage2_fallback_seconds(
+    os.getenv("OPENAI_GREETING_STAGE2_FALLBACK_S")
+)
+
+# Exact spoken lines (Stage 1 + the two Stage-2 variants).
+_GREETING_STAGE1_LINE = "הלו?"
+_GREETING_STAGE2_CALLER_LINE = "כן, מדברת מאיה מהמשרד של רועי. איך אפשר לעזור?"
+_GREETING_STAGE2_FALLBACK_LINE = "היי, מדברת מאיה מהמשרד של רועי. איך אפשר לעזור?"
+
+# A first turn after "הלו?" that is ONLY a greeting / acknowledgment / identity
+# check → the FIXED Stage-2 question. Anything richer is substantive content and
+# is answered naturally (with a brief self-intro), never re-asked.
+_STAGE2_FIXED_TRIGGERS = {
+    "הלו", "הלו הלו", "כן", "לא", "שלום", "היי", "הי", "אהלן",
+    "רועי", "מי זה", "מי זאת", "מי מדבר", "מי מדברת",
+    "אוקיי", "אוקי", "בסדר", "סבבה", "תודה", "תודה רבה",
+}
+
+
+def _normalize_greeting_turn(text: str) -> str:
+    """Strip surrounding whitespace and trailing punctuation so "רועי?" and
+    "מי זה?" match their trigger words."""
+    return (text or "").strip().strip("?!.,־-…").strip()
+
+
+def _is_greeting_only_turn(text: str) -> bool:
+    """True → the caller only greeted / acknowledged / identity-checked, so the
+    FIXED Stage-2 question fits. False → substantive content: answer it."""
+    return _normalize_greeting_turn(text) in _STAGE2_FIXED_TRIGGERS
+
+
+def _exact_line_instruction(line: str) -> str:
+    """Per-response instruction forcing an exact, verbatim single line."""
+    return f'אמרי עכשיו בדיוק, מילה במילה, ורק את המשפט הבא בלי שום תוספת: "{line}"'
+
+
+# Substantive Stage 2: identify, then continue from what the caller already said.
+_STAGE2_SUBSTANTIVE_INSTRUCTION = (
+    "הציגי את עצמך במשפט קצר וטבעי כמאיה מהמשרד של רועי, ומיד אחרי זה המשיכי "
+    "ישירות ממה שהפונה כבר אמר. אל תבקשי מהפונה לחזור על סיבת הפנייה, ואל תשאלי "
+    "\"איך אפשר לעזור?\" — הוא כבר הסביר."
+)
+
+
 class TurnController:
     """See module comment. All methods are pure and return list[(Action, value)]."""
 
-    def __init__(self, monotonic=None):
+    def __init__(self, monotonic=None, two_stage: bool = False):
         self.state = CallState.INITIALIZING
         self.greeting_done = False       # one-time greeting guard (create side)
+        # ── M6 two-stage greeting (Roi-only; False ⇒ identical to M2–M5) ──────
+        self.two_stage = two_stage
+        self.greeting_stage = 0          # 0=none 1="הלו?" pending/playing 2=done
+        self.stage2_done = False         # single race guard: Stage 2 fires once
+        self.last_stage2_kind = None     # "fixed" | "substantive" | "fallback"
         self.valid_turns = 0
         self.pending_marks: set[str] = set()
         self._resp_seq = 0               # mark id counter
@@ -573,8 +664,27 @@ class TurnController:
             self.greeting_done = True
             self.state = CallState.GREETING_REQUESTED
             self._got_first_delta = False
+            # M6: Stage 1 is a scripted "הלו?"; otherwise the M2 model-worded
+            # one-shot greeting is unchanged.
+            if self.two_stage:
+                self.greeting_stage = 1
+                return [(Action.SPEAK_SCRIPTED, _exact_line_instruction(_GREETING_STAGE1_LINE))]
             return [(Action.RESPONSE_CREATE, None)]
         return []
+
+    # — M6 Stage 2 fallback (one-shot task, ~1.7s after "הלו?") —
+    def on_greeting_fallback(self):
+        """Fire Stage 2 automatically when no accepted caller turn arrived after
+        "הלו?". No-op (returns []) if two-stage is off, we are not still in
+        Stage 1, or Stage 2 already fired — so it can never double-speak."""
+        if not self.two_stage or self.greeting_stage != 1 or self.stage2_done:
+            return []
+        self.stage2_done = True
+        self.greeting_stage = 2
+        self.last_stage2_kind = "fallback"
+        self.state = CallState.ASSISTANT_RESPONDING
+        self._got_first_delta = False
+        return [(Action.SPEAK_SCRIPTED, _exact_line_instruction(_GREETING_STAGE2_FALLBACK_LINE))]
 
     # — response lifecycle —
     def on_response_created(self):
@@ -731,7 +841,23 @@ class TurnController:
                 actions.append((Action.CANCEL_AND_CLEAR, {"cancel": self._generation_active}))
             # else: let playback finish; the turn is still created below.
         self.state = CallState.PROCESSING_CALLER_TURN
-        actions.append((Action.RESPONSE_CREATE, None))
+        # ── M6: the FIRST accepted turn after "הלו?" drives Stage 2 ───────────
+        # A bare greeting / identity check → the fixed self-intro question; real
+        # content → a normal model reply that self-introduces then continues from
+        # what was said (the accepted turn is preserved for transcript/summary,
+        # never overwritten). `stage2_done` makes this fire at most once.
+        if self.two_stage and self.greeting_stage == 1 and not self.stage2_done:
+            self.stage2_done = True
+            self.greeting_stage = 2
+            if _is_greeting_only_turn(text):
+                self.last_stage2_kind = "fixed"
+                actions.append((Action.SPEAK_SCRIPTED,
+                                _exact_line_instruction(_GREETING_STAGE2_CALLER_LINE)))
+            else:
+                self.last_stage2_kind = "substantive"
+                actions.append((Action.SPEAK_SCRIPTED, _STAGE2_SUBSTANTIVE_INSTRUCTION))
+        else:
+            actions.append((Action.RESPONSE_CREATE, None))
         self.state = CallState.ASSISTANT_RESPONDING
         self._got_first_delta = False
         return actions
@@ -961,10 +1087,18 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
     # ── Prompt: same Roi system prompt + natural one-time opening (M1.1) ──────
     base_prompt = agent_cfg["prompt_override"].replace("{{caller_phone}}", caller_phone)
     first_message = (agent_cfg.get("first_message") or "").strip()
-    system_instruction = _openai_opening_instruction(base_prompt, first_message)
+    # M6: for two-stage clients the opening is delivered as scripted turns
+    # (SPEAK_SCRIPTED), so the free-form one-shot opening directive is omitted to
+    # avoid two competing greeting instructions. Everything else is unchanged.
+    _two_stage = _two_stage_greeting_enabled(client_id or "")
+    if _two_stage:
+        system_instruction = base_prompt
+        print("[OPENAI-WS] M6 two-stage greeting ACTIVE — scripted opening (client allowlisted)")
+    else:
+        system_instruction = _openai_opening_instruction(base_prompt, first_message)
+        if first_message:
+            print("[OPENAI-WS] natural one-time opening instruction injected into system prompt")
     system_instruction += _NAME_PROTOCOL_INSTRUCTION
-    if first_message:
-        print("[OPENAI-WS] natural one-time opening instruction injected into system prompt")
 
     # ── Connect to OpenAI Realtime (GA) ──────────────────────────────────────
     # NOTE: default ping_interval kept ON (WS keepalive) — unlike the Gemini
@@ -999,11 +1133,12 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
     # Fresh per call; never feeds extraction/summary/excerpt.
     _transcript_turns: list[dict] = []
     _response_first_audio_logged = False
-    _ctrl = TurnController()
+    _ctrl = TurnController(two_stage=_two_stage)
 
     # ── Action executor — the ONLY place I/O side-effects happen ─────────────
     # Every response.create in this module is sent from here (RESPONSE_CREATE /
-    # REPROMPT), so the "app owns response creation" invariant is grep-checkable.
+    # REPROMPT / SPEAK_SCRIPTED), so the "app owns response creation" invariant
+    # is grep-checkable.
     async def _send_response_create(instructions: str = None):
         payload = {"type": "response.create"}
         if instructions:
@@ -1028,6 +1163,13 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
             elif act == Action.REPROMPT:
                 await _send_response_create(_REPROMPT_INSTRUCTION)
                 _diag("reprompt_sent", call_sid, reason="watchdog_checkin", gen=val)
+            elif act == Action.SPEAK_SCRIPTED:
+                # M6: greeting Stage 1 / Stage 2 — a response.create carrying a
+                # narrow per-response instruction (verbatim line or self-intro).
+                await _send_response_create(val)
+                _diag("scripted_response_sent", call_sid,
+                      greeting_stage=_ctrl.greeting_stage,
+                      kind=_ctrl.last_stage2_kind, state=_ctrl.state.value)
             elif act == Action.CANCEL_AND_CLEAR:
                 # M4: response.cancel ONLY while a response is genuinely
                 # generating (avoids response_cancel_not_active); the Twilio
@@ -1066,6 +1208,32 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
     # ── Transport heartbeat state (M3) — diagnostics only ────────────────────
     _hb = {"seq": 0, "sent_id": "", "ack_id": "", "echo_ts": None}
 
+    # ── M6 Stage-2 fallback: one-shot timer armed when "הלו?" finishes playing ─
+    _greeting_fallback = {"task": None}
+
+    def _cancel_greeting_fallback():
+        t = _greeting_fallback["task"]
+        if t is not None and not t.done():
+            t.cancel()
+        _greeting_fallback["task"] = None
+
+    async def _greeting_fallback_runner():
+        # After ~1.7s of post-"הלו?" silence with no accepted caller turn, speak
+        # Stage 2 automatically. Cancelled the instant a caller turn triggers
+        # Stage 2 first; on_greeting_fallback() is itself guarded (stage2_done),
+        # so even a lost cancel race can never double-speak.
+        try:
+            await asyncio.sleep(OPENAI_GREETING_STAGE2_FALLBACK_S)
+            acts = _ctrl.on_greeting_fallback()
+            if acts:
+                _diag("greeting_stage2_fallback_fired", call_sid,
+                      after_s=OPENAI_GREETING_STAGE2_FALLBACK_S)
+                await _execute(acts)
+        except asyncio.CancelledError:
+            return
+        except Exception as e:
+            _diag("greeting_fallback_error", call_sid, error=str(e)[:200])
+
     def _on_twilio_mark(name: str):
         # M3: route marks. Heartbeat echoes ("hb:…") are pure transport
         # diagnostics — they NEVER touch the TurnController, NEVER count as
@@ -1084,6 +1252,14 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
                   state=_ctrl.state.value,
                   timeout=(OPENAI_WAITING_CLOSE_SECONDS if _ctrl._reprompted
                            else OPENAI_WAITING_REPROMPT_SECONDS))
+        # M6: Stage 1 "הלו?" just finished playing → arm the one-shot Stage 2
+        # fallback exactly once (a caller turn will cancel it if it speaks first).
+        if (_ctrl.two_stage and _ctrl.greeting_stage == 1 and not _ctrl.stage2_done
+                and _ctrl.state == CallState.WAITING_FOR_CALLER
+                and _greeting_fallback["task"] is None):
+            _greeting_fallback["task"] = asyncio.create_task(_greeting_fallback_runner())
+            _diag("greeting_stage2_fallback_armed", call_sid,
+                  after_s=OPENAI_GREETING_STAGE2_FALLBACK_S)
 
     def _gap_context():
         # Forensic fields attached to a dead_socket_gap diag (media-vs-hb
@@ -1191,6 +1367,10 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
                           valid_turn=(_decision == "accepted"), decision=_decision,
                           segment_id=_ctrl.last_segment_id, turn_id=_ctrl.last_turn_id,
                           state=_ctrl.state.value)
+                    # M6: a caller turn that drove Stage 2 cancels the pending
+                    # fallback timer (the fixed/substantive reply already went out).
+                    if _decision == "accepted" and _ctrl.last_stage2_kind in ("fixed", "substantive"):
+                        _cancel_greeting_fallback()
                     if acts:
                         if await _execute(acts):
                             break
@@ -1260,7 +1440,10 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
         await asyncio.gather(twilio_to_openai_loop(), openai_to_twilio_loop())
     finally:
         # Cancel the background tasks first so no orphan survives the session.
-        for _t in (_watchdog_task, _heartbeat_task):
+        _bg_tasks = [_watchdog_task, _heartbeat_task]
+        if _greeting_fallback["task"] is not None:   # M6 one-shot Stage-2 timer
+            _bg_tasks.append(_greeting_fallback["task"])
+        for _t in _bg_tasks:
             _t.cancel()
             try:
                 await _t

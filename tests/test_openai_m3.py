@@ -130,8 +130,10 @@ def test_4_single_watchdog_and_heartbeat_tasks():
     src = pathlib.Path(vol.__file__).read_text(encoding="utf-8")
     assert src.count("asyncio.create_task(waiting_watchdog())") == 1
     assert src.count("asyncio.create_task(heartbeat_loop())") == 1
-    # both cancelled together in the finally
-    assert "for _t in (_watchdog_task, _heartbeat_task):" in src
+    # both cancelled together in the finally (M6: the optional one-shot Stage-2
+    # fallback task is appended to the same list and cancelled alongside them).
+    assert "_bg_tasks = [_watchdog_task, _heartbeat_task]" in src
+    assert "for _t in _bg_tasks:" in src
     assert src.count("_t.cancel()") == 1
 
 
