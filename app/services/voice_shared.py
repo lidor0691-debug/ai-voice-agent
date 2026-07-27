@@ -126,6 +126,21 @@ def openai_ab_enabled(client_id: str) -> bool:
     )
 
 
+# ── Two-stage phone greeting gate (M6) ───────────────────────────────────────
+# Roi-only, client-scoped like the A/B gate above (NOT a global boolean) so a
+# future OpenAI-enabled tenant never inherits Roi's "הלו?" → identity greeting.
+# Empty allowlist = off for everyone → merging changes nothing in production.
+OPENAI_TWO_STAGE_GREETING_CLIENT_IDS = {
+    _c.strip() for _c in os.getenv("OPENAI_TWO_STAGE_GREETING_CLIENT_IDS", "").split(",") if _c.strip()
+}
+
+
+def two_stage_greeting_enabled(client_id: str) -> bool:
+    """The two-stage phone greeting is on ONLY for allowlisted client_ids.
+    Empty allowlist = off for all tenants (no behavior change on merge)."""
+    return bool(client_id) and client_id in OPENAI_TWO_STAGE_GREETING_CLIENT_IDS
+
+
 # ── Webhook delivery ─────────────────────────────────────────────────────────
 
 async def send_voice_webhook(webhook_url: str, payload: dict) -> None:

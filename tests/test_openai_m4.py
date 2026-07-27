@@ -100,8 +100,9 @@ def test_1b_ids_and_transcripts_cannot_be_inherited():
 
 def test_1c_single_controller_construction_site_per_call():
     src = pathlib.Path(vol.__file__).read_text(encoding="utf-8")
-    assert src.count("TurnController()") == 1          # constructed once, in-handler
-    assert "_ctrl = TurnController()" in src
+    assert src.count("TurnController(") == 1            # constructed once, in-handler
+    # M6: the single construction site now passes the client-scoped two-stage flag
+    assert "_ctrl = TurnController(two_stage=_two_stage)" in src
     # per-call buffers are handler-locals, not module globals
     assert "\n_caller_lines" not in src and "\n_assistant_lines" not in src
 
