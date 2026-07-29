@@ -25,13 +25,35 @@ _SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
 
 # \u2500\u2500 Customer history (new vs existing) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
-async def get_customer_history(phone: str, before_iso: str) -> dict:
+def _customer_history_params(phone: str, before_iso: str, agent_id: str = None) -> dict:
+    """Build the call_logs query params. Pure/testable.
+
+    Scopes the lookup to a single tenant via agent_id when provided, so a caller
+    who phoned another tenant is never counted as this tenant's existing
+    customer. agent_id absent/blank ⇒ phone-only (backward compatible)."""
+    params = {
+        "phone_number": f"eq.{phone}",
+        "created_at":   f"lt.{before_iso}",
+        "select":       "created_at",
+        "order":        "created_at.desc",
+    }
+    aid = (agent_id or "").strip()
+    if aid:
+        params["agent_id"] = f"eq.{aid}"
+    return params
+
+
+async def get_customer_history(phone: str, before_iso: str, agent_id: str = None) -> dict:
     """
     Look up prior call history for a caller phone, EXCLUDING the current call.
 
     `before_iso` must be a timestamp captured at the START of the current call;
     call_logs rows with created_at < before_iso are treated as prior interactions
     (the current call's call_logs row is written at end-of-call, so it is excluded).
+
+    `agent_id` scopes the lookup to the current tenant (call_logs has one agent
+    per row). When provided, a caller who phoned a DIFFERENT tenant is not
+    counted here; omit it only for legacy/phone-only behavior.
 
     Returns {customer_status, prior_count, last_date}. Never raises \u2014 on any
     error or no history, returns the "new customer" default.
@@ -43,12 +65,7 @@ async def get_customer_history(phone: str, before_iso: str) -> dict:
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.get(
                 f"{_SUPABASE_URL}/rest/v1/call_logs",
-                params={
-                    "phone_number": f"eq.{phone}",
-                    "created_at":   f"lt.{before_iso}",
-                    "select":       "created_at",
-                    "order":        "created_at.desc",
-                },
+                params=_customer_history_params(phone, before_iso, agent_id),
                 headers={
                     "apikey":        _SUPABASE_SERVICE_KEY,
                     "Authorization": f"Bearer {_SUPABASE_SERVICE_KEY}",
@@ -139,6 +156,31 @@ def two_stage_greeting_enabled(client_id: str) -> bool:
     """The two-stage phone greeting is on ONLY for allowlisted client_ids.
     Empty allowlist = off for all tenants (no behavior change on merge)."""
     return bool(client_id) and client_id in OPENAI_TWO_STAGE_GREETING_CLIENT_IDS
+
+
+# ── Two-stage greeting: spoken office identity (M6.1) ─────────────────────────
+# The Stage-2 self-introduction must name the CURRENT tenant's office — never a
+# hardcoded one, and never maintained in Railway. Identity is a tenant-level
+# value in agents_config. Resolution order (first non-empty wins):
+#   1. agents_config.voice_office_label — a dedicated nullable field holding the
+#      VERBATIM spoken office phrase (e.g. "מהמשרד של רועי"). Read only here, so
+#      it affects nothing else (prompt/email/dashboard/WhatsApp untouched).
+#   2. "מהמשרד של " + agents_config.business_name — derived from the tenant row.
+#   3. GENERIC_OFFICE_LABEL — a safe, name-free fallback.
+GENERIC_OFFICE_LABEL = "מהמשרד"
+
+
+def resolve_two_stage_office(agent_cfg: dict = None) -> str:
+    """Spoken office phrase for the Stage-2 self-introduction (see order above).
+    Pure/testable; returns GENERIC_OFFICE_LABEL when nothing is configured."""
+    cfg = agent_cfg or {}
+    label = (cfg.get("voice_office_label") or "").strip()
+    if label:
+        return label
+    business = (cfg.get("business_name") or "").strip()
+    if business:
+        return f"מהמשרד של {business}"
+    return GENERIC_OFFICE_LABEL
 
 
 # ── Webhook delivery ─────────────────────────────────────────────────────────

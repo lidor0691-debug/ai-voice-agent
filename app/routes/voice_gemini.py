@@ -819,7 +819,9 @@ async def stream_gemini(twilio_ws: WebSocket, call_sid: str = Query(default=""))
         if caller_phone and webhook_url:
             _booking_status = "booked" if _appointment_at else "not_booked"
             # New-vs-existing customer enrichment (excludes the current call).
-            _history = await _get_customer_history(caller_phone, _call_started_at)
+            # Scoped by agent_id so history never bleeds across tenants sharing a
+            # caller phone (call_logs is keyed per agent).
+            _history = await _get_customer_history(caller_phone, _call_started_at, agent_cfg.get("agent_id"))
             print(
                 f"[GEMINI-HISTORY] status={_history['customer_status']} "
                 f"prior_count={_history['prior_count']} last_date={_history['last_date']}"

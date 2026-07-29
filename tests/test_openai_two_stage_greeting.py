@@ -48,8 +48,18 @@ def _mark_name(pairs):
     return _val(pairs, Action.SEND_MARK)
 
 
+# M6 was Roi-only; these tests assert Roi's exact spoken lines. The Stage-2
+# lines are now name-free templates filled per-tenant (M6.1), so the controller
+# is built with Roi's configured office and the expected lines are rendered the
+# same way — behavior is byte-identical to the original M6.
+ROI_OFFICE = "מהמשרד של רועי"
+CALLER_LINE = vol._GREETING_STAGE2_CALLER_TEMPLATE.format(office=ROI_OFFICE)
+FALLBACK_LINE = vol._GREETING_STAGE2_FALLBACK_TEMPLATE.format(office=ROI_OFFICE)
+SUBSTANTIVE_INSTR = vol._STAGE2_SUBSTANTIVE_TEMPLATE.format(office=ROI_OFFICE)
+
+
 def _two_stage_ctrl():
-    return TurnController(two_stage=True)
+    return TurnController(two_stage=True, office=ROI_OFFICE)
 
 
 def _to_greeting_playing(c):
@@ -127,8 +137,8 @@ class TestGreetingOnlyClassifier:
         assert vol._GREETING_STAGE1_LINE == "הלו?"
 
     def test_stage2_lines_identify_maya_and_office(self):
-        assert vol._GREETING_STAGE2_CALLER_LINE == "כן, מדברת מאיה מהמשרד של רועי. איך אפשר לעזור?"
-        assert vol._GREETING_STAGE2_FALLBACK_LINE == "היי, מדברת מאיה מהמשרד של רועי. איך אפשר לעזור?"
+        assert CALLER_LINE == "כן, מדברת מאיה מהמשרד של רועי. איך אפשר לעזור?"
+        assert FALLBACK_LINE == "היי, מדברת מאיה מהמשרד של רועי. איך אפשר לעזור?"
 
 
 # ── client allowlist (not a global boolean) ──────────────────────────────────
@@ -193,7 +203,7 @@ class TestStage2Fixed:
         _to_waiting(c)
         acts = _turn(c, text, 0.5)
         assert _acts(acts) == [Action.SPEAK_SCRIPTED]
-        assert vol._GREETING_STAGE2_CALLER_LINE in _val(acts, Action.SPEAK_SCRIPTED)
+        assert CALLER_LINE in _val(acts, Action.SPEAK_SCRIPTED)
         assert c.last_stage2_kind == "fixed"
         assert c.stage2_done is True
         assert c.last_decision == "accepted"               # turn is NOT discarded
@@ -218,7 +228,7 @@ class TestStage2Substantive:
         acts = _turn(c, "שלום, אני צריך שרועי יחזור אליי לגבי דוחות כספיים.", 2.0)
         assert Action.SPEAK_SCRIPTED in _acts(acts)
         instr = _val(acts, Action.SPEAK_SCRIPTED)
-        assert instr == vol._STAGE2_SUBSTANTIVE_INSTRUCTION
+        assert instr == SUBSTANTIVE_INSTR
         # must self-introduce, must NOT re-ask the reason
         assert "מאיה" in instr and "רועי" in instr
         assert "אל תבקשי מהפונה לחזור" in instr
@@ -263,8 +273,8 @@ class TestMixedOpeningTurns:
         acts = _turn(c, text, 1.5)
         # substantive self-intro instruction — NOT the fixed "איך אפשר לעזור?" line
         assert Action.SPEAK_SCRIPTED in _acts(acts)
-        assert _val(acts, Action.SPEAK_SCRIPTED) == vol._STAGE2_SUBSTANTIVE_INSTRUCTION
-        assert vol._GREETING_STAGE2_CALLER_LINE not in _val(acts, Action.SPEAK_SCRIPTED)
+        assert _val(acts, Action.SPEAK_SCRIPTED) == SUBSTANTIVE_INSTR
+        assert CALLER_LINE not in _val(acts, Action.SPEAK_SCRIPTED)
         assert c.last_stage2_kind == "substantive"
         # full caller content preserved (transcript + summary see the whole turn)
         assert c.last_decision == "accepted"
@@ -279,7 +289,7 @@ class TestStage2Fallback:
         _to_waiting(c)
         acts = c.on_greeting_fallback()
         assert _acts(acts) == [Action.SPEAK_SCRIPTED]
-        assert vol._GREETING_STAGE2_FALLBACK_LINE in _val(acts, Action.SPEAK_SCRIPTED)
+        assert FALLBACK_LINE in _val(acts, Action.SPEAK_SCRIPTED)
         assert c.last_stage2_kind == "fallback"
         assert c.stage2_done is True
         assert c.on_greeting_fallback() == []              # requirement 8: once only
@@ -311,7 +321,7 @@ class TestGreetingProtectionInteraction:
         assert c.last_decision == "rejected_gate"
         assert c.stage2_done is False and c.greeting_stage == 1
         # fallback still available afterwards
-        assert vol._GREETING_STAGE2_FALLBACK_LINE in _val(c.on_greeting_fallback(), Action.SPEAK_SCRIPTED)
+        assert FALLBACK_LINE in _val(c.on_greeting_fallback(), Action.SPEAK_SCRIPTED)
 
     def test_held_greeting_fragment_does_not_cancel_fallback(self):  # requirement 5
         c = _two_stage_ctrl()
@@ -345,7 +355,7 @@ class TestWiringSource:
     def test_controller_gated_by_client_allowlist(self):
         src = self._src()
         assert "_two_stage = _two_stage_greeting_enabled(client_id or \"\")" in src
-        assert "TurnController(two_stage=_two_stage)" in src
+        assert "TurnController(two_stage=_two_stage, office=_office)" in src
 
     def test_fallback_task_armed_and_cancelled(self):
         src = self._src()
