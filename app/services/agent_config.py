@@ -530,6 +530,8 @@ async def fetch_supabase_agent_config(to_number: str) -> dict:
         "business_name":         business_name,
         "client_name":           agent_name,
         "assistant_name":        agent_name,
+        # Spoken office label for the two-stage greeting (voice only; nullable).
+        "voice_office_label":    (row.get("voice_office_label") or "").strip() or None,
         # Voice / model
         "voice":                 voice,
         "temperature":           float(row.get("temperature") or 0.7),
@@ -661,6 +663,8 @@ async def fetch_agent_config_by_id(agent_id: str) -> dict:
         "business_name":         business_name,
         "client_name":           agent_name,
         "assistant_name":        agent_name,
+        # Spoken office label for the two-stage greeting (voice only; nullable).
+        "voice_office_label":    (row.get("voice_office_label") or "").strip() or None,
         # Voice / model
         "voice":                 voice,
         "temperature":           float(row.get("temperature") or 0.7),

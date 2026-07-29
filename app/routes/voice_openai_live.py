@@ -43,6 +43,8 @@ from app.services.voice_shared import send_voice_webhook as _send_voice_webhook
 from app.services.voice_shared import get_customer_history as _get_customer_history
 from app.services.voice_shared import summarize_transcript as _summarize_transcript
 from app.services.voice_shared import two_stage_greeting_enabled as _two_stage_greeting_enabled
+from app.services.voice_shared import resolve_two_stage_office as _resolve_two_stage_office
+from app.services.voice_shared import GENERIC_OFFICE_LABEL as _GENERIC_OFFICE_LABEL
 from app.integrations.twilio_client import _get_client as _get_twilio_client
 
 # One-way reuse from the Gemini route (voice_gemini NEVER imports this module —
@@ -582,10 +584,15 @@ OPENAI_GREETING_STAGE2_FALLBACK_S = _parse_stage2_fallback_seconds(
     os.getenv("OPENAI_GREETING_STAGE2_FALLBACK_S")
 )
 
-# Exact spoken lines (Stage 1 + the two Stage-2 variants).
+# Exact spoken lines. Stage 1 ("הלו?") is neutral. The Stage-2 variants are
+# NAME-FREE templates with a single {office} slot filled per call from the
+# tenant's configured office identity (voice_shared.resolve_two_stage_office).
+# "מאיה"/Maya is the assistant's product name (identical for every tenant), so it
+# stays; only the tenant OFFICE phrase is dynamic — no tenant name is hardcoded
+# here, and no tenant can ever hear another tenant's office.
 _GREETING_STAGE1_LINE = "הלו?"
-_GREETING_STAGE2_CALLER_LINE = "כן, מדברת מאיה מהמשרד של רועי. איך אפשר לעזור?"
-_GREETING_STAGE2_FALLBACK_LINE = "היי, מדברת מאיה מהמשרד של רועי. איך אפשר לעזור?"
+_GREETING_STAGE2_CALLER_TEMPLATE = "כן, מדברת מאיה {office}. איך אפשר לעזור?"
+_GREETING_STAGE2_FALLBACK_TEMPLATE = "היי, מדברת מאיה {office}. איך אפשר לעזור?"
 
 # A first turn after "הלו?" that is ONLY a greeting / acknowledgment / identity
 # check → the FIXED Stage-2 question. Anything richer is substantive content and
@@ -614,9 +621,10 @@ def _exact_line_instruction(line: str) -> str:
     return f'אמרי עכשיו בדיוק, מילה במילה, ורק את המשפט הבא בלי שום תוספת: "{line}"'
 
 
-# Substantive Stage 2: identify, then continue from what the caller already said.
-_STAGE2_SUBSTANTIVE_INSTRUCTION = (
-    "הציגי את עצמך במשפט קצר וטבעי כמאיה מהמשרד של רועי, ומיד אחרי זה המשיכי "
+# Substantive Stage 2: identify (with the tenant {office}), then continue from
+# what the caller already said. Name-free template — {office} is filled per call.
+_STAGE2_SUBSTANTIVE_TEMPLATE = (
+    "הציגי את עצמך במשפט קצר וטבעי כמאיה {office}, ומיד אחרי זה המשיכי "
     "ישירות ממה שהפונה כבר אמר. אל תבקשי מהפונה לחזור על סיבת הפנייה, ואל תשאלי "
     "\"איך אפשר לעזור?\" — הוא כבר הסביר."
 )
@@ -625,11 +633,14 @@ _STAGE2_SUBSTANTIVE_INSTRUCTION = (
 class TurnController:
     """See module comment. All methods are pure and return list[(Action, value)]."""
 
-    def __init__(self, monotonic=None, two_stage: bool = False):
+    def __init__(self, monotonic=None, two_stage: bool = False, office: str = None):
         self.state = CallState.INITIALIZING
         self.greeting_done = False       # one-time greeting guard (create side)
         # ── M6 two-stage greeting (Roi-only; False ⇒ identical to M2–M5) ──────
         self.two_stage = two_stage
+        # M6.1: the tenant's spoken office phrase, filled into the Stage-2
+        # templates. Defaults to the name-free generic when unset/off.
+        self.office = office or _GENERIC_OFFICE_LABEL
         self.greeting_stage = 0          # 0=none 1="הלו?" pending/playing 2=done
         self.stage2_done = False         # single race guard: Stage 2 fires once
         self.last_stage2_kind = None     # "fixed" | "substantive" | "fallback"
@@ -658,6 +669,16 @@ class TurnController:
         self.last_turn_id = None
         self.last_turn_text = ""
 
+    # — M6.1 Stage-2 lines, built from THIS controller's tenant office —
+    def _stage2_caller_instruction(self) -> str:
+        return _exact_line_instruction(_GREETING_STAGE2_CALLER_TEMPLATE.format(office=self.office))
+
+    def _stage2_fallback_instruction(self) -> str:
+        return _exact_line_instruction(_GREETING_STAGE2_FALLBACK_TEMPLATE.format(office=self.office))
+
+    def _stage2_substantive_instruction(self) -> str:
+        return _STAGE2_SUBSTANTIVE_TEMPLATE.format(office=self.office)
+
     # — greeting —
     def on_session_updated(self):
         if self.state == CallState.INITIALIZING and not self.greeting_done:
@@ -684,7 +705,7 @@ class TurnController:
         self.last_stage2_kind = "fallback"
         self.state = CallState.ASSISTANT_RESPONDING
         self._got_first_delta = False
-        return [(Action.SPEAK_SCRIPTED, _exact_line_instruction(_GREETING_STAGE2_FALLBACK_LINE))]
+        return [(Action.SPEAK_SCRIPTED, self._stage2_fallback_instruction())]
 
     # — response lifecycle —
     def on_response_created(self):
@@ -851,11 +872,10 @@ class TurnController:
             self.greeting_stage = 2
             if _is_greeting_only_turn(text):
                 self.last_stage2_kind = "fixed"
-                actions.append((Action.SPEAK_SCRIPTED,
-                                _exact_line_instruction(_GREETING_STAGE2_CALLER_LINE)))
+                actions.append((Action.SPEAK_SCRIPTED, self._stage2_caller_instruction()))
             else:
                 self.last_stage2_kind = "substantive"
-                actions.append((Action.SPEAK_SCRIPTED, _STAGE2_SUBSTANTIVE_INSTRUCTION))
+                actions.append((Action.SPEAK_SCRIPTED, self._stage2_substantive_instruction()))
         else:
             actions.append((Action.RESPONSE_CREATE, None))
         self.state = CallState.ASSISTANT_RESPONDING
@@ -1091,9 +1111,12 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
     # (SPEAK_SCRIPTED), so the free-form one-shot opening directive is omitted to
     # avoid two competing greeting instructions. Everything else is unchanged.
     _two_stage = _two_stage_greeting_enabled(client_id or "")
+    # M6.1: the spoken office identity for the Stage-2 self-intro is resolved
+    # per-tenant from config (never hardcoded). Generic fallback when off/unset.
+    _office = _resolve_two_stage_office(agent_cfg) if _two_stage else _GENERIC_OFFICE_LABEL
     if _two_stage:
         system_instruction = base_prompt
-        print("[OPENAI-WS] M6 two-stage greeting ACTIVE — scripted opening (client allowlisted)")
+        print(f"[OPENAI-WS] M6 two-stage greeting ACTIVE — scripted opening, office={_office!r} (client allowlisted)")
     else:
         system_instruction = _openai_opening_instruction(base_prompt, first_message)
         if first_message:
@@ -1133,7 +1156,7 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
     # Fresh per call; never feeds extraction/summary/excerpt.
     _transcript_turns: list[dict] = []
     _response_first_audio_logged = False
-    _ctrl = TurnController(two_stage=_two_stage)
+    _ctrl = TurnController(two_stage=_two_stage, office=_office)
 
     # ── Action executor — the ONLY place I/O side-effects happen ─────────────
     # Every response.create in this module is sent from here (RESPONSE_CREATE /
@@ -1528,7 +1551,7 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
         # unchanged); source distinguishes the A/B arm.
         if caller_phone and webhook_url:
             _booking_status = "booked" if _appointment_at else "not_booked"
-            _history = await _get_customer_history(caller_phone, _call_started_at)
+            _history = await _get_customer_history(caller_phone, _call_started_at, agent_cfg.get("agent_id"))
             print(
                 f"[OPENAI-HISTORY] status={_history['customer_status']} "
                 f"prior_count={_history['prior_count']} last_date={_history['last_date']}"
