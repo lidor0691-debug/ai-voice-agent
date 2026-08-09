@@ -9,7 +9,7 @@ to assume voicemail and hang up.
              • bare greeting / ack / identity check → the FIXED question
              • substantive content                → a normal reply that
                self-introduces and continues from the request (never re-asks)
-  Fallback → ~1.7s of post-"הלו?" silence → Stage 2 fires automatically, once.
+  Fallback → ~0.6s of post-"הלו?" silence → Stage 2 fires automatically, once.
 
 `stage2_done` is the single race guard; with the client NOT allowlisted
 (two_stage=False) the controller is byte-identical to the M2–M5 flow.
@@ -92,26 +92,60 @@ def _turn(c, text, dur, item_id=None):
 # ── config parser (fallback seconds) ─────────────────────────────────────────
 
 class TestFallbackParser:
-    def test_default_is_1_7(self):
-        assert vol.OPENAI_GREETING_STAGE2_FALLBACK_DEFAULT == 1.7
+    def test_default_is_0_6(self):
+        # tuned down from 1.7 (Roi prod data): ~2.3s dead air after "הלו?"
+        assert vol.OPENAI_GREETING_STAGE2_FALLBACK_DEFAULT == 0.6
 
     def test_unset_and_blank_fall_back(self):
-        assert vol._parse_stage2_fallback_seconds(None) == 1.7
-        assert vol._parse_stage2_fallback_seconds("") == 1.7
-        assert vol._parse_stage2_fallback_seconds("   ") == 1.7
+        assert vol._parse_stage2_fallback_seconds(None) == 0.6
+        assert vol._parse_stage2_fallback_seconds("") == 0.6
+        assert vol._parse_stage2_fallback_seconds("   ") == 0.6
 
     def test_valid_in_range(self):
-        assert vol._parse_stage2_fallback_seconds("2.0") == 2.0
+        assert vol._parse_stage2_fallback_seconds("0.6") == 0.6   # the tuned value
+        assert vol._parse_stage2_fallback_seconds("0.4") == 0.4   # floor boundary
         assert vol._parse_stage2_fallback_seconds("1.5") == 1.5
+        assert vol._parse_stage2_fallback_seconds("2.0") == 2.0
 
     def test_unparsable_falls_back(self):
-        assert vol._parse_stage2_fallback_seconds("fast") == 1.7
+        assert vol._parse_stage2_fallback_seconds("fast") == 0.6
 
     def test_out_of_range_falls_back(self):
-        assert vol._parse_stage2_fallback_seconds("0.2") == 1.7   # typo guard
-        assert vol._parse_stage2_fallback_seconds("17") == 1.7    # typo guard
-        assert vol._parse_stage2_fallback_seconds("nan") == 1.7
-        assert vol._parse_stage2_fallback_seconds("inf") == 1.7
+        assert vol._parse_stage2_fallback_seconds("0.3") == 0.6   # below 0.4 floor
+        assert vol._parse_stage2_fallback_seconds("0.2") == 0.6   # typo guard
+        assert vol._parse_stage2_fallback_seconds("17") == 0.6    # typo guard
+        assert vol._parse_stage2_fallback_seconds("nan") == 0.6
+        assert vol._parse_stage2_fallback_seconds("inf") == 0.6
+
+
+# ── setup-head instrumentation (monotonic marks across the opening) ───────────
+
+class TestSetupHeadInstrumentation:
+    def _src(self):
+        import pathlib
+        return pathlib.Path(vol.__file__).read_text(encoding="utf-8")
+
+    def test_monotonic_marks_captured(self):
+        src = self._src()
+        for mark in ["_t_entry = time.monotonic()", "_t_media_start = time.monotonic()",
+                     "_t_ctx       = time.monotonic()", "_t_oai = time.monotonic()"]:
+            assert mark in src, f"missing setup mark: {mark!r}"
+
+    def test_setup_diag_events_emitted(self):
+        src = self._src()
+        for ev in ['_diag("setup_media_start"', '_diag("setup_context_fetched"',
+                   '_diag("setup_openai_connected"']:
+            assert ev in src, f"missing setup diag: {ev!r}"
+        # session.created and first audio carry a since-entry offset for the tail
+        assert "since_entry_ms=round((time.monotonic() - _t_entry) * 1000)" in src
+        assert "since_media_start_ms=round((_now - _t_media_start) * 1000)" in src
+
+    def test_instrumentation_is_diag_only(self):
+        # pure logging: the setup diags must not gate on / mutate call state
+        src = self._src()
+        # each setup diag call is a bare _diag(...) statement, not in a condition
+        for ev in ["setup_media_start", "setup_context_fetched", "setup_openai_connected"]:
+            assert f'if _diag("{ev}"' not in src
 
 
 # ── caller-content classifier ────────────────────────────────────────────────
