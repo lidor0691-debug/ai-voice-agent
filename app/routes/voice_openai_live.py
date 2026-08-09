@@ -554,14 +554,17 @@ def _phrase_in_tail(text: str, tail_chars: int = CLOSING_TAIL_CHARS) -> bool:
 # `stage2_done` is the single guard, so Stage 2 can never play twice. With the
 # client NOT allowlisted (two_stage=False) the controller is byte-identical to
 # the M2–M5 single-greeting flow.
-OPENAI_GREETING_STAGE2_FALLBACK_DEFAULT = 1.7
-OPENAI_GREETING_STAGE2_FALLBACK_MIN = 1.0   # guard against typos / hot-mic races
+# Default tuned 1.7 → 0.6 from Roi production data (Aug 2026): 94% of callers
+# stay silent through this beat, so the fallback fired on nearly every call and
+# the old 1.7s created ~2.3s of dead air after "הלו?" before the identity line.
+OPENAI_GREETING_STAGE2_FALLBACK_DEFAULT = 0.6
+OPENAI_GREETING_STAGE2_FALLBACK_MIN = 0.4   # floor still avoids a hot-mic re-trigger
 OPENAI_GREETING_STAGE2_FALLBACK_MAX = 3.0   # a longer silence is the WAITING job
 
 
 def _parse_stage2_fallback_seconds(raw, default: float = OPENAI_GREETING_STAGE2_FALLBACK_DEFAULT) -> float:
     """Pure/testable. Post-"הלו?" fallback delay, within a conservative range.
-    Unset, unparsable, NaN/inf, or out-of-range → `default` (1.7) with a
+    Unset, unparsable, NaN/inf, or out-of-range → `default` (0.6) with a
     non-secret warning. Never raises. (Mirrors _parse_realtime_speed.)"""
     s = (raw or "").strip()
     if not s:
@@ -1056,6 +1059,12 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
     """
     await twilio_ws.accept()
     _call_started_at = datetime.utcnow().isoformat()
+    # Setup-head instrumentation: precise monotonic marks across the previously
+    # un-timestamped opening (handler entry → media start → context → OpenAI
+    # connect → session.created → first audio). All share one monotonic clock so
+    # the whole head is reconstructable from the diag stream, keyed by call_sid.
+    _t_entry = time.monotonic()
+    _t_media_start = _t_entry   # set for real when the Twilio start event arrives
     print(f"[OPENAI-WS] Twilio connection accepted — call_sid={call_sid!r}")
 
     if not _OPENAI_API_KEY:
@@ -1074,19 +1083,25 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
         async for raw in twilio_ws.iter_text():
             evt = json.loads(raw)
             if evt["event"] == "start":
+                _t_media_start = time.monotonic()
                 stream_sid = evt["start"]["streamSid"]
                 _custom = evt["start"].get("customParameters", {}) or {}
                 if not call_sid:
                     call_sid = _custom.get("call_sid") or evt["start"].get("callSid", "")
                 print(f"[OPENAI-WS] Start event — stream_sid={stream_sid} call_sid={call_sid!r} custom_keys={list(_custom.keys())}")
+                _diag("setup_media_start", call_sid,
+                      entry_to_start_ms=round((_t_media_start - _t_entry) * 1000))
                 # Durable handoff — identical resolution to the Gemini path.
                 _resolved    = await _resolve_gemini_context(_custom, call_sid)
+                _t_ctx       = time.monotonic()
                 agent_cfg    = _resolved["agent_cfg"]
                 caller_phone = _resolved["caller_phone"]
                 client_id    = _resolved["client_id"]
                 client_name  = _resolved["client_name"]
                 webhook_url  = agent_cfg.get("webhook_url", "")
                 print(f"[OPENAI-WS] context source={_resolved['source']} caller={caller_phone} client='{client_name}' webhook={'yes' if webhook_url else 'no'}")
+                _diag("setup_context_fetched", call_sid, source=_resolved["source"],
+                      ctx_fetch_ms=round((_t_ctx - _t_media_start) * 1000))
                 break
             # Pre-start media is ignored (ringback/noise); OpenAI VAD starts
             # fresh once real audio flows after session setup.
@@ -1132,7 +1147,11 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
             openai_url,
             additional_headers={"Authorization": f"Bearer {_OPENAI_API_KEY}"},
         )
+        _t_oai = time.monotonic()
         print(f"[OPENAI-WS] OpenAI Realtime connected — model={OPENAI_REALTIME_MODEL}")
+        _diag("setup_openai_connected", call_sid,
+              connect_ms=round((_t_oai - _t_ctx) * 1000),
+              entry_to_connected_ms=round((_t_oai - _t_entry) * 1000))
     except Exception as e:
         print(f"[OPENAI-WS] ERROR: could not connect to OpenAI Realtime: {e}")
         await twilio_ws.close()
@@ -1347,7 +1366,8 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
                 etype = event.get("type", "")
 
                 if etype == "session.created":
-                    _diag("session_created", call_sid, model=OPENAI_REALTIME_MODEL)
+                    _diag("session_created", call_sid, model=OPENAI_REALTIME_MODEL,
+                          since_entry_ms=round((time.monotonic() - _t_entry) * 1000))
 
                 elif etype == "session.updated":
                     # One-time greeting: the controller emits RESPONSE_CREATE
@@ -1409,7 +1429,10 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
                         _ctrl.on_output_delta()
                         if not _response_first_audio_logged:
                             _response_first_audio_logged = True
-                            _diag("first_outbound_audio", call_sid)
+                            _now = time.monotonic()
+                            _diag("first_outbound_audio", call_sid,
+                                  since_entry_ms=round((_now - _t_entry) * 1000),
+                                  since_media_start_ms=round((_now - _t_media_start) * 1000))
                         # µ-law passthrough — forward the base64 verbatim.
                         await twilio_ws.send_json({
                             "event":     "media",
