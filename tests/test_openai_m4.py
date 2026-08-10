@@ -101,8 +101,10 @@ def test_1b_ids_and_transcripts_cannot_be_inherited():
 def test_1c_single_controller_construction_site_per_call():
     src = pathlib.Path(vol.__file__).read_text(encoding="utf-8")
     assert src.count("TurnController(") == 1            # constructed once, in-handler
-    # M6: the single construction site now passes the client-scoped two-stage flag
-    assert "_ctrl = TurnController(two_stage=_two_stage, office=_office)" in src
+    # M6 + barge-in: the single construction site passes the two-stage flag and
+    # the onset barge-in flag.
+    assert "_ctrl = TurnController(two_stage=_two_stage, office=_office," in src
+    assert "onset_barge=_onset_barge)" in src   # per-call tenant-scoped flag
     # per-call buffers are handler-locals, not module globals
     assert "\n_caller_lines" not in src and "\n_assistant_lines" not in src
 
@@ -336,7 +338,7 @@ def test_10c_no_accepted_text_means_no_caller_driven_create():
 
 def test_11_wiring_excludes_held_fragment_from_caller_lines():
     src = pathlib.Path(vol.__file__).read_text(encoding="utf-8")
-    assert 'if _text and _decision != "held_greeting":' in src
+    assert 'if _text and _decision not in ("held_greeting", "false_barge"):' in src
     assert "_caller_lines.append(_text)" in src
     # and it is diagnosed
     assert '_diag("greeting_fragment_held"' in src

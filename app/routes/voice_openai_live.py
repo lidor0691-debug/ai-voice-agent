@@ -25,11 +25,13 @@ Model rollback: OPENAI_REALTIME_MODEL=gpt-realtime-2 (handshake-verified).
 """
 
 import asyncio
+import base64
 import html
 import json
 import os
 import re
 import time
+from collections import deque
 from datetime import datetime
 
 import websockets
@@ -43,6 +45,7 @@ from app.services.voice_shared import send_voice_webhook as _send_voice_webhook
 from app.services.voice_shared import get_customer_history as _get_customer_history
 from app.services.voice_shared import summarize_transcript as _summarize_transcript
 from app.services.voice_shared import two_stage_greeting_enabled as _two_stage_greeting_enabled
+from app.services.voice_shared import onset_barge_enabled as _onset_barge_enabled
 from app.services.voice_shared import resolve_two_stage_office as _resolve_two_stage_office
 from app.services.voice_shared import GENERIC_OFFICE_LABEL as _GENERIC_OFFICE_LABEL
 from app.integrations.twilio_client import _get_client as _get_twilio_client
@@ -459,6 +462,7 @@ class CallState(enum.Enum):
     PROCESSING_CALLER_TURN = "PROCESSING_CALLER_TURN"
     ASSISTANT_RESPONDING  = "ASSISTANT_RESPONDING"   # generating (pre-first-delta)
     RESPONDING_PLAYING    = "RESPONDING_PLAYING"     # audio playing, awaiting mark
+    BARGED_LISTENING      = "BARGED_LISTENING"       # onset-yielded; awaiting transcript
     ACTIVE_CONVERSATION   = "ACTIVE_CONVERSATION"    # == waiting, after ≥1 turn
     CLOSING               = "CLOSING"
     FINALIZING            = "FINALIZING"
@@ -472,6 +476,7 @@ class Action(enum.Enum):
     HANGUP_GRACE     = "HANGUP_GRACE"
     REPROMPT         = "REPROMPT"
     SPEAK_SCRIPTED   = "SPEAK_SCRIPTED"   # value = per-response instruction (M6)
+    ARM_ONSET_GUARD  = "ARM_ONSET_GUARD"  # value = speech_started monotonic ts (barge-in)
 
 
 # Valid-caller-turn gate (packet §B)
@@ -633,10 +638,105 @@ _STAGE2_SUBSTANTIVE_TEMPLATE = (
 )
 
 
+# ── Onset-based interruption (barge-in) — TENANT-SCOPED, default OFF ──────────
+# Phase: barge-in ONLY. Moves the yield-the-floor decision from transcription-
+# gated (~2.9s measured) to speech-onset + a short energy-persistence guard
+# (~150ms), scoped to RESPONDING_PLAYING. GREETING_PLAYING keeps the M4 path
+# untouched; `interrupt_response` stays FALSE.
+# The ON/OFF gate is a CLIENT ALLOWLIST resolved per-call via voice_shared's
+# onset_barge_enabled(client_id) (OPENAI_ONSET_BARGE_CLIENT_IDS) — NOT a global
+# boolean — so Roi can be enabled without affecting Eliran or any other tenant.
+# The constants below are TUNING only (not the gate). For a non-enabled call the
+# controller/wiring are a complete no-op (legacy transcription-gated path).
+OPENAI_ONSET_GUARD_MS              = int(float(os.getenv("OPENAI_ONSET_GUARD_MS", "150")))
+OPENAI_ONSET_ENERGY_RATIO          = float(os.getenv("OPENAI_ONSET_ENERGY_RATIO", "3.0"))
+OPENAI_ONSET_ENERGY_MIN_FRAMES     = int(float(os.getenv("OPENAI_ONSET_ENERGY_MIN_FRAMES", "6")))  # >100ms burst
+OPENAI_ONSET_ENERGY_ABS_MIN        = float(os.getenv("OPENAI_ONSET_ENERGY_ABS_MIN", "500"))
+OPENAI_ONSET_REISSUE_MAX_PLAYED_MS = int(float(os.getenv("OPENAI_ONSET_REISSUE_MAX_PLAYED_MS", "1200")))
+OPENAI_ONSET_FALSE_BARGE_CIRCUIT   = int(float(os.getenv("OPENAI_ONSET_FALSE_BARGE_CIRCUIT", "3")))
+_ONSET_FRAME_MS = 20   # Twilio media frame = 20ms of 8kHz µ-law
+
+
+def _build_ulaw_lut():
+    """G.711 µ-law byte → linear PCM16 decode table (256 entries)."""
+    lut = []
+    for u in range(256):
+        uu = (~u) & 0xFF
+        sign = uu & 0x80
+        exp = (uu >> 4) & 0x07
+        man = uu & 0x0F
+        s = (((man << 3) + 0x84) << exp) - 0x84
+        lut.append(-s if sign else s)
+    return lut
+
+
+_ULAW_LUT = _build_ulaw_lut()
+
+
+def _ulaw_frame_rms(payload_b64: str) -> float:
+    """RMS (linear-PCM16 scale) of one base64 µ-law inbound frame. 0.0 on error."""
+    try:
+        raw = base64.b64decode(payload_b64)
+    except Exception:
+        return 0.0
+    n = len(raw)
+    if not n:
+        return 0.0
+    lut = _ULAW_LUT
+    acc = 0
+    for b in raw:
+        v = lut[b]
+        acc += v * v
+    return (acc / n) ** 0.5
+
+
+class InboundSpeechTracker:
+    """Continuous, transcription-independent inbound speech-energy tracker.
+
+    Provides (a) a slowly-adapting noise floor, (b) a 'sustained speech onset'
+    timestamp used ONLY for latency instrumentation (caller-speech-onset → …),
+    and (c) a per-window sustained-frame count used by the onset guard. Pure and
+    unit-testable: push (ts, rms) frames; never does I/O.
+    """
+    def __init__(self, ratio=OPENAI_ONSET_ENERGY_RATIO, abs_min=OPENAI_ONSET_ENERGY_ABS_MIN,
+                 min_frames=OPENAI_ONSET_ENERGY_MIN_FRAMES):
+        self.ratio = ratio
+        self.abs_min = abs_min
+        self.min_frames = min_frames
+        self._floor = abs_min
+        self._run = 0
+        self._below_run = 0
+        self.onset_ts = None                 # first-frame ts of the current sustained run
+        self._frames = deque(maxlen=64)      # (ts, above) — ~1.3s history
+
+    def _threshold(self):
+        return max(self.abs_min, self._floor * self.ratio)
+
+    def push(self, ts: float, rms: float) -> bool:
+        above = rms > self._threshold()
+        self._frames.append((ts, above))
+        if above:
+            self._run += 1
+            self._below_run = 0
+            if self._run >= self.min_frames and self.onset_ts is None:
+                self.onset_ts = ts - (self.min_frames - 1) * (_ONSET_FRAME_MS / 1000.0)
+        else:
+            self._below_run += 1
+            if self._below_run >= 5:         # ~100ms of silence ends the burst
+                self._run = 0
+                self.onset_ts = None
+            self._floor = 0.95 * self._floor + 0.05 * rms   # adapt on quiet frames only
+        return above
+
+    def sustained_frames(self, t0: float, t1: float) -> int:
+        return sum(1 for (ts, a) in self._frames if t0 <= ts <= t1 and a)
+
+
 class TurnController:
     """See module comment. All methods are pure and return list[(Action, value)]."""
 
-    def __init__(self, monotonic=None, two_stage: bool = False, office: str = None):
+    def __init__(self, monotonic=None, two_stage: bool = False, office: str = None,
+                 onset_barge: bool = False):
         self.state = CallState.INITIALIZING
         self.greeting_done = False       # one-time greeting guard (create side)
         # ── M6 two-stage greeting (Roi-only; False ⇒ identical to M2–M5) ──────
@@ -647,6 +747,12 @@ class TurnController:
         self.greeting_stage = 0          # 0=none 1="הלו?" pending/playing 2=done
         self.stage2_done = False         # single race guard: Stage 2 fires once
         self.last_stage2_kind = None     # "fixed" | "substantive" | "fallback"
+        # ── Onset barge-in (Phase: barge-in). onset_barge=False ⇒ complete no-op ─
+        self.onset_barge = onset_barge
+        self.onset_disabled_for_call = False   # per-call circuit breaker
+        self._barge_recover_count = 0          # re-issues for the CURRENT response (cap 1)
+        self._false_barge_count = 0            # per-call false-barge budget (circuit)
+        self.resp_audio_ms = 0                 # audio ms sent for the CURRENT response
         self.valid_turns = 0
         self.pending_marks: set[str] = set()
         self._resp_seq = 0               # mark id counter
@@ -714,6 +820,7 @@ class TurnController:
     def on_response_created(self):
         self._got_first_delta = False
         self._generation_active = True   # M4: cancel is meaningful only now
+        self.resp_audio_ms = 0           # onset recovery: fresh response, nothing played yet
         return []
 
     def on_output_delta(self):
@@ -771,13 +878,39 @@ class TurnController:
         # completion would clear it and the second silence timeout would
         # re-prompt again instead of closing (packet: reprompt once, then close).
 
+    def _onset_active(self) -> bool:
+        """Onset barge-in is live only when enabled AND the per-call circuit
+        breaker has not opened. When False, the legacy transcription-gated path
+        is the sole barge-in mechanism (identical to pre-Phase behavior)."""
+        return self.onset_barge and not self.onset_disabled_for_call
+
     # — caller speech / turns —
     def on_speech_started(self, t: float):
-        # NEVER creates or cancels by itself. Only a status marker; must not
-        # disturb a PLAYING state (needed for the barge-in decision).
+        # Status marker (legacy). Under onset barge-in it ALSO arms the energy
+        # guard while a REPLY is playing — the guard (wiring) confirms sustained
+        # speech within ~150ms and cancels WITHOUT waiting for the transcript.
+        # Greeting playback is never armed (M4 keeps its stronger protection).
         self._speech_started_at = t
         if self.state in (CallState.WAITING_FOR_CALLER, CallState.ACTIVE_CONVERSATION):
             self.state = CallState.CALLER_SPEAKING
+        if self._onset_active() and self.state == CallState.RESPONDING_PLAYING:
+            return [(Action.ARM_ONSET_GUARD, t)]
+        return []
+
+    # — Onset barge-in: energy-guard outcome (called by the wiring) —
+    def on_onset_confirmed(self):
+        """Sustained caller speech confirmed during a reply → yield the floor NOW
+        (cancel + Twilio clear), then listen. No transcript is read to decide
+        this. Stale confirm (state already moved) is ignored."""
+        if not self._onset_active() or self.state != CallState.RESPONDING_PLAYING:
+            return []
+        self.pending_marks.clear()             # Twilio clear flushes queued audio
+        self.state = CallState.BARGED_LISTENING
+        return [(Action.CANCEL_AND_CLEAR, {"cancel": self._generation_active})]
+
+    def on_onset_aborted(self):
+        """Energy did not sustain (transient / click / short non-speech) → Maya
+        never pauses; nothing to do."""
         return []
 
     def on_speech_stopped(self, t: float, item_id: str = None):
@@ -800,9 +933,54 @@ class TurnController:
         self._unconsumed_segment = None
         self._pending_item_id = None
 
+    # — Onset barge-in: classify + recover AFTER we already yielded the floor —
+    def _on_transcription_after_barge(self, text: str, d: float):
+        """We already stopped Maya on speech onset. The transcript now only says
+        WHAT the caller said and whether the stop was a false trigger."""
+        if is_valid_caller_turn(text, d):
+            # Real interruption content → answer it (normal turn).
+            self._release_segment()
+            self._turn_seq += 1
+            self.last_turn_id = self._turn_seq
+            self.last_turn_text = (text or "").strip()
+            self.last_decision = "accepted"
+            self.valid_turns += 1
+            self._reprompted = False
+            self._barge_recover_count = 0        # real content resets the re-issue budget
+            self.state = CallState.PROCESSING_CALLER_TURN
+            self._got_first_delta = False
+            self.state = CallState.ASSISTANT_RESPONDING
+            return [(Action.RESPONSE_CREATE, None)]
+        # Empty / non-speech transcript → the onset was a FALSE trigger.
+        self._release_segment()
+        self.last_decision = "false_barge"
+        return self._recover_after_false_barge()
+
+    def _recover_after_false_barge(self):
+        """Bounded, loop-safe recovery. Re-issue ONCE only if the reply had barely
+        started; otherwise yield to WAITING rather than replay a near-complete
+        answer. The per-call circuit breaker disables onset after N false barges."""
+        self._false_barge_count += 1
+        if self._false_barge_count >= OPENAI_ONSET_FALSE_BARGE_CIRCUIT:
+            self.onset_disabled_for_call = True          # → legacy path for rest of call
+        if (self._barge_recover_count < 1
+                and self.resp_audio_ms <= OPENAI_ONSET_REISSUE_MAX_PLAYED_MS):
+            self._barge_recover_count += 1
+            self.state = CallState.PROCESSING_CALLER_TURN
+            self._got_first_delta = False
+            self.state = CallState.ASSISTANT_RESPONDING
+            return [(Action.RESPONSE_CREATE, None)]       # re-issue (barely started)
+        self._enter_waiting()                             # yield (mostly played / cap reached)
+        return []
+
     def on_input_transcription(self, text: str, dur: float = None, item_id: str = None):
         d = self._last_segment_dur if dur is None else dur
         self._reset_turn_audit()
+        # ── Onset barge-in: post-yield classification (Phase: barge-in) ──────
+        # If we already stopped Maya on onset, the transcript decides content /
+        # false-trigger — it does NOT decide whether to yield (already done).
+        if self.state == CallState.BARGED_LISTENING:
+            return self._on_transcription_after_barge(text, d)
         # Only a waiting state (fresh turn) or a PLAYING state (barge-in) may
         # accept a caller turn. While a response is generating
         # (ASSISTANT_RESPONDING/PROCESSING) or CLOSING, drop the transcription —
@@ -1126,6 +1304,10 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
     # (SPEAK_SCRIPTED), so the free-form one-shot opening directive is omitted to
     # avoid two competing greeting instructions. Everything else is unchanged.
     _two_stage = _two_stage_greeting_enabled(client_id or "")
+    # Onset barge-in: tenant-scoped gate resolved ONCE here (client allowlist).
+    # Everything downstream uses this per-call boolean — never a global env — so
+    # Roi can be enabled without touching Eliran or any other Realtime tenant.
+    _onset_barge = _onset_barge_enabled(client_id or "")
     # M6.1: the spoken office identity for the Stage-2 self-intro is resolved
     # per-tenant from config (never hardcoded). Generic fallback when off/unset.
     _office = _resolve_two_stage_office(agent_cfg) if _two_stage else _GENERIC_OFFICE_LABEL
@@ -1175,7 +1357,11 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
     # Fresh per call; never feeds extraction/summary/excerpt.
     _transcript_turns: list[dict] = []
     _response_first_audio_logged = False
-    _ctrl = TurnController(two_stage=_two_stage, office=_office)
+    _ctrl = TurnController(two_stage=_two_stage, office=_office,
+                           onset_barge=_onset_barge)
+    # Onset barge-in: continuous inbound speech-energy tracker (None when this
+    # call is NOT allowlisted ⇒ no per-frame work, no behavior change).
+    _energy = InboundSpeechTracker() if _onset_barge else None
 
     # ── Action executor — the ONLY place I/O side-effects happen ─────────────
     # Every response.create in this module is sent from here (RESPONSE_CREATE /
@@ -1212,6 +1398,12 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
                 _diag("scripted_response_sent", call_sid,
                       greeting_stage=_ctrl.greeting_stage,
                       kind=_ctrl.last_stage2_kind, state=_ctrl.state.value)
+            elif act == Action.ARM_ONSET_GUARD:
+                # Onset barge-in: start the ~150ms energy-persistence guard for
+                # this speech onset (val = speech_started monotonic ts).
+                _cancel_onset_guard()
+                _onset_guard["task"] = asyncio.create_task(_onset_guard_runner(val))
+                _diag("onset_guard_armed", call_sid, state=_ctrl.state.value)
             elif act == Action.CANCEL_AND_CLEAR:
                 # M4: response.cancel ONLY while a response is genuinely
                 # generating (avoids response_cancel_not_active); the Twilio
@@ -1241,6 +1433,10 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
 
     # ── Twilio → OpenAI (µ-law passthrough via exit-guaranteed pump) ─────────
     async def _forward_audio(payload: str):
+        # Onset barge-in (flag ON only): tap inbound energy for the persistence
+        # guard + the caller-speech-onset latency metric. Read-only; never gates.
+        if _energy is not None:
+            _energy.push(time.monotonic(), _ulaw_frame_rms(payload))
         # Twilio payload is already base64 µ-law — append verbatim.
         await openai_ws.send(json.dumps({
             "type": "input_audio_buffer.append",
@@ -1249,6 +1445,43 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
 
     # ── Transport heartbeat state (M3) — diagnostics only ────────────────────
     _hb = {"seq": 0, "sent_id": "", "ack_id": "", "echo_ts": None}
+
+    # ── Onset barge-in: energy-guard task (one per speech_started while playing) ─
+    _onset_guard = {"task": None}
+
+    def _cancel_onset_guard():
+        t = _onset_guard["task"]
+        if t is not None and not t.done():
+            t.cancel()
+        _onset_guard["task"] = None
+
+    async def _onset_guard_runner(t_vad: float):
+        # Wait GUARD_MS, then confirm sustained inbound speech in [t_vad, +GUARD].
+        # Confirm → cancel + Twilio clear (yield the floor) with the full latency
+        # breakdown. Abort → Maya keeps talking (transient rejected).
+        try:
+            await asyncio.sleep(OPENAI_ONSET_GUARD_MS / 1000.0)
+            above = (_energy.sustained_frames(t_vad, t_vad + OPENAI_ONSET_GUARD_MS / 1000.0)
+                     if _energy else 0)
+            if above >= OPENAI_ONSET_ENERGY_MIN_FRAMES:
+                acts = _ctrl.on_onset_confirmed()
+                if acts:
+                    _t_clear = time.monotonic()
+                    _onset_ts = _energy.onset_ts if _energy else None
+                    _diag("onset_barge_cancel", call_sid,
+                          vad_to_clear_ms=round((_t_clear - t_vad) * 1000),
+                          onset_to_clear_ms=(round((_t_clear - _onset_ts) * 1000) if _onset_ts else None),
+                          onset_to_vad_ms=(round((t_vad - _onset_ts) * 1000) if _onset_ts else None),
+                          guard_ms=OPENAI_ONSET_GUARD_MS, above=above,
+                          floor=round(_energy._floor) if _energy else None)
+                    await _execute(acts)
+            else:
+                _ctrl.on_onset_aborted()
+                _diag("onset_guard_aborted", call_sid, above=above)
+        except asyncio.CancelledError:
+            return
+        except Exception as e:
+            _diag("onset_guard_error", call_sid, error=str(e)[:200])
 
     # ── M6 Stage-2 fallback: one-shot timer armed when "הלו?" finishes playing ─
     _greeting_fallback = {"task": None}
@@ -1378,9 +1611,15 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
                         await _execute(acts)
 
                 elif etype == "input_audio_buffer.speech_started":
-                    _ctrl.on_speech_started(time.monotonic())
-                    _diag("speech_started", call_sid, state=_ctrl.state.value)
-                    # NOTE: bare speech_started never cancels/clears (RC1/RC2).
+                    _t_ss = time.monotonic()
+                    acts = _ctrl.on_speech_started(_t_ss)
+                    _diag("speech_started", call_sid, state=_ctrl.state.value,
+                          onset_to_vad_ms=(round((_t_ss - _energy.onset_ts) * 1000)
+                                           if (_energy and _energy.onset_ts) else None))
+                    # Legacy path: bare speech_started never cancels (RC1/RC2).
+                    # Onset barge-in (flag ON): may arm the energy guard here.
+                    if acts:
+                        await _execute(acts)
 
                 elif etype == "input_audio_buffer.speech_stopped":
                     _ctrl.on_speech_stopped(time.monotonic(), item_id=event.get("item_id"))
@@ -1392,10 +1631,17 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
                     _decision = _ctrl.last_decision
                     # M4: a HELD greeting fragment is noise — it must never enter
                     # accepted caller conversation context (extraction/summary/
-                    # excerpt). Every other decision keeps the M3 behavior.
-                    if _text and _decision != "held_greeting":
+                    # excerpt). A false-barge (onset yielded, transcript empty/
+                    # junk) is likewise never real content. Others keep M3.
+                    if _text and _decision not in ("held_greeting", "false_barge"):
                         _caller_lines.append(_text)
                         _transcript_turns.append({"role": "לקוח", "text": _text})
+                    if _decision == "false_barge":
+                        _diag("barge_recovery", call_sid,
+                              action=("reissue" if _ctrl.state == CallState.ASSISTANT_RESPONDING else "yield"),
+                              resp_audio_ms=round(_ctrl.resp_audio_ms),
+                              false_count=_ctrl._false_barge_count,
+                              circuit_open=_ctrl.onset_disabled_for_call, text=_text[:40])
                     if _decision == "held_greeting":
                         _diag("greeting_fragment_held", call_sid,
                               segment_id=_ctrl.last_segment_id, text=_text[:40],
@@ -1427,6 +1673,11 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
                     delta = event.get("delta", "")
                     if delta and stream_sid:
                         _ctrl.on_output_delta()
+                        if _onset_barge:
+                            # audio ms of THIS response so far (recovery uses it to
+                            # decide re-issue vs yield). base64 len × 3/4 = µ-law
+                            # bytes; 8 bytes = 1ms at 8kHz. No decode on the hot path.
+                            _ctrl.resp_audio_ms += (len(delta) * 3 // 4) / 8.0
                         if not _response_first_audio_logged:
                             _response_first_audio_logged = True
                             _now = time.monotonic()
@@ -1489,6 +1740,8 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
         _bg_tasks = [_watchdog_task, _heartbeat_task]
         if _greeting_fallback["task"] is not None:   # M6 one-shot Stage-2 timer
             _bg_tasks.append(_greeting_fallback["task"])
+        if _onset_guard["task"] is not None:         # onset barge-in energy guard
+            _bg_tasks.append(_onset_guard["task"])
         for _t in _bg_tasks:
             _t.cancel()
             try:

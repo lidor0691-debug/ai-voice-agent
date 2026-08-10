@@ -389,7 +389,7 @@ class TestWiringSource:
     def test_controller_gated_by_client_allowlist(self):
         src = self._src()
         assert "_two_stage = _two_stage_greeting_enabled(client_id or \"\")" in src
-        assert "TurnController(two_stage=_two_stage, office=_office)" in src
+        assert "TurnController(two_stage=_two_stage, office=_office," in src
 
     def test_fallback_task_armed_and_cancelled(self):
         src = self._src()
