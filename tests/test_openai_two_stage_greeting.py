@@ -222,6 +222,25 @@ class TestStage1:
         assert c.greeting_stage == 1
         assert c.stage2_done is False
 
+    def test_stage1_has_israeli_hebrew_anchor(self):
+        # Live-call finding: isolated one-word "הלו?" (a "hello" cognate) as the
+        # session's first generation sometimes came out American-accented. The
+        # Stage-1 instruction must explicitly anchor Israeli Hebrew.
+        c = _two_stage_ctrl()
+        instr = _val(c.on_session_updated(), Action.SPEAK_SCRIPTED)
+        assert "עברית ישראלית" in instr
+        assert "מבטא ישראלי" in instr
+        # still forces the exact line, nothing extra to speak
+        assert 'בלי שום תוספת: "הלו?"' in instr
+
+    def test_anchor_does_not_touch_stage2(self):
+        # Stage-2 instructions must be byte-identical to before (no anchor).
+        c = _two_stage_ctrl()
+        for stage2 in (c._stage2_caller_instruction(),
+                       c._stage2_fallback_instruction(),
+                       c._stage2_substantive_instruction()):
+            assert vol._STAGE1_HEBREW_ANCHOR not in stage2
+
     def test_no_duplicate_stage1(self):                     # requirement 7
         c = _two_stage_ctrl()
         c.on_session_updated()
