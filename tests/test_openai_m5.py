@@ -191,9 +191,9 @@ class TestNoRegression:
 
     def test_turns_captured_at_both_sites_and_exclude_held_fragments(self):
         src = pathlib.Path(vol.__file__).read_text(encoding="utf-8")
-        # caller capture guarded by the M4 held-greeting condition
-        assert 'if _text and _decision != "held_greeting":' in src
-        caller_block = src.split('if _text and _decision != "held_greeting":')[1][:300]
+        # caller capture guarded by the M4 held-greeting + barge false-trigger condition
+        assert 'if _text and _decision not in ("held_greeting", "false_barge"):' in src
+        caller_block = src.split('if _text and _decision not in ("held_greeting", "false_barge"):')[1][:300]
         assert '_transcript_turns.append({"role": "לקוח"' in caller_block
         assert '_transcript_turns.append({"role": "מאיה"' in src
         assert src.count("_transcript_turns.append(") == 2

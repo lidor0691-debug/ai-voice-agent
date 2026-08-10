@@ -158,6 +158,22 @@ def two_stage_greeting_enabled(client_id: str) -> bool:
     return bool(client_id) and client_id in OPENAI_TWO_STAGE_GREETING_CLIENT_IDS
 
 
+# ── Onset-based interruption (barge-in) gate (Phase: barge-in) ────────────────
+# Tenant-scoped like the A/B and two-stage gates (NOT a global boolean): a client
+# runs the fast speech-onset barge-in path only if allowlisted; everyone else
+# stays on the legacy transcription-gated interruption. Empty allowlist = off for
+# every tenant → removing all ids instantly restores the legacy path on restart.
+OPENAI_ONSET_BARGE_CLIENT_IDS = {
+    _c.strip() for _c in os.getenv("OPENAI_ONSET_BARGE_CLIENT_IDS", "").split(",") if _c.strip()
+}
+
+
+def onset_barge_enabled(client_id: str) -> bool:
+    """Onset (speech-onset) barge-in is on ONLY for allowlisted client_ids.
+    Empty allowlist = off for all tenants (legacy transcription-gated path)."""
+    return bool(client_id) and client_id in OPENAI_ONSET_BARGE_CLIENT_IDS
+
+
 # ── Two-stage greeting: spoken office identity (M6.1) ─────────────────────────
 # The Stage-2 self-introduction must name the CURRENT tenant's office — never a
 # hardcoded one, and never maintained in Railway. Identity is a tenant-level
