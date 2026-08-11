@@ -174,6 +174,29 @@ def onset_barge_enabled(client_id: str) -> bool:
     return bool(client_id) and client_id in OPENAI_ONSET_BARGE_CLIENT_IDS
 
 
+# ── Echo-guard gate (self-speech rejection) ──────────────────────────────────
+# Tenant-scoped like the gates above. Incident (Roi live call, Aug 10): Maya's
+# own Stage-2 greeting echoed off the caller device, was transcribed as
+# "היי מדברת מיה", passed the M4 gate as a real caller turn and polluted the
+# email name field. The guard compares caller transcripts against Maya's
+# just-played utterances (transcript-level only — no audio processing).
+# Modes: off (no analysis at all) | shadow (diagnostic echo_would_reject only,
+# ZERO behavior change) | enforce (echo_rejected behavior; not enabled yet).
+# Default mode = off; empty allowlist = off for everyone.
+OPENAI_ECHO_GUARD_CLIENT_IDS = {
+    _c.strip() for _c in os.getenv("OPENAI_ECHO_GUARD_CLIENT_IDS", "").split(",") if _c.strip()
+}
+OPENAI_ECHO_GUARD_MODE = os.getenv("OPENAI_ECHO_GUARD_MODE", "off").strip().lower()
+
+
+def echo_guard_mode(client_id: str) -> str:
+    """Resolved per-call echo-guard mode: 'off' | 'shadow' | 'enforce'.
+    'off' unless the client is allowlisted AND the global mode is valid."""
+    if not client_id or client_id not in OPENAI_ECHO_GUARD_CLIENT_IDS:
+        return "off"
+    return OPENAI_ECHO_GUARD_MODE if OPENAI_ECHO_GUARD_MODE in ("shadow", "enforce") else "off"
+
+
 # ── Two-stage greeting: spoken office identity (M6.1) ─────────────────────────
 # The Stage-2 self-introduction must name the CURRENT tenant's office — never a
 # hardcoded one, and never maintained in Railway. Identity is a tenant-level
