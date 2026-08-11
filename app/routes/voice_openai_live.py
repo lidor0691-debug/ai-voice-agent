@@ -629,6 +629,20 @@ def _exact_line_instruction(line: str) -> str:
     return f'אמרי עכשיו בדיוק, מילה במילה, ורק את המשפט הבא בלי שום תוספת: "{line}"'
 
 
+# Stage-1 Hebrew pronunciation anchor (live-call finding, Aug 2026): "הלו?" is
+# generated as the session's FIRST, isolated one-word response, and "הלו" is a
+# cognate of "hello" — without an explicit anchor the realtime voice sometimes
+# rendered it half-English/American; the longer Stage-2 sentence self-anchors.
+# The anchor prefixes ONLY the Stage-1 instruction (Stage-2 untouched); the
+# spoken output must remain exactly "הלו?".
+_STAGE1_HEBREW_ANCHOR = "דברי בעברית ישראלית טבעית ובמבטא ישראלי."
+
+
+def _stage1_instruction() -> str:
+    """Stage-1 "הלו?" instruction: Israeli-Hebrew anchor + the exact line."""
+    return f"{_STAGE1_HEBREW_ANCHOR} {_exact_line_instruction(_GREETING_STAGE1_LINE)}"
+
+
 # Substantive Stage 2: identify (with the tenant {office}), then continue from
 # what the caller already said. Name-free template — {office} is filled per call.
 _STAGE2_SUBSTANTIVE_TEMPLATE = (
@@ -798,7 +812,7 @@ class TurnController:
             # one-shot greeting is unchanged.
             if self.two_stage:
                 self.greeting_stage = 1
-                return [(Action.SPEAK_SCRIPTED, _exact_line_instruction(_GREETING_STAGE1_LINE))]
+                return [(Action.SPEAK_SCRIPTED, _stage1_instruction())]
             return [(Action.RESPONSE_CREATE, None)]
         return []
 
