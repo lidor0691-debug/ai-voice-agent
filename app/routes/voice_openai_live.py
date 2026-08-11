@@ -46,6 +46,7 @@ from app.services.voice_shared import get_customer_history as _get_customer_hist
 from app.services.voice_shared import summarize_transcript as _summarize_transcript
 from app.services.voice_shared import two_stage_greeting_enabled as _two_stage_greeting_enabled
 from app.services.voice_shared import onset_barge_enabled as _onset_barge_enabled
+from app.services.voice_shared import echo_guard_mode as _echo_guard_mode
 from app.services.voice_shared import resolve_two_stage_office as _resolve_two_stage_office
 from app.services.voice_shared import GENERIC_OFFICE_LABEL as _GENERIC_OFFICE_LABEL
 from app.integrations.twilio_client import _get_client as _get_twilio_client
@@ -746,6 +747,93 @@ class InboundSpeechTracker:
         return sum(1 for (ts, a) in self._frames if t0 <= ts <= t1 and a)
 
 
+# ── Echo guard (self-speech rejection) — transcript-level, tenant-scoped ──────
+# Incident (Roi live, Aug 10): Maya's Stage-2 greeting echoed off the caller
+# device → STT "היי מדברת מיה" → passed M4 (13 chars, 2.4s) → accepted turn →
+# polluted extraction (name "מיה"). The guard flags caller transcripts that are
+# fuzzy prefixes of what Maya JUST played, inside the physical echo window.
+# Pure text + timing — NO audio processing, NO VAD/STT change. Shadow mode only
+# emits echo_would_reject diagnostics; enforce is implemented but not enabled.
+_ECHO_RECENT_MAX = 2            # compare against Maya's last 1–2 utterances
+_ECHO_WINDOW_AFTER_END_S = 1.0  # echo can trail playback end by up to ~1s
+_ECHO_WINDOW_BEFORE_START_S = 0.3
+_ECHO_MIN_CALLER_TOKENS = 3     # shorter texts ("מאיה?", "ביטוח רכב") are NEVER
+                                # flagged — protects genuine short repetitions
+_ECHO_CONTAINMENT_MIN = 0.70    # ≥70% of caller tokens fuzzy-matched, in order
+_ECHO_TOKEN_FUZZ = 0.75         # per-token similarity ("מיה" ~ "מאיה" ≈ 0.86)
+
+_ECHO_STRIP_RE = re.compile(r"[֑-ׇ?!.,:;\"'`´׳״…\-–—־()\[\]]+")
+
+
+def _echo_normalize(text: str) -> list[str]:
+    """Conservative Hebrew normalization → token list: strip punctuation and
+    niqqud, collapse whitespace. No stemming, no aggressive rewriting."""
+    return [t for t in _ECHO_STRIP_RE.sub(" ", text or "").split() if t]
+
+
+def _echo_token_sim(a: str, b: str) -> float:
+    if a == b:
+        return 1.0
+    import difflib
+    return difflib.SequenceMatcher(None, a, b).ratio()
+
+
+def _echo_match_score(caller_text: str, assistant_text: str):
+    """(containment, similarity) of the caller tokens against the assistant
+    utterance, matched as an ORDERED subsequence with fuzzy token equality.
+    Ordered matching kills coincidental bag-of-words overlap; fuzzy tokens
+    catch STT garbling of echoes ("מאיה" → "מיה")."""
+    ct = _echo_normalize(caller_text)
+    at = _echo_normalize(assistant_text)
+    if not ct or not at:
+        return 0.0, 0.0
+    matched, sims, j = 0, [], 0
+    for tok in ct:
+        while j < len(at):
+            s = _echo_token_sim(tok, at[j])
+            j += 1
+            if s >= _ECHO_TOKEN_FUZZ:
+                matched += 1
+                sims.append(s)
+                break
+    containment = matched / len(ct)
+    similarity = (sum(sims) / len(sims)) if sims else 0.0
+    return containment, similarity
+
+
+def _echo_check(caller_text: str, recent: list, onset_ts: float):
+    """Return a match dict if the caller transcript looks like an echo of a
+    recently played Maya utterance, else None.
+
+    `recent` items: {"text", "play_start", "play_end"} (play_end None while the
+    utterance is still playing). A candidate must BOTH overlap the physical
+    playback window and fuzzy-prefix-match the utterance text.
+    """
+    ct = _echo_normalize(caller_text)
+    if len(ct) < _ECHO_MIN_CALLER_TOKENS:
+        return None
+    if onset_ts is None:
+        return None
+    for u in reversed(recent or []):
+        start = u.get("play_start")
+        if start is None:
+            continue
+        end = u.get("play_end")
+        in_window = (start - _ECHO_WINDOW_BEFORE_START_S) <= onset_ts and (
+            end is None or onset_ts <= end + _ECHO_WINDOW_AFTER_END_S)
+        if not in_window:
+            continue
+        containment, similarity = _echo_match_score(caller_text, u.get("text", ""))
+        if containment >= _ECHO_CONTAINMENT_MIN:
+            return {
+                "assistant_text": (u.get("text") or "")[:80],
+                "containment": round(containment, 3),
+                "similarity": round(similarity, 3),
+                "onset_offset_s": round(onset_ts - start, 3),
+            }
+    return None
+
+
 class TurnController:
     """See module comment. All methods are pure and return list[(Action, value)]."""
 
@@ -985,6 +1073,26 @@ class TurnController:
             self.state = CallState.ASSISTANT_RESPONDING
             return [(Action.RESPONSE_CREATE, None)]       # re-issue (barely started)
         self._enter_waiting()                             # yield (mostly played / cap reached)
+        return []
+
+    # — Echo guard: ENFORCE path (implemented; enabled only via config mode) —
+    def on_echo_rejected(self):
+        """The wiring detected a self-speech echo in ENFORCE mode. Consume the
+        segment; the phantom text never becomes a turn. In BARGED_LISTENING the
+        onset-yield was caused by the echo → reuse the existing bounded
+        false-barge recovery (re-issue once if barely started, else yield; the
+        per-call circuit breaker applies unchanged). Elsewhere: no state change
+        beyond reverting a bare CALLER_SPEAKING marker."""
+        self._reset_turn_audit()
+        self._release_segment()
+        self.last_decision = "echo_rejected"
+        if self.state == CallState.BARGED_LISTENING:
+            return self._recover_after_false_barge()
+        if self.state == CallState.CALLER_SPEAKING:
+            self.state = (
+                CallState.ACTIVE_CONVERSATION if self.valid_turns >= 1
+                else CallState.WAITING_FOR_CALLER
+            )
         return []
 
     def on_input_transcription(self, text: str, dur: float = None, item_id: str = None):
@@ -1322,6 +1430,11 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
     # Everything downstream uses this per-call boolean — never a global env — so
     # Roi can be enabled without touching Eliran or any other Realtime tenant.
     _onset_barge = _onset_barge_enabled(client_id or "")
+    # Echo guard: tenant-scoped mode resolved ONCE here ('off'|'shadow'|'enforce').
+    # 'off' (default / non-allowlisted) ⇒ zero echo analysis work for this call.
+    _echo_mode = _echo_guard_mode(client_id or "")
+    if _echo_mode != "off":
+        print(f"[OPENAI-WS] echo guard ACTIVE — mode={_echo_mode} (client allowlisted)")
     # M6.1: the spoken office identity for the Stage-2 self-intro is resolved
     # per-tenant from config (never hardcoded). Generic fallback when off/unset.
     _office = _resolve_two_stage_office(agent_cfg) if _two_stage else _GENERIC_OFFICE_LABEL
@@ -1377,6 +1490,19 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
     # call is NOT allowlisted ⇒ no per-frame work, no behavior change).
     _energy = InboundSpeechTracker() if _onset_barge else None
 
+    # Echo guard: Maya's last utterances + playback timing (None when off ⇒ no
+    # per-event work). recent items: {"text", "play_start", "play_end"}.
+    _echo_state = {"recent": [], "cur_start": None} if _echo_mode != "off" else None
+
+    def _echo_close_playback():
+        # playback ended (mark returned) or was flushed (barge clear) — close
+        # the echo window for all still-open utterances.
+        if _echo_state is not None:
+            _now = time.monotonic()
+            for _u in _echo_state["recent"]:
+                if _u["play_end"] is None:
+                    _u["play_end"] = _now
+
     # ── Action executor — the ONLY place I/O side-effects happen ─────────────
     # Every response.create in this module is sent from here (RESPONSE_CREATE /
     # REPROMPT / SPEAK_SCRIPTED), so the "app owns response creation" invariant
@@ -1427,6 +1553,7 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
                     await openai_ws.send(json.dumps({"type": "response.cancel"}))
                 if stream_sid:
                     await twilio_ws.send_json({"event": "clear", "streamSid": stream_sid})
+                _echo_close_playback()   # flushed audio ends the echo window
                 _diag("barge_in_cancel_and_clear", call_sid, cancel_sent=bool(_do_cancel))
             elif act == Action.SEND_MARK:
                 if stream_sid:
@@ -1534,6 +1661,7 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
             _diag("heartbeat_returned", call_sid, hb=name)
             return
         _ctrl.on_twilio_mark(name)
+        _echo_close_playback()   # playback finished at the caller device
         _diag("playback_mark_returned", call_sid, mark=name, state=_ctrl.state.value)
         # A returned playback mark may have re-armed a fresh waiting generation.
         if _ctrl.state in (CallState.WAITING_FOR_CALLER, CallState.ACTIVE_CONVERSATION):
@@ -1641,6 +1769,34 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
 
                 elif etype == "conversation.item.input_audio_transcription.completed":
                     _text = (event.get("transcript") or "").strip()
+                    # ── Echo guard (tenant-scoped) ───────────────────────────
+                    # SHADOW: diagnostic only — state, turns, transcript,
+                    # extraction, summary, email and responses are untouched.
+                    # ENFORCE: the phantom text never becomes a turn (segment
+                    # consumed; BARGED_LISTENING reuses false-barge recovery).
+                    _echo_hit = None
+                    if _echo_state is not None and _text:
+                        _echo_hit = _echo_check(_text, _echo_state["recent"],
+                                                _ctrl._speech_started_at)
+                    if _echo_hit is not None and _echo_mode == "shadow":
+                        _diag("echo_would_reject", call_sid, caller_text=_text[:60],
+                              matched_assistant=_echo_hit["assistant_text"],
+                              similarity=_echo_hit["similarity"],
+                              containment=_echo_hit["containment"],
+                              onset_offset_s=_echo_hit["onset_offset_s"],
+                              state=_ctrl.state.value, mode=_echo_mode)
+                    if _echo_hit is not None and _echo_mode == "enforce":
+                        _diag("echo_rejected", call_sid, caller_text=_text[:60],
+                              matched_assistant=_echo_hit["assistant_text"],
+                              similarity=_echo_hit["similarity"],
+                              containment=_echo_hit["containment"],
+                              onset_offset_s=_echo_hit["onset_offset_s"],
+                              state=_ctrl.state.value, mode=_echo_mode)
+                        acts = _ctrl.on_echo_rejected()
+                        if acts:
+                            if await _execute(acts):
+                                break
+                        continue   # phantom turn fully consumed — nothing else runs
                     acts = _ctrl.on_input_transcription(_text, item_id=event.get("item_id"))
                     _decision = _ctrl.last_decision
                     # M4: a HELD greeting fragment is noise — it must never enter
@@ -1695,6 +1851,8 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
                         if not _response_first_audio_logged:
                             _response_first_audio_logged = True
                             _now = time.monotonic()
+                            if _echo_state is not None:
+                                _echo_state["cur_start"] = _now   # echo window opens
                             _diag("first_outbound_audio", call_sid,
                                   since_entry_ms=round((_now - _t_entry) * 1000),
                                   since_media_start_ms=round((_now - _t_media_start) * 1000))
@@ -1711,6 +1869,14 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
                         _assistant_lines.append(_text)
                         _transcript_turns.append({"role": "מאיה", "text": _text})
                         _ctrl.on_assistant_transcript(_text)
+                        if _echo_state is not None:
+                            # echo reference: what Maya just played + its window
+                            _echo_state["recent"].append({
+                                "text": _text,
+                                "play_start": _echo_state["cur_start"],
+                                "play_end": None,
+                            })
+                            del _echo_state["recent"][:-_ECHO_RECENT_MAX]
 
                 elif etype == "response.done":
                     _status = (event.get("response") or {}).get("status", "")
