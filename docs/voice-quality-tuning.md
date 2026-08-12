@@ -14,7 +14,9 @@ and rollback is always "remove the variable".
 | Variable | Default (unset) | Range / values | What it does |
 |---|---|---|---|
 | `OPENAI_REALTIME_TRANSCRIBE_MODEL` | `gpt-realtime-whisper` | any transcribe model on the account | Caller-side STT. This is the single highest-impact lever for Hebrew: mangled sentence heads and wrong names come from here, and they propagate into the lead email. |
-| `OPENAI_TRANSCRIBE_PROMPT` | omitted | free text (Hebrew) | Vocabulary hint for the STT. Give it the domain terms and names it keeps getting wrong. |
+| `OPENAI_TRANSCRIBE_PROMPT` | omitted | free text (Hebrew) | Context hint for the STT — what kind of call this is. |
+| `OPENAI_TRANSCRIBE_KEYWORDS` | omitted | comma-separated Hebrew terms | Literal term biasing: the office name, the agent's name, product terms. The documented lever for mangled proper nouns. **Newer models only** (see below). |
+| `OPENAI_TRANSCRIBE_DELAY` | omitted | `minimal`…`xhigh` | How much audio context the STT buffers before emitting text. Higher = better word error rate, more delay. **Newer models only.** |
 | `OPENAI_INPUT_NOISE_REDUCTION` | omitted | `near_field` \| `far_field` | Input denoising. A handset/headset call is `near_field`; speakerphone is `far_field`. Anything else omits the field. |
 | `OPENAI_VAD_TYPE` | `server_vad` | `server_vad` \| `semantic_vad` | How end-of-turn is decided. `semantic_vad` replaces the fixed silence timer with a model judgement — worth trying when callers get cut off mid-thought. |
 | `OPENAI_VAD_EAGERNESS` | `medium` | `low` \| `medium` \| `high` \| `auto` | `semantic_vad` only. Lower = waits longer before deciding the caller finished. |
@@ -26,6 +28,42 @@ and rollback is always "remove the variable".
 
 Invalid or out-of-range values are ignored with a `[OPENAI-CONFIG]` warning and
 the default is used — a typo degrades, it never crashes the service.
+
+## Which transcribe model supports what
+
+Verified by live probe against `gpt-realtime-2.1` on this account:
+
+| Model | `keywords` / `delay` | Notes |
+|---|---|---|
+| `gpt-live-transcribe` | ✅ | Streaming-oriented; accepts the full field set. |
+| `gpt-transcribe` | ✅ | |
+| `gpt-4o-transcribe` | ❌ **rejects `keywords`** | Legacy tier. |
+| `gpt-4o-mini-transcribe`, `gpt-realtime-whisper`, `whisper-1` | ❌ assumed | `gpt-realtime-whisper` is the current default and is legacy tier. |
+
+A rejected `session.update` kills the session, so **one bad variable pairing
+would drop every call**. The code therefore refuses to send `keywords`/`delay`
+to a model not on the verified-capable list and logs a `[OPENAI-CONFIG]`
+warning instead. You cannot break calls by setting the wrong combination.
+
+Also enforced: only the singular `language` field is ever sent. The API rejects
+a session carrying both `language` and `languages`; the newer models normalise
+the singular form themselves.
+
+## Two things worth knowing before you tune
+
+**The caller transcript is a side-channel.** In a speech-to-speech session the
+model hears the audio directly — `input_audio_transcription` does not feed its
+comprehension. So changing the STT model fixes the **lead email, the extraction
+and the logs**, and it matters for us specifically because our valid-turn gate
+reads that transcript (a garbled transcript can cause a real turn to be
+rejected). It does **not** fix the model mishearing something and saying it out
+loud. Those are two separate problems with two separate fixes.
+
+**Sentence heads getting clipped is a `prefix_padding_ms` problem, not a
+bandwidth problem.** Published measurements put the 8 kHz µ-law penalty at
+roughly half a point of word error rate for Whisper-class models — small. Audio
+cut off before the model ever sees it is the far larger effect, and that is
+what `prefix_padding_ms` controls. Raise it before blaming the phone line.
 
 ## Existing related variables
 

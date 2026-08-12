@@ -31,6 +31,8 @@ def neutral(monkeypatch):
     """Force every M7 knob to its unset/default value regardless of the ambient
     environment, so 'default == M6' is assertable on any machine."""
     monkeypatch.setattr(vol, "OPENAI_TRANSCRIBE_PROMPT", "")
+    monkeypatch.setattr(vol, "OPENAI_TRANSCRIBE_KEYWORDS", [])
+    monkeypatch.setattr(vol, "OPENAI_TRANSCRIBE_DELAY", "")
     monkeypatch.setattr(vol, "OPENAI_INPUT_NOISE_REDUCTION", "")
     monkeypatch.setattr(vol, "OPENAI_MAX_OUTPUT_TOKENS", None)
     monkeypatch.setattr(vol, "OPENAI_VAD_TYPE", "server_vad")
@@ -149,6 +151,61 @@ class TestTranscription:
         monkeypatch.setattr(vol, "OPENAI_TRANSCRIBE_PROMPT", "מונחי ביטוח")
         tr = vol._build_session_update("P")["session"]["audio"]["input"]["transcription"]
         assert tr["prompt"] == "מונחי ביטוח"
+
+    def test_plural_languages_field_is_never_sent(self, neutral, monkeypatch):
+        """The API rejects a session carrying both `language` and `languages`.
+        We always send the singular; the newer models normalise it themselves."""
+        for model in ["gpt-realtime-whisper", "gpt-4o-transcribe", "gpt-live-transcribe"]:
+            monkeypatch.setattr(vol, "OPENAI_REALTIME_TRANSCRIBE_MODEL", model)
+            block = vol._build_input_transcription()
+            assert "languages" not in block
+            assert block["language"] == "he"
+
+
+class TestKeywordsAndDelay:
+    """These fields exist only on the newer transcribe models. gpt-4o-transcribe
+    REJECTS `keywords` outright, and a rejected session.update drops the call —
+    so an unsupported pairing must degrade, never reach the wire."""
+
+    def test_keyword_parsing_strips_and_drops_empties(self):
+        assert vol._parse_keywords(" רועי לוי , ביטוח חיים ,, ") == ["רועי לוי", "ביטוח חיים"]
+
+    @pytest.mark.parametrize("raw", [None, "", "   ", ",,,"])
+    def test_keyword_parsing_of_nothing_is_empty(self, raw):
+        assert vol._parse_keywords(raw) == []
+
+    @pytest.mark.parametrize("bad", ["a<b", "a>b", "a\nb", "a\rb"])
+    def test_forbidden_characters_are_dropped(self, bad):
+        assert vol._parse_keywords(f"טוב,{bad}") == ["טוב"]
+
+    def test_keywords_sent_for_capable_model(self, neutral, monkeypatch):
+        monkeypatch.setattr(vol, "OPENAI_REALTIME_TRANSCRIBE_MODEL", "gpt-live-transcribe")
+        monkeypatch.setattr(vol, "OPENAI_TRANSCRIBE_KEYWORDS", ["רועי לוי"])
+        assert vol._build_input_transcription()["keywords"] == ["רועי לוי"]
+
+    @pytest.mark.parametrize(
+        "model", ["gpt-4o-transcribe", "gpt-realtime-whisper", "whisper-1", "gpt-4o-mini-transcribe"]
+    )
+    def test_keywords_never_sent_to_a_model_that_rejects_them(self, neutral, monkeypatch, model):
+        monkeypatch.setattr(vol, "OPENAI_REALTIME_TRANSCRIBE_MODEL", model)
+        monkeypatch.setattr(vol, "OPENAI_TRANSCRIBE_KEYWORDS", ["רועי לוי"])
+        assert "keywords" not in vol._build_input_transcription()
+
+    @pytest.mark.parametrize("delay", ["minimal", "low", "medium", "high", "xhigh"])
+    def test_valid_delay_values(self, neutral, monkeypatch, delay):
+        monkeypatch.setattr(vol, "OPENAI_REALTIME_TRANSCRIBE_MODEL", "gpt-live-transcribe")
+        monkeypatch.setattr(vol, "OPENAI_TRANSCRIBE_DELAY", delay)
+        assert vol._build_input_transcription()["delay"] == delay
+
+    def test_invalid_delay_is_omitted(self, neutral, monkeypatch):
+        monkeypatch.setattr(vol, "OPENAI_REALTIME_TRANSCRIBE_MODEL", "gpt-live-transcribe")
+        monkeypatch.setattr(vol, "OPENAI_TRANSCRIBE_DELAY", "instant")
+        assert "delay" not in vol._build_input_transcription()
+
+    def test_delay_not_sent_to_incapable_model(self, neutral, monkeypatch):
+        monkeypatch.setattr(vol, "OPENAI_REALTIME_TRANSCRIBE_MODEL", "gpt-4o-transcribe")
+        monkeypatch.setattr(vol, "OPENAI_TRANSCRIBE_DELAY", "medium")
+        assert "delay" not in vol._build_input_transcription()
 
 
 # ── Turn detection ───────────────────────────────────────────────────────────

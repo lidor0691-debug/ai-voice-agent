@@ -218,6 +218,38 @@ def _parse_bounded_int(raw, lo: int, hi: int, default, name: str):
 # prompt is the documented lever for it. Empty → field omitted entirely.
 OPENAI_TRANSCRIBE_PROMPT = os.getenv("OPENAI_TRANSCRIBE_PROMPT", "").strip()
 
+# Literal term biasing (names, products, office name) and how much audio context
+# the STT may buffer before emitting text. Both are newer-model-only fields.
+#
+# SAFETY: `keywords` is REJECTED outright by gpt-4o-transcribe ("The 'keywords'
+# parameter is not supported for this model") — live-probe verified. A rejected
+# session.update kills the session, i.e. one bad variable pairing would drop
+# EVERY call. So these fields are sent only for models verified to accept them,
+# and are dropped with a warning otherwise. Fail-safe beats fail-loud here.
+_KEYWORD_CAPABLE_MODELS = ("gpt-live-transcribe", "gpt-transcribe")
+_TRANSCRIBE_DELAY_VALID = ("minimal", "low", "medium", "high", "xhigh")
+# Per the API contract each keyword is one line and may not contain <, > or a
+# line break; anything violating that is dropped rather than risking a reject.
+_KEYWORD_FORBIDDEN_CHARS = ("<", ">", "\r", "\n")
+
+
+def _parse_keywords(raw) -> list:
+    """Pure/testable. Comma-separated env value → clean keyword list. Entries
+    that are empty or contain forbidden characters are dropped, never sent."""
+    text = _coerce_setting_text(raw)
+    if not text:
+        return []
+    out = []
+    for item in text.split(","):
+        term = item.strip()
+        if term and not any(ch in term for ch in _KEYWORD_FORBIDDEN_CHARS):
+            out.append(term)
+    return out
+
+
+OPENAI_TRANSCRIBE_KEYWORDS = _parse_keywords(os.getenv("OPENAI_TRANSCRIBE_KEYWORDS"))
+OPENAI_TRANSCRIBE_DELAY = os.getenv("OPENAI_TRANSCRIBE_DELAY", "").strip().lower()
+
 # Input noise reduction. A PSTN call is a near-field source (handset/headset),
 # so "near_field" is the matching profile; "far_field" suits speakerphone.
 # Anything else (including unset) → field omitted, i.e. no noise reduction.
@@ -279,12 +311,42 @@ def _build_turn_detection() -> dict:
 
 
 def _build_input_transcription() -> dict:
-    """Pure/testable. Caller-side STT block. `language` stays pinned to Hebrew
-    (M1.1); the newer transcribe models normalise it into `languages` server
-    side. The vocabulary prompt is omitted unless configured."""
+    """Pure/testable. Caller-side STT block.
+
+    `language` stays pinned to Hebrew (M1.1) and is the ONLY language field we
+    ever send: the newer models normalise it into `languages` server side, and
+    sending both is rejected ("The 'language' and 'languages' parameters cannot
+    be used together" — live-probe verified). Model-specific fields are gated on
+    the configured model so no variable pairing can produce a rejected session.
+    """
     block = {"model": OPENAI_REALTIME_TRANSCRIBE_MODEL, "language": "he"}
     if OPENAI_TRANSCRIBE_PROMPT:
         block["prompt"] = OPENAI_TRANSCRIBE_PROMPT
+
+    supports_extras = OPENAI_REALTIME_TRANSCRIBE_MODEL in _KEYWORD_CAPABLE_MODELS
+    if OPENAI_TRANSCRIBE_KEYWORDS:
+        if supports_extras:
+            block["keywords"] = OPENAI_TRANSCRIBE_KEYWORDS
+        else:
+            print(
+                "[OPENAI-CONFIG] ⚠️ OPENAI_TRANSCRIBE_KEYWORDS ignored — "
+                f"{OPENAI_REALTIME_TRANSCRIBE_MODEL!r} rejects 'keywords'. "
+                f"Use one of {_KEYWORD_CAPABLE_MODELS}."
+            )
+    if OPENAI_TRANSCRIBE_DELAY:
+        if not supports_extras:
+            print(
+                "[OPENAI-CONFIG] ⚠️ OPENAI_TRANSCRIBE_DELAY ignored — "
+                f"{OPENAI_REALTIME_TRANSCRIBE_MODEL!r} does not accept 'delay'."
+            )
+        elif OPENAI_TRANSCRIBE_DELAY not in _TRANSCRIBE_DELAY_VALID:
+            print(
+                f"[OPENAI-CONFIG] ⚠️ invalid OPENAI_TRANSCRIBE_DELAY="
+                f"{OPENAI_TRANSCRIBE_DELAY!r} — omitted. "
+                f"Valid: {_TRANSCRIBE_DELAY_VALID}."
+            )
+        else:
+            block["delay"] = OPENAI_TRANSCRIBE_DELAY
     return block
 
 
