@@ -316,6 +316,17 @@ class TestDialogueStyleInstruction:
         assert "אל תחזרי" in text            # repeated closing script
         assert "מתקן" in text                # caller correction wins
         assert "סיום השיחה" in text          # no racing to close
+        assert "עני עליה ישירות" in text     # answer a question, don't acknowledge it
+
+    def test_scopes_the_acknowledgment_softener(self):
+        """Roi's own prompt lists "בסדר גמור" as an opener to use *before a
+        question she asks*. The model was applying it before ANSWERS too, which
+        is what made replies feel disconnected from the question. The rule must
+        name the misfiring openers and confine them to her own questions."""
+        text = vol._DIALOGUE_STYLE_INSTRUCTION
+        assert "בסדר גמור" in text
+        assert "רק לפני שאלה שאת שואלת" in text
+        assert "לא לפני תשובה" in text
 
     def test_says_nothing_about_tone_or_business_logic(self):
         """It constrains turn SHAPE only — tone, wording and insurance logic
