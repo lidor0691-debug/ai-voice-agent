@@ -476,10 +476,24 @@ _NAME_PROTOCOL_INSTRUCTION = (
 #        wrong value still reached the lead email.
 #   5    the model raced into the closing script (and a hangup) while the caller
 #        was still objecting.
+#   6    the caller asked "how long until Roi calls me back?" and the reply
+#        opened with "בסדר גמור" before answering. Not a malfunction: Roi's
+#        Supabase prompt says «לפני שאלה, תני תגובה קצרה וטבעית: "אהמ",
+#        "הבנתי", "אוקיי", "בסדר גמור", "סבבה"» — and "בסדר גמור" is literally
+#        one of its five examples. That rule is written for a question SHE is
+#        about to ask, where the softener reads as natural; the model applies it
+#        as a blanket turn-opener, so it also fires when the CALLER asks HER
+#        something — where acknowledging instead of answering is simply the
+#        wrong move. The rule below scopes the softener without editing the
+#        tenant's prompt (a direct edit of that exact area caused the Aug-11
+#        regression and had to be rolled back).
 _DIALOGUE_STYLE_INSTRUCTION = (
     "\n\nניהול תור דיבור: "
     "עני קצר — משפט אחד, שניים לכל היותר, ואז עצרי והקשיבי. "
     "שאלה אחת בלבד בכל תור; אל תאגדי כמה שאלות יחד. "
+    "כשהפונה שואל אותך שאלה — עני עליה ישירות, "
+    "בלי מילת פתיחה כמו \"בסדר גמור\", \"אוקיי\" או \"סבבה\". "
+    "תגובה קצרה כזו מתאימה רק לפני שאלה שאת שואלת, לא לפני תשובה. "
     "אל תחזרי על מה שכבר אמרת ואל תסכמי את השיחה שוב אלא אם ביקשו ממך. "
     "אם הפונה מתקן אותך או שולל משהו שאמרת — אמצי מיד את הגרסה שלו, "
     "אל תתווכחי ואל תחזרי על הגרסה השגויה. "

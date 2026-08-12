@@ -24,7 +24,7 @@ and rollback is always "remove the variable".
 | `OPENAI_VAD_SILENCE_MS` | `700` | `200`–`2000` | `server_vad` only. Silence before the turn is considered over. **Lowering this is the most direct way to cut reply latency** — at the cost of cutting off callers who pause mid-sentence. |
 | `OPENAI_VAD_PREFIX_MS` | `300` | `0`–`1000` | `server_vad` only. Audio kept from before speech onset. |
 | `OPENAI_MAX_OUTPUT_TOKENS` | no cap | `64`–`4096` | Hard ceiling on one spoken reply. **A safety net, not a brevity tool** — hitting it stops the audio mid-sentence. Use the dialogue-discipline instruction for brevity and set this only high enough to stop a runaway monologue. |
-| `OPENAI_DIALOGUE_STYLE_CLIENT_IDS` | empty (off) | comma-separated client ids | Appends turn-level dialogue discipline for those tenants: short replies, one question per turn, no repetition, the caller's correction wins, no racing to close. |
+| `OPENAI_DIALOGUE_STYLE_CLIENT_IDS` | empty (off) | comma-separated client ids | Appends turn-level dialogue discipline for those tenants: short replies, one question per turn, **answer a caller's question directly instead of opening with a filler acknowledgment**, no repetition, the caller's correction wins, no racing to close. |
 
 Invalid or out-of-range values are ignored with a `[OPENAI-CONFIG]` warning and
 the default is used — a typo degrades, it never crashes the service.
