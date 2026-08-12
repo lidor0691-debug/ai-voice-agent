@@ -197,6 +197,26 @@ def echo_guard_mode(client_id: str) -> str:
     return OPENAI_ECHO_GUARD_MODE if OPENAI_ECHO_GUARD_MODE in ("shadow", "enforce") else "off"
 
 
+# ── Dialogue-discipline gate (M7) ────────────────────────────────────────────
+# Tenant-scoped like the gates above. Call audits keep showing the same
+# non-mechanical failure: replies grow into multi-sentence monologues (6-11s of
+# playback), several questions land in one breath, and a closing script fires
+# the moment the model *believes* it has what it needs. None of that is a bug in
+# the transport or the state machine — it is turn-level conversational
+# discipline, which lives in the instruction. Kept as a separate, flag-gated
+# code-side suffix (NOT a Supabase prompt edit) so it can be A/B'd per call and
+# reverted by removing one id, without touching the tenant's own prompt.
+OPENAI_DIALOGUE_STYLE_CLIENT_IDS = {
+    _c.strip() for _c in os.getenv("OPENAI_DIALOGUE_STYLE_CLIENT_IDS", "").split(",") if _c.strip()
+}
+
+
+def dialogue_style_enabled(client_id: str) -> bool:
+    """Turn-level dialogue discipline is appended ONLY for allowlisted clients.
+    Empty allowlist = off for every tenant (instruction omitted entirely)."""
+    return bool(client_id) and client_id in OPENAI_DIALOGUE_STYLE_CLIENT_IDS
+
+
 # ── Two-stage greeting: spoken office identity (M6.1) ─────────────────────────
 # The Stage-2 self-introduction must name the CURRENT tenant's office — never a
 # hardcoded one, and never maintained in Railway. Identity is a tenant-level
@@ -331,6 +351,11 @@ _EXTRACT_PROMPT = """\
 - אל תחלץ שם אם המילה יכולה להיות משהו אחר (למשל "כן", "אולי", "רוצה").
 - phone_number תמיד null.
 - אל תנחש. אל תמציא. אם אין — החזר null.
+
+חוקים לתיקונים (הלקוח תמיד גובר):
+- השורות מסודרות לפי סדר הזמן. אם הלקוח תיקן את עצמו או שלל משהו — הגרסה המאוחרת היא הנכונה.
+- אם הלקוח שלל נושא במפורש (למשל "לא אמרתי חידוש לרכב") — אסור להחזיר אותו נושא. אם אחרי השלילה לא נמסר נושא ברור — החזר null.
+- שים לב שהשורות הן דברי הלקוח בלבד. אם הלקוח שולל משהו שלא מופיע בשורות — סימן שהוא מגיב למה שנאמר לו, ולכן אותו דבר בוודאות אינו הנושא.
 
 שיחה:
 {transcript}
