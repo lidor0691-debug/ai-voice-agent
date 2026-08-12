@@ -47,6 +47,7 @@ from app.services.voice_shared import summarize_transcript as _summarize_transcr
 from app.services.voice_shared import two_stage_greeting_enabled as _two_stage_greeting_enabled
 from app.services.voice_shared import onset_barge_enabled as _onset_barge_enabled
 from app.services.voice_shared import echo_guard_mode as _echo_guard_mode
+from app.services.voice_shared import dialogue_style_enabled as _dialogue_style_enabled
 from app.services.voice_shared import resolve_two_stage_office as _resolve_two_stage_office
 from app.services.voice_shared import GENERIC_OFFICE_LABEL as _GENERIC_OFFICE_LABEL
 from app.integrations.twilio_client import _get_client as _get_twilio_client
@@ -157,6 +158,136 @@ OPENAI_REALTIME_TRANSCRIBE_MODEL = os.getenv(
     "OPENAI_REALTIME_TRANSCRIBE_MODEL", "gpt-realtime-whisper"
 ).strip()
 
+# ── Conversation-quality knobs (M7) ───────────────────────────────────────────
+# Hebrew phone quality is a calibration problem, and every calibration round
+# costs a live call. These knobs are therefore environment-driven: tuning a
+# value is a variable change, not a deploy.
+#
+# INVARIANT: every knob below is ABSENT from the payload unless explicitly set,
+# and the VAD numbers default to the exact M2 values. An unset environment
+# therefore reproduces the M6 session byte-for-byte — verified by test.
+#
+# All four session fields were live-probe verified against gpt-realtime-2.1
+# (accepted and echoed back in session.updated) before this code was written.
+
+def _coerce_setting_text(raw) -> str:
+    """Pure. Normalise any settings value to trimmed text. Callers pass
+    os.getenv() results (str|None), but staying total means a non-string can
+    never turn a config typo into a crash at import time."""
+    if raw is None:
+        return ""
+    return (raw if isinstance(raw, str) else str(raw)).strip()
+
+
+def _parse_bounded_float(raw, lo: float, hi: float, default, name: str):
+    """Pure/testable. Parse an optional bounded float. Unset/invalid/NaN/
+    out-of-range → `default` (with a non-secret warning). Never raises."""
+    s = _coerce_setting_text(raw)
+    if not s:
+        return default
+    try:
+        value = float(s)
+    except (TypeError, ValueError):
+        print(f"[OPENAI-CONFIG] ⚠️ invalid {name}={s!r} — using {default}")
+        return default
+    if not (lo <= value <= hi):  # NaN fails both comparisons → falls back too
+        print(f"[OPENAI-CONFIG] ⚠️ {name}={value} outside [{lo}, {hi}] — using {default}")
+        return default
+    return value
+
+
+def _parse_bounded_int(raw, lo: int, hi: int, default, name: str):
+    """Pure/testable. Parse an optional bounded int. Unset/invalid/out-of-range
+    → `default` (with a non-secret warning). Never raises."""
+    s = _coerce_setting_text(raw)
+    if not s:
+        return default
+    try:
+        value = int(s)
+    except (TypeError, ValueError):
+        print(f"[OPENAI-CONFIG] ⚠️ invalid {name}={s!r} — using {default}")
+        return default
+    if not (lo <= value <= hi):
+        print(f"[OPENAI-CONFIG] ⚠️ {name}={value} outside [{lo}, {hi}] — using {default}")
+        return default
+    return value
+
+
+# Vocabulary hint for the streaming STT. Israeli names and insurance terms are
+# exactly what a general-purpose model mangles on a narrowband line; a domain
+# prompt is the documented lever for it. Empty → field omitted entirely.
+OPENAI_TRANSCRIBE_PROMPT = os.getenv("OPENAI_TRANSCRIBE_PROMPT", "").strip()
+
+# Input noise reduction. A PSTN call is a near-field source (handset/headset),
+# so "near_field" is the matching profile; "far_field" suits speakerphone.
+# Anything else (including unset) → field omitted, i.e. no noise reduction.
+_NOISE_REDUCTION_VALID = ("near_field", "far_field")
+OPENAI_INPUT_NOISE_REDUCTION = os.getenv("OPENAI_INPUT_NOISE_REDUCTION", "").strip().lower()
+
+# Hard ceiling on one spoken reply. This is a SAFETY NET, not a brevity tool:
+# hitting it ends the response as "incomplete", i.e. audio stops mid-sentence.
+# Brevity belongs in the instruction below; set this only high enough to stop a
+# runaway monologue. Unset → no cap (API default).
+OPENAI_MAX_OUTPUT_TOKENS = _parse_bounded_int(
+    os.getenv("OPENAI_MAX_OUTPUT_TOKENS"), 64, 4096, None, "OPENAI_MAX_OUTPUT_TOKENS"
+)
+
+# Turn detection. Defaults are the exact M2-tuned server_vad values, so unset
+# == today's behavior. `semantic_vad` swaps the fixed silence timer for a
+# model-side end-of-turn judgement and takes `eagerness` instead of the three
+# numeric fields — useful when a caller pauses mid-thought (very common in
+# Hebrew speech) and the fixed timer cuts them off.
+_VAD_VALID_EAGERNESS = ("low", "medium", "high", "auto")
+OPENAI_VAD_TYPE = os.getenv("OPENAI_VAD_TYPE", "server_vad").strip().lower()
+OPENAI_VAD_EAGERNESS = os.getenv("OPENAI_VAD_EAGERNESS", "medium").strip().lower()
+OPENAI_VAD_THRESHOLD = _parse_bounded_float(
+    os.getenv("OPENAI_VAD_THRESHOLD"), 0.1, 0.95, 0.6, "OPENAI_VAD_THRESHOLD"
+)
+OPENAI_VAD_SILENCE_MS = _parse_bounded_int(
+    os.getenv("OPENAI_VAD_SILENCE_MS"), 200, 2000, 700, "OPENAI_VAD_SILENCE_MS"
+)
+OPENAI_VAD_PREFIX_MS = _parse_bounded_int(
+    os.getenv("OPENAI_VAD_PREFIX_MS"), 0, 1000, 300, "OPENAI_VAD_PREFIX_MS"
+)
+
+
+def _build_turn_detection() -> dict:
+    """Pure/testable. Turn-detection block for session.update.
+
+    App-owned turn-taking is non-negotiable in BOTH modes: create_response and
+    interrupt_response stay False so the server can never spawn or cancel a
+    reply behind the TurnController's back (M2/RC1 invariant).
+    """
+    if OPENAI_VAD_TYPE == "semantic_vad":
+        eagerness = (
+            OPENAI_VAD_EAGERNESS if OPENAI_VAD_EAGERNESS in _VAD_VALID_EAGERNESS else "medium"
+        )
+        return {
+            "type": "semantic_vad",
+            "eagerness": eagerness,
+            "create_response": False,
+            "interrupt_response": False,
+        }
+    return {
+        "type": "server_vad",
+        "threshold": OPENAI_VAD_THRESHOLD,
+        "prefix_padding_ms": OPENAI_VAD_PREFIX_MS,
+        "silence_duration_ms": OPENAI_VAD_SILENCE_MS,
+        "create_response": False,
+        "interrupt_response": False,
+    }
+
+
+def _build_input_transcription() -> dict:
+    """Pure/testable. Caller-side STT block. `language` stays pinned to Hebrew
+    (M1.1); the newer transcribe models normalise it into `languages` server
+    side. The vocabulary prompt is omitted unless configured."""
+    block = {"model": OPENAI_REALTIME_TRANSCRIBE_MODEL, "language": "he"}
+    if OPENAI_TRANSCRIBE_PROMPT:
+        block["prompt"] = OPENAI_TRANSCRIBE_PROMPT
+    return block
+
+
 # Dead-socket detector (M1.1): Twilio sends a media frame every ~20ms for the
 # whole call — even during total caller silence (the PSTN line always produces
 # audio). A multi-second gap therefore means the Twilio socket is DEAD (proxy
@@ -193,7 +324,9 @@ def _build_session_update(system_instruction: str) -> dict:
     - audio/pcmu both directions: Twilio Media Streams speak µ-law 8 kHz
       natively, so audio passes through base64-verbatim with NO transcoding.
     - server_vad tuned for a noisy Israeli phone line (M2): threshold 0.6,
-      prefix_padding 300ms, silence 700ms.
+      prefix_padding 300ms, silence 700ms. M7 makes these env-tunable and adds
+      an opt-in semantic_vad mode; the defaults are the M2 values, so an unset
+      environment produces the identical payload.
     - create_response=false / interrupt_response=false (M2, RC1): the SERVER
       must NOT auto-create a reply from any speech_started/stopped, nor
       auto-cancel a response on caller speech. Response creation and barge-in
@@ -204,38 +337,33 @@ def _build_session_update(system_instruction: str) -> dict:
       utterances otherwise hallucinate into other languages, which is exactly
       where caller names live.
     """
-    return {
-        "type": "session.update",
-        "session": {
-            "type": "realtime",
-            "output_modalities": ["audio"],
-            "instructions": system_instruction,
-            "audio": {
-                "input": {
-                    "format": {"type": "audio/pcmu"},
-                    "transcription": {
-                        "model": OPENAI_REALTIME_TRANSCRIBE_MODEL,
-                        "language": "he",
-                    },
-                    "turn_detection": {
-                        "type": "server_vad",
-                        "threshold": 0.6,
-                        "prefix_padding_ms": 300,
-                        "silence_duration_ms": 700,
-                        # App-owned turn-taking — see docstring (M2/RC1).
-                        "create_response": False,
-                        "interrupt_response": False,
-                    },
-                },
-                "output": {
-                    "format": {"type": "audio/pcmu"},
-                    "voice": OPENAI_REALTIME_VOICE,
-                    # M5: native delivery pace. 1.0 = unchanged (API default).
-                    "speed": OPENAI_REALTIME_SPEED,
-                },
+    audio_input = {
+        "format": {"type": "audio/pcmu"},
+        "transcription": _build_input_transcription(),
+        "turn_detection": _build_turn_detection(),
+    }
+    # M7: omitted unless configured, so an unset environment is byte-identical.
+    if OPENAI_INPUT_NOISE_REDUCTION in _NOISE_REDUCTION_VALID:
+        audio_input["noise_reduction"] = {"type": OPENAI_INPUT_NOISE_REDUCTION}
+
+    session = {
+        "type": "realtime",
+        "output_modalities": ["audio"],
+        "instructions": system_instruction,
+        "audio": {
+            "input": audio_input,
+            "output": {
+                "format": {"type": "audio/pcmu"},
+                "voice": OPENAI_REALTIME_VOICE,
+                # M5: native delivery pace. 1.0 = unchanged (API default).
+                "speed": OPENAI_REALTIME_SPEED,
             },
         },
     }
+    if OPENAI_MAX_OUTPUT_TOKENS is not None:
+        session["max_output_tokens"] = OPENAI_MAX_OUTPUT_TOKENS
+
+    return {"type": "session.update", "session": session}
 
 
 def _openai_opening_instruction(base_prompt: str, first_message: str) -> str:
@@ -270,6 +398,30 @@ _NAME_PROTOCOL_INSTRUCTION = (
     "אם לא שמעת את השם ברור — בקשי פעם אחת לחזור עליו; אם עדיין לא ברור, המשיכי בשיחה. "
     "אם הפונה מסרב או מתחמק — המשיכי ואל תשאלי שוב. "
     "לעולם אל תאמרי שם שהפונה לא אמר במפורש."
+)
+
+# Dialogue discipline (M7): turn-level conversational rules, appended only for
+# allowlisted tenants (voice_shared.dialogue_style_enabled). Deliberately
+# minimal and behavioral — it constrains TURN SHAPE (length, one question,
+# handling a correction, when it is allowed to close) and says nothing about
+# tone, wording, or the tenant's own business logic, so it composes with any
+# tenant prompt instead of competing with it.
+#
+# Each rule traces to an observed failure in a recorded call:
+#   1-2  6-11s monologues; several questions bundled into one breath.
+#   3    the full closing script spoken verbatim twice in one 56s call.
+#   4    caller corrected a misheard topic; the model smoothed over it and the
+#        wrong value still reached the lead email.
+#   5    the model raced into the closing script (and a hangup) while the caller
+#        was still objecting.
+_DIALOGUE_STYLE_INSTRUCTION = (
+    "\n\nניהול תור דיבור: "
+    "עני קצר — משפט אחד, שניים לכל היותר, ואז עצרי והקשיבי. "
+    "שאלה אחת בלבד בכל תור; אל תאגדי כמה שאלות יחד. "
+    "אל תחזרי על מה שכבר אמרת ואל תסכמי את השיחה שוב אלא אם ביקשו ממך. "
+    "אם הפונה מתקן אותך או שולל משהו שאמרת — אמצי מיד את הגרסה שלו, "
+    "אל תתווכחי ואל תחזרי על הגרסה השגויה. "
+    "אל תעברי לסיום השיחה כל עוד הפונה מדבר, מתקן, או שאל שאלה שלא נענתה."
 )
 
 # Natural one-off check-in spoken when the caller is silent (WAITING watchdog,
@@ -1446,6 +1598,12 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
         if first_message:
             print("[OPENAI-WS] natural one-time opening instruction injected into system prompt")
     system_instruction += _NAME_PROTOCOL_INSTRUCTION
+    # M7: turn-level dialogue discipline, tenant-scoped. Appended last so it is
+    # the most recent instruction the model reads, and omitted entirely (not
+    # merely disabled) for every non-allowlisted tenant.
+    if _dialogue_style_enabled(client_id or ""):
+        system_instruction += _DIALOGUE_STYLE_INSTRUCTION
+        print("[OPENAI-WS] M7 dialogue discipline ACTIVE (client allowlisted)")
 
     # ── Connect to OpenAI Realtime (GA) ──────────────────────────────────────
     # NOTE: default ping_interval kept ON (WS keepalive) — unlike the Gemini
