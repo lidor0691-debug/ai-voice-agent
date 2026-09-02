@@ -462,6 +462,33 @@ _NAME_PROTOCOL_INSTRUCTION = (
     "לעולם אל תאמרי שם שהפונה לא אמר במפורש."
 )
 
+# Language pin. Maya spoke ENGLISH to one of Roi's customers (2026-09-02).
+# Investigation: the tenant's system_prompt contains NO language instruction at
+# all — not "עברית", not "שפה", nothing (verified against the live row, md5
+# dc46264187632ee47f357d5efeb383d4). She spoke Hebrew only because the prompt
+# text happens to BE Hebrew, which is an accident, not an instruction. The
+# `language` column in agents_config is never injected into the instruction on
+# this path, and the STT `language: "he"` pin governs the INPUT side-channel
+# only — it does not constrain what the model says. The single Hebrew directive
+# that did exist (_STAGE1_HEBREW_ANCHOR) is scoped to the one-word Stage-1
+# "הלו?" and says nothing about the rest of the call.
+#
+# So the model had nothing anchoring its OUTPUT language, and gpt-realtime
+# defaults to English. Unclear caller audio is where it shows: the incident call
+# transcribed as "", "שלום", "פעם" before the customer hung up at 13s.
+#
+# Unconditional, like _NAME_PROTOCOL_INSTRUCTION above — every tenant on this
+# path is Hebrew-speaking, and that module-level assumption already exists. The
+# rule explicitly covers the not-understood case, because "ask again" is exactly
+# the moment the model reaches for English.
+_LANGUAGE_PIN_INSTRUCTION = (
+    "\n\nשפה: דברי תמיד ורק בעברית ישראלית — בכל מצב, ללא יוצא מן הכלל. "
+    "גם אם לא הבנת את הפונה, גם אם האודיו לא ברור, "
+    "וגם אם נשמעה מילה או משפט בשפה אחרת. "
+    "אם לא הבנת מה נאמר — בקשי בעברית שיחזור על זה. "
+    "לעולם אל תעברי לאנגלית."
+)
+
 # Dialogue discipline (M7): turn-level conversational rules, appended only for
 # allowlisted tenants (voice_shared.dialogue_style_enabled). Deliberately
 # minimal and behavioral — it constrains TURN SHAPE (length, one question,
@@ -1674,6 +1701,10 @@ async def stream_openai(twilio_ws: WebSocket, call_sid: str = Query(default=""))
         if first_message:
             print("[OPENAI-WS] natural one-time opening instruction injected into system prompt")
     system_instruction += _NAME_PROTOCOL_INSTRUCTION
+    # Output language pin — unconditional. Without it the only thing keeping her
+    # in Hebrew is the fact that the tenant prompt is written in Hebrew, and on
+    # unclear audio the model falls back to English (2026-09-02 incident).
+    system_instruction += _LANGUAGE_PIN_INSTRUCTION
     # M7: turn-level dialogue discipline, tenant-scoped. Appended last so it is
     # the most recent instruction the model reads, and omitted entirely (not
     # merely disabled) for every non-allowlisted tenant.
