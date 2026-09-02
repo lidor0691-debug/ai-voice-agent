@@ -55,7 +55,10 @@ def _mark_name(pairs):
 ROI_OFFICE = "מהמשרד של רועי"
 CALLER_LINE = vol._GREETING_STAGE2_CALLER_TEMPLATE.format(office=ROI_OFFICE)
 FALLBACK_LINE = vol._GREETING_STAGE2_FALLBACK_TEMPLATE.format(office=ROI_OFFICE)
-SUBSTANTIVE_INSTR = vol._STAGE2_SUBSTANTIVE_TEMPLATE.format(office=ROI_OFFICE)
+SUBSTANTIVE_INSTR = (
+    f"{vol._HEBREW_SPEECH_ANCHOR} "
+    + vol._STAGE2_SUBSTANTIVE_TEMPLATE.format(office=ROI_OFFICE)
+)
 
 
 def _two_stage_ctrl():
@@ -233,13 +236,23 @@ class TestStage1:
         # still forces the exact line, nothing extra to speak
         assert 'בלי שום תוספת: "הלו?"' in instr
 
-    def test_anchor_does_not_touch_stage2(self):
-        # Stage-2 instructions must be byte-identical to before (no anchor).
+    def test_anchor_now_covers_stage2_too(self):
+        # REVERSED on 2026-09-02. This test previously asserted the anchor must
+        # NOT reach Stage-2, on the theory that "the longer Stage-2 sentence
+        # self-anchors". A live call disproved it: Stage-1 ("הלו?", anchored)
+        # came out Hebrew and Stage-2 came out "Hi there, I'm here. How can I
+        # help?" — in English, despite a verbatim Hebrew line instruction.
         c = _two_stage_ctrl()
         for stage2 in (c._stage2_caller_instruction(),
                        c._stage2_fallback_instruction(),
                        c._stage2_substantive_instruction()):
-            assert vol._STAGE1_HEBREW_ANCHOR not in stage2
+            assert vol._HEBREW_SPEECH_ANCHOR in stage2
+
+    def test_stage2_still_forces_its_exact_line(self):
+        # The anchor must not have loosened the verbatim requirement.
+        c = _two_stage_ctrl()
+        assert 'בלי שום תוספת: "' in c._stage2_fallback_instruction()
+        assert 'בלי שום תוספת: "' in c._stage2_caller_instruction()
 
     def test_no_duplicate_stage1(self):                     # requirement 7
         c = _two_stage_ctrl()
