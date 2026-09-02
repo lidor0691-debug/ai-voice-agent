@@ -50,14 +50,31 @@ class TestLanguagePinContent:
             assert foreign not in vol._LANGUAGE_PIN_INSTRUCTION
 
 
-class TestExistingHebrewDirectiveIsNotASubstitute:
-    def test_stage1_anchor_is_scoped_to_the_first_word_only(self):
-        """The pre-existing Hebrew directive is attached to the Stage-1 "הלו?"
-        response instruction; it never reaches the session instruction, which is
-        why it could not prevent the incident."""
-        assert "עברית" in vol._STAGE1_HEBREW_ANCHOR
-        assert vol._STAGE1_HEBREW_ANCHOR in vol._stage1_instruction()
-        assert vol._STAGE1_HEBREW_ANCHOR not in vol._NAME_PROTOCOL_INSTRUCTION
+class TestEveryAppAuthoredUtteranceIsAnchored:
+    """The incident's natural experiment: the ONE utterance carrying the Hebrew
+    anchor came out Hebrew, the one without it came out English. Every
+    app-authored spoken instruction must therefore carry it — a verbatim Hebrew
+    line does not anchor itself."""
+
+    def test_stage1_is_anchored(self):
+        assert vol._HEBREW_SPEECH_ANCHOR in vol._stage1_instruction()
+
+    def test_exact_line_instructions_are_anchored(self):
+        instr = vol._exact_line_instruction("שלום עולם")
+        assert vol._HEBREW_SPEECH_ANCHOR in instr
+        assert 'בלי שום תוספת: "שלום עולם"' in instr   # verbatim still enforced
+
+    def test_reprompt_is_anchored(self):
+        """Silence is an 'I don't know what is happening' moment — precisely
+        where the model reached for English."""
+        assert vol._HEBREW_SPEECH_ANCHOR in vol._REPROMPT_INSTRUCTION
+
+    def test_legacy_alias_still_resolves(self):
+        assert vol._STAGE1_HEBREW_ANCHOR == vol._HEBREW_SPEECH_ANCHOR
+
+    def test_anchor_is_not_smuggled_into_the_session_prompt(self):
+        """It is a per-response instruction; the session-level pin is separate."""
+        assert vol._HEBREW_SPEECH_ANCHOR not in vol._NAME_PROTOCOL_INSTRUCTION
 
     def test_stt_language_pin_is_input_side_only(self):
         """transcription.language governs the caller transcript, not Maya's

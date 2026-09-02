@@ -527,9 +527,29 @@ _DIALOGUE_STYLE_INSTRUCTION = (
     "אל תעברי לסיום השיחה כל עוד הפונה מדבר, מתקן, או שאל שאלה שלא נענתה."
 )
 
+# Israeli-Hebrew speech anchor for every app-authored spoken instruction.
+#
+# Introduced (Aug 2026) for Stage-1 only: "הלו?" is the session's FIRST isolated
+# one-word response and is a cognate of "hello", so without an anchor the voice
+# sometimes rendered it half-English. The reasoning at the time was that "the
+# longer Stage-2 sentence self-anchors".
+#
+# That assumption was WRONG, and the 2026-09-02 incident disproved it exactly.
+# Roi's customer +972549700568 got this, straight off the lead email:
+#     מאיה: הלו?                                 ← anchored   → Hebrew ✓
+#     מאיה: Hi there, I'm here. How can I help?  ← unanchored → ENGLISH ✗
+# Stage-2 was already under a verbatim "say exactly this Hebrew sentence"
+# instruction and the model answered in English regardless. The one utterance
+# carrying the anchor came out Hebrew; the one without it did not — a clean
+# natural experiment. A verbatim Hebrew line is NOT self-anchoring.
+_HEBREW_SPEECH_ANCHOR = "דברי בעברית ישראלית טבעית ובמבטא ישראלי."
+
 # Natural one-off check-in spoken when the caller is silent (WAITING watchdog,
-# M3). App-created, single, no re-greeting — one short sentence.
+# M3). App-created, single, no re-greeting — one short sentence. Anchored:
+# silence is an "I don't know what's happening" moment, which is exactly when
+# the model reaches for English.
 _REPROMPT_INSTRUCTION = (
+    f"{_HEBREW_SPEECH_ANCHOR} "
     "שאלי בקצרה וטבעי אם עדיין שומעים אותך, למשל: \"הלו? עדיין איתי?\""
 )
 
@@ -880,23 +900,26 @@ def _is_greeting_only_turn(text: str) -> bool:
     return _normalize_greeting_turn(text) in _STAGE2_FIXED_TRIGGERS
 
 
+# Kept as an alias: the old name is referenced by existing Stage-1 tests and
+# reads correctly there. Definition lives with the other instruction constants.
+_STAGE1_HEBREW_ANCHOR = _HEBREW_SPEECH_ANCHOR
+
+
 def _exact_line_instruction(line: str) -> str:
-    """Per-response instruction forcing an exact, verbatim single line."""
-    return f'אמרי עכשיו בדיוק, מילה במילה, ורק את המשפט הבא בלי שום תוספת: "{line}"'
+    """Per-response instruction forcing an exact, verbatim single line.
 
-
-# Stage-1 Hebrew pronunciation anchor (live-call finding, Aug 2026): "הלו?" is
-# generated as the session's FIRST, isolated one-word response, and "הלו" is a
-# cognate of "hello" — without an explicit anchor the realtime voice sometimes
-# rendered it half-English/American; the longer Stage-2 sentence self-anchors.
-# The anchor prefixes ONLY the Stage-1 instruction (Stage-2 untouched); the
-# spoken output must remain exactly "הלו?".
-_STAGE1_HEBREW_ANCHOR = "דברי בעברית ישראלית טבעית ובמבטא ישראלי."
+    Anchored: a verbatim Hebrew line is NOT self-anchoring — the model will
+    translate it if nothing pins the language (2026-09-02 incident).
+    """
+    return (
+        f"{_HEBREW_SPEECH_ANCHOR} "
+        f'אמרי עכשיו בדיוק, מילה במילה, ורק את המשפט הבא בלי שום תוספת: "{line}"'
+    )
 
 
 def _stage1_instruction() -> str:
-    """Stage-1 "הלו?" instruction: Israeli-Hebrew anchor + the exact line."""
-    return f"{_STAGE1_HEBREW_ANCHOR} {_exact_line_instruction(_GREETING_STAGE1_LINE)}"
+    """Stage-1 "הלו?" instruction: the exact line (anchor included)."""
+    return _exact_line_instruction(_GREETING_STAGE1_LINE)
 
 
 # Substantive Stage 2: identify (with the tenant {office}), then continue from
@@ -1143,7 +1166,9 @@ class TurnController:
         return _exact_line_instruction(_GREETING_STAGE2_FALLBACK_TEMPLATE.format(office=self.office))
 
     def _stage2_substantive_instruction(self) -> str:
-        return _STAGE2_SUBSTANTIVE_TEMPLATE.format(office=self.office)
+        # Anchored like every other app-authored spoken instruction — this one
+        # is free-form, so it is even more prone to drifting into English.
+        return f"{_HEBREW_SPEECH_ANCHOR} {_STAGE2_SUBSTANTIVE_TEMPLATE.format(office=self.office)}"
 
     # — greeting —
     def on_session_updated(self):
