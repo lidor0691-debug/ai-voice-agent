@@ -60,6 +60,7 @@ from app.routes.voice_preview import router as voice_preview_router
 from app.routes.test_call import router as test_call_router
 from app.routes.voice_gemini import router as voice_gemini_router
 from app.routes.voice_openai_live import router as voice_openai_live_router
+from app.routes.voice_live_poc import router as voice_live_poc_router   # GPT-Live 1 POC (gated OFF)
 from app.routes.lead_intelligence_api import router as lead_intelligence_router
 from app.routes.appointment_followup_api import router as appointment_followup_router
 from app.routes.no_reply_followup_api import router as no_reply_followup_router
@@ -96,6 +97,7 @@ app.include_router(voice_preview_router)
 app.include_router(test_call_router)
 app.include_router(voice_gemini_router, prefix="/voice-ai")  # Gemini Live POC
 app.include_router(voice_openai_live_router, prefix="/voice-ai")  # OpenAI Realtime A/B (M1, flag-gated)
+app.include_router(voice_live_poc_router, prefix="/voice-ai")     # GPT-Live 1 POC — LIVE_POC_ENABLED + number allowlist, both OFF by default
 app.include_router(lead_intelligence_router)
 app.include_router(appointment_followup_router)
 app.include_router(no_reply_followup_router)

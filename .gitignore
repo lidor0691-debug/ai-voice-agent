@@ -22,3 +22,5 @@ dashboard/.next/
 
 # Local assistant eval result artifacts (opt-in live runs)
 tools/assistant_eval/results/
+scripts/.tts_cache/
+scripts/live_scenario_results_*.json
