@@ -148,8 +148,27 @@ _VALID_REASONING = ("none", "minimal", "low", "medium", "high", "xhigh")
 # policy, delegation policy. Business rules live on the backend (per the Live
 # prompting guide: "reasoning and tool use belong in backend prompts").
 
-def build_voice_instructions(office_label: str, agent_name: str = "מאיה") -> str:
+def build_voice_instructions(office_label: str, agent_name: str = "מאיה",
+                             delegation_mode: str = "responses") -> str:
+    """Short voice prompt. `delegation_mode` matters: in "client" mode the API
+    still emits session.delegation.created and then WAITS for the client to
+    answer — measured in the bench, the model says "שנייה, אני בודקת" and the
+    call stalls. Since this POC does not answer client delegations, the client
+    prompt must tell her there is no backend and she answers on her own."""
     office = (office_label or GENERIC_OFFICE_LABEL).strip()
+    if delegation_mode == "client":
+        delegation_policy = (
+            "אין לך backend ואין למי להעביר שאלות: את עונה בעצמך, מיד, ממה שאת יודעת "
+            "וממה שנאמר בשיחה. לעולם אל תגידי שאת \"בודקת\" או \"מבררת\" — אם אין לך "
+            "תשובה, אמרי שרועי יחזור עם תשובה, והמשיכי לאסוף את הפרטים."
+        )
+    else:
+        delegation_policy = (
+            "מדיניות האצלה: ה-backend מכיר את כללי המשרד. "
+            "האצילי ל-backend רק כשנדרשת תשובה עניינית על כללי המשרד או על תהליך שאינך יודעת. "
+            "אל תאצילי כדי לרשום פרטים, לאשר שם, לשאול שאלה, או לענות ממה שכבר נאמר בשיחה. "
+            "כשאת מאצילה — אמרי משפט קצר אחד בלבד בזמן ההמתנה, ואל תנחשי את התוצאה."
+        )
     return (
         f"את {agent_name}, המזכירה הקולית {office}. "
         "השיחה היא שיחת טלפון נכנסת.\n\n"
@@ -164,11 +183,7 @@ def build_voice_instructions(office_label: str, agent_name: str = "מאיה") ->
         "מדיניות הקשבה: השתמשי בקולות הקשבה קצרים ומתונים (\"אהמ\", \"כן\") בלי להתחרות "
         "בדברי הפונה. כשהפונה מדבר תוך כדי שאת מדברת — עצרי מיד והקשיבי. "
         "המשיכי להקשיב כשהפונה עוצר לחשוב; אל תתייחסי לשיעול או לרעש רקע כפנייה חדשה.\n\n"
-        "מדיניות האצלה: ה-backend מכיר את כללי המשרד. "
-        "האצילי ל-backend כשנדרשת תשובה עניינית על המשרד או על תהליך, "
-        "וכשצריך לרשום או לסכם את הפנייה. "
-        "אל תאצילי כשמספיקה הבהרה קצרה, וכשאפשר לענות ממה שכבר נאמר בשיחה. "
-        "האצילי לפני שאת עונה תשובה שתלויה ב-backend, ואל תנחשי את התוצאה בזמן ההמתנה.\n\n"
+        f"{delegation_policy}\n\n"
         "סיום: אל תעברי לסיום כל עוד הפונה מדבר, מתקן, או שאל שאלה שלא נענתה. "
         "כשהשיחה הסתיימה באמת — סיימי במשפט קצר אחד עם \"להתראות\", פעם אחת בלבד."
     )
@@ -466,7 +481,7 @@ async def stream_live(twilio_ws: WebSocket, call_sid: str = Query(default="")):
 
     office = resolve_two_stage_office(agent_cfg)
     tenant_prompt = agent_cfg["prompt_override"].replace("{{caller_phone}}", caller_phone)
-    voice_instr = build_voice_instructions(office)
+    voice_instr = build_voice_instructions(office, delegation_mode=LIVE_POC_DELEGATION)
     backend_instr = build_backend_instructions(
         tenant_prompt, office, LIVE_POC_BACKEND_INCLUDE_TENANT_PROMPT
     )

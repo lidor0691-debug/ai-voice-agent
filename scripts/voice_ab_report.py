@@ -35,8 +35,15 @@ from collections import defaultdict
 
 def parse(path: str):
     calls = defaultdict(lambda: {"arm": None, "events": []})
+    last_sid = None
     with open(path, encoding="utf-8", errors="replace") as f:
         for line in f:
+            # Production logs the pump exit as a plain line right before session_ended.
+            if "[OPENAI-WS] Twilio pump exited — reason=" in line and last_sid:
+                calls[last_sid]["events"].append(
+                    {"event": "pump_exited", "call_sid": last_sid,
+                     "reason": line.split("reason=", 1)[1].strip()})
+                continue
             for tag, arm in (("[OPENAI-DIAG] ", "realtime"), ("[LIVE-DIAG] ", "live")):
                 i = line.find(tag)
                 if i >= 0:
@@ -45,6 +52,7 @@ def parse(path: str):
                     except json.JSONDecodeError:
                         break
                     sid = ev.get("call_sid") or "?"
+                    last_sid = sid
                     calls[sid]["arm"] = arm
                     calls[sid]["events"].append(ev)
                     break
@@ -76,6 +84,8 @@ def realtime_metrics(evs):
             missed += 1
         elif k == "closing_hangup":
             closing += 1
+        elif k == "pump_exited":
+            exit_reason = e.get("reason", "")
         elif k == "session_ended":
             caller = e.get("caller_lines", caller); assistant = e.get("assistant_lines", assistant)
     return {"reply_ms_med": _med(lat), "reply_ms_max": max(lat) if lat else None,

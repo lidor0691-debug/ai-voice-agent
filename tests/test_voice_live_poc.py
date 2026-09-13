@@ -117,6 +117,20 @@ class TestPrompts:
         assert "בסדר גמור" in p                   # no filler before answers
         assert "פעם אחת בלבד" in p                # close once
 
+    def test_client_mode_prompt_forbids_delegation(self):
+        """Bench finding: in client mode the API still emits
+        session.delegation.created and waits for the client. This POC does not
+        answer those, so the client prompt must make her self-contained."""
+        p = poc.build_voice_instructions("מהמשרד", delegation_mode="client")
+        assert "אין לך backend" in p
+        assert "האצילי ל-backend" not in p
+        assert "בודקת" in p                        # names the stall phrase to avoid
+
+    def test_responses_mode_delegates_narrowly(self):
+        p = poc.build_voice_instructions("מהמשרד", delegation_mode="responses")
+        assert "רק כשנדרשת" in p
+        assert "אל תאצילי כדי לרשום" in p
+
     def test_voice_prompt_contains_no_business_rules(self):
         """Business logic belongs on the backend; the voice prompt must not
         become the long tenant prompt again."""

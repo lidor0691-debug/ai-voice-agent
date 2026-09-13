@@ -91,6 +91,23 @@ speak (gating, cancelling, re-issuing responses) will fight the model's own
 turn-taking. Mute (`session.input_audio.mute`) and corrective
 `session.instructions.append` are the only server-side levers.
 
+### Delegation semantics — a finding that changes the design
+
+`delegation.type: "client"` is **not** "no backend". The model still decides to
+delegate, emits `session.delegation.created`, says a hold phrase ("שנייה, אני
+בודקת וחוזרת") and then **waits for the client** to answer via
+`session.commentary.append`. Measured in the bench: with nothing answering,
+the call stalls on that phrase. Two consequences:
+
+1. In `client` mode this POC gives the voice model a prompt that says there is
+   no backend and she must answer herself — that is the true "voice-only"
+   control arm. (Answering client delegations with our own logic is a possible
+   follow-up, not built here.)
+2. In `responses` mode every delegation costs a hold phrase plus a backend
+   round-trip. For a receptionist with no tools that is mostly overhead, so the
+   voice prompt now delegates narrowly (office rules / unknown procedure only —
+   never to record details, confirm a name, or ask a question).
+
 ## 5. Prompts
 
 - **Voice prompt** (`build_voice_instructions`): identity, Hebrew-only pin,

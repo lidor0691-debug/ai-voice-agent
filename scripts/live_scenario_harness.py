@@ -121,6 +121,8 @@ class LiveBench:
         self.closed = None
         self.errors: list[dict] = []
         self.delegations = 0
+        self.pending_delegations = 0
+        self.last_delegation_done = 0.0
         self.usage_seconds = None
         self.tenant_prompt = tenant_prompt
         self._pump_task = None
@@ -133,7 +135,7 @@ class LiveBench:
         self.ws = await websockets.connect(
             LIVE_URL, additional_headers={"Authorization": f"Bearer {KEY}"}, max_size=None)
         self.t0 = time.monotonic()
-        voice = poc.build_voice_instructions(OFFICE)
+        voice = poc.build_voice_instructions(OFFICE, delegation_mode=poc.LIVE_POC_DELEGATION)
         backend = poc.build_backend_instructions(self.tenant_prompt, OFFICE, True)
         await self.ws.send(json.dumps(poc.build_session_start(voice, backend), ensure_ascii=False))
         self._recv_task = asyncio.create_task(self._recv())
@@ -210,6 +212,12 @@ class LiveBench:
                     self.events[-1]["delta"] = ev.get("delta", "")
                 elif t == "session.delegation.created":
                     self.delegations += 1
+                    self.pending_delegations += 1
+                elif t == "response.event":
+                    inner = (ev.get("event") or {}).get("type", "")
+                    if inner in ("response.completed", "response.failed", "response.incomplete"):
+                        self.pending_delegations = max(0, self.pending_delegations - 1)
+                        self.last_delegation_done = now
                 elif t == "error":
                     self.errors.append(ev.get("error"))
                 elif t == "session.closed":
@@ -236,9 +244,14 @@ class LiveBench:
         return False
 
     async def wait_maya_silent(self, quiet_s=1.2, timeout=25.0) -> bool:
+        """Silent = no voiced output for quiet_s AND no backend delegation in
+        flight (and a short settle after one completes, so the spoken result is
+        included). Without this the bench cut sessions mid-delegation."""
         end = time.monotonic() + timeout
         while time.monotonic() < end:
-            if self.out_audio_times and (self.now() - self.out_audio_times[-1]) >= quiet_s:
+            quiet = self.out_audio_times and (self.now() - self.out_audio_times[-1]) >= quiet_s
+            settled = self.pending_delegations == 0 and (self.now() - self.last_delegation_done) >= 2.5
+            if quiet and settled:
                 return True
             await asyncio.sleep(0.05)
         return False
