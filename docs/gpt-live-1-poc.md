@@ -163,6 +163,48 @@ Precondition: PR merged, deploy SUCCESS, `/health` 200. Roi's number untouched.
 5. Compare the two lead emails in Roi's inbox side by side.
 6. Rollback: unset the two variables (or repoint the test number).
 
-## 8. Results
+## 8. Results (bench run 3, 2026-09-13, 22 sessions ≈ 10 session-minutes)
 
-_Filled from `scripts/live_scenario_results.json` — see the PR description._
+Latency = caller audio END → Maya's first voiced frame / first transcript
+fragment (ms). Production baseline from the Aug-12 audited call on
+`gpt-realtime-2.1` + M7: **median ≈ 1.2 s**, range 0.9–1.4 s.
+
+| # | Scenario | responses (luna backend) | client (voice only) | Verdict |
+|---|---|---|---|---|
+| S1 | "הלו" over the greeting | kept greeting (~2.9 s) | kept greeting | same as prod (fragment held) |
+| S2 | interrupt mid-sentence | yielded after **960 ms** | yielded after **227 ms** | run-1 did NOT yield for 3 s → **inconsistent** |
+| S3 | quiet speech, gain 0.2 | heard, 1106/863 | heard, 1367/1162 | **win** — prod's energy guard misses quiet onsets |
+| S4 | "לא שרון, לידור" | adopted, 434/220 | adopted, 1722/912 | **pass, both runs** |
+| S5 | "תוך כמה זמן רועי חוזר?" | 1110/986, hold phrase "רגע, אני בודקת בשבילך" then correct answer | 816/625, **invented "יום-יומיים"** | no "בסדר גמור"; client mode fabricates |
+| S6 | רכב → משכנתא | followed, 598/302 | followed, 305/131 | pass |
+| S7 | 15 s silence | quiet, no close | quiet, no close | pass (prod re-prompts at 50 s) |
+| S8 | 2 s noise | no reply, no invention | no reply | pass |
+| S9 | English sentence | "אני מדברת רק בעברית…" | "אפשר לחזור על זה בעברית?" | **pass, 0 non-Hebrew turns in 44 sessions** |
+| S10 | "לא, תודה רבה, זה הכל" | transcript truncated (bench) | **one** closing phrase, no repeat | pass in client; responses inconclusive |
+| S11 | objection right after goodbye | replied (audio), did **not** say "בריאות" | replied, did **not** say "בריאות" | **partial** — no hangup, but the correction was not verbally adopted |
+| | **median latency** | **1106 / 863 ms** | **1286 / 912 ms** | ≈ production, not a step change |
+
+Two more observations that matter for the design:
+
+- **Output audio is a continuous stream** (silence included). Twilio's buffer
+  therefore stays shallow, but any "first audio delta" latency metric is
+  meaningless — measure voiced frames or transcript.
+- **`client` mode without a delegation handler stalls** ("שנייה, אני בודקת
+  וחוזרת" and silence). The prompt fix above makes it self-contained, at the
+  price of fabrication risk (S5). `responses` mode trades that for hold
+  phrases and a round-trip on every delegation.
+
+## 9. Bottom line
+
+- Account is entitled; the POC works end-to-end in a real session.
+- Hebrew discipline is the clear win (no English drift under any input).
+- Latency is **not** better than production in a way that would justify a
+  migration on its own.
+- Barge-in is model-owned and **not deterministic** — sometimes 230 ms,
+  sometimes never within 3 s. Production's guard is deterministic but
+  under-sensitive; neither is "solved".
+- The architecture change is real: turn-taking, VAD, barge-in and the
+  greeting protection all move out of our code. That removes ~1,500 lines of
+  hard-won state machine — and the ability to tune any of it.
+- Recommended first live A/B: `responses` mode with the narrow delegation
+  policy, on a test number, using the script in §7.
